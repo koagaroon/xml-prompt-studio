@@ -1,0 +1,17 @@
+[package]
+name = "xml-prompt-studio"
+version = "0.1.0"
+description = "A lightweight XML prompt authoring desktop app"
+authors = ["OpenAI Codex"]
+edition = "2021"
+
+[lib]
+name = "xml_prompt_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.0", features = [] }
+
+[dependencies]
+arboard = "3.4.1"
+tauri = { version = "2.0.0", features = [] }
