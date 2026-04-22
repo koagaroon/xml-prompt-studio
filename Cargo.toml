@@ -2,7 +2,7 @@
 name = "xml-prompt-studio"
 version = "0.1.0"
 description = "A lightweight XML prompt authoring desktop app"
-authors = ["OpenAI Codex"]
+authors = ["koagaroon"]
 edition = "2021"
 
 [lib]

@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "XML Prompt Studio",
   "version": "0.1.0",
-  "identifier": "com.codex.xmlpromptstudio",
+  "identifier": "com.koagaroon.xmlpromptstudio",
   "build": {
     "beforeDevCommand": "npm run dev",
     "beforeBuildCommand": "npm run build",
