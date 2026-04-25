@@ -184,7 +184,7 @@ export default function App() {
           </div>
 
           <div className="line-list">
-            {outlineItems.map((item, index) => (
+            {outlineItems.map((item) => (
               <button
                 key={item.id}
                 type="button"
@@ -192,7 +192,6 @@ export default function App() {
                 style={{ paddingLeft: `${1 + item.depth * 1.25}rem` }}
                 onClick={() => setSelectedNodeId(item.id)}
               >
-                <span className="line-number">{String(index + 1).padStart(2, "0")}</span>
                 <span className="line-label">{item.label}</span>
                 {item.duplicate && <span className="line-badge">Duplicate</span>}
               </button>
