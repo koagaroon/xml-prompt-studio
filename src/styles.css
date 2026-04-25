@@ -226,7 +226,7 @@ textarea {
   min-height: 10rem;
   height: clamp(10rem, 30vh, 16rem);
   overflow-y: auto;
-  padding-right: 0.3rem;
+  padding: 4px 0.3rem 4px 0;
   scrollbar-gutter: stable;
 }
 
