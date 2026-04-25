@@ -251,7 +251,7 @@ export default function App() {
                 <textarea
                   id={`text-content-${activeNode.id}`}
                   name="textContent"
-                  rows={4}
+                  rows={8}
                   value={activeNode.textContent}
                   onChange={(event) =>
                     setDocumentRoot((currentRoot) =>

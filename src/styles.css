@@ -16,7 +16,6 @@
 
 body {
   margin: 0;
-  min-height: 100vh;
 }
 
 button,
@@ -60,10 +59,6 @@ select {
 
 textarea {
   resize: vertical;
-}
-
-#root {
-  min-height: 100vh;
 }
 
 .app-shell {
@@ -224,10 +219,9 @@ textarea {
   gap: 0.35rem;
   margin-top: 0.75rem;
   min-height: 10rem;
-  height: clamp(10rem, 30vh, 16rem);
+  max-height: 16rem;
   overflow-y: auto;
   padding: 4px 0.3rem 4px 0;
-  scrollbar-gutter: stable;
 }
 
 .line-row {
@@ -288,7 +282,7 @@ textarea {
   background: rgba(5, 10, 18, 0.9);
   padding: 1.35rem;
   color: #c9f5ff;
-  font-size: clamp(0.98rem, 1.2vw, 1.2rem);
+  font-size: clamp(0.88rem, 1vw, 1.08rem);
   line-height: 1.68;
 }
 
