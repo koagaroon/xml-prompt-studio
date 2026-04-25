@@ -8,6 +8,27 @@
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>XML Prompt Studio</title>
+    <!-- Theme bootstrap: runs before React renders so the right theme's CSS
+         variables apply on the first paint, no flash. The state is mirrored
+         by App.tsx's useState initializer + useEffect. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("theme");
+          var theme =
+            stored === "dark" || stored === "light"
+              ? stored
+              : window.matchMedia &&
+                  window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+        } catch (e) {
+          /* localStorage may throw in some sandboxed contexts; silently
+             fall through to default-dark (no data-theme attribute). */
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

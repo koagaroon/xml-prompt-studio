@@ -29,6 +29,12 @@ fn fallback_copy_via_clip(xml: &str) -> Result<(), String> {
     if output.status.success() {
         Ok(())
     } else {
+        // clip.exe stderr is rarely populated, but on Chinese Windows the
+        // OEM codepage is CP936/GBK, not UTF-8 — `from_utf8_lossy` will
+        // replace non-UTF-8 bytes with U+FFFD. Acceptable for this rare
+        // double-failure path (arboard AND clip.exe both fail). If we ever
+        // need to surface the message verbatim, adopt `encoding_rs` and
+        // detect the active codepage. Don't "simplify" this comment away.
         Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
     }
 }

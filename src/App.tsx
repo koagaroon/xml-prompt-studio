@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   createBlankDocument,
   createNode,
@@ -15,6 +15,29 @@ import { buildPreview, buildXml, findDuplicateNodes, validateDocument } from "./
 // Hard-coded preset chip list. User-configurable presets is a v3 question.
 const PRESET_NAMES = ["feedback", "question", "instruction", "extra"];
 
+type Theme = "dark" | "light";
+
+// Read the initial theme from the same source the inline bootstrap script
+// in index.html uses, so React state and the DOM data-theme attribute agree
+// from the very first render. Falls back to system preference, then dark.
+function readInitialTheme(): Theme {
+  if (typeof window === "undefined") {
+    return "dark";
+  }
+  try {
+    const stored = localStorage.getItem("theme");
+    if (stored === "dark" || stored === "light") {
+      return stored;
+    }
+  } catch {
+    // localStorage unavailable — fall through to system preference.
+  }
+  if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+    return "light";
+  }
+  return "dark";
+}
+
 export default function App() {
   const [documentRoot, setDocumentRoot] = useState<XmlNode>(createBlankDocument);
   const [selectedNodeId, setSelectedNodeId] = useState<string>(documentRoot.id);
@@ -23,6 +46,23 @@ export default function App() {
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState<number>(0);
   const [showConfirmReset, setShowConfirmReset] = useState<boolean>(false);
+  const [theme, setTheme] = useState<Theme>(readInitialTheme);
+
+  // Keep DOM and storage in sync with state. The inline script in
+  // index.html sets the initial attribute pre-render; this effect handles
+  // every change after that.
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("theme", theme);
+    } catch {
+      /* swallow — storage failure shouldn't break theme toggling */
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
 
   const activeNode = useMemo(
     () => findNode(documentRoot, selectedNodeId) ?? documentRoot,
@@ -233,6 +273,22 @@ export default function App() {
           disabled={isRoot}
         >
           Delete
+        </button>
+        {/* Theme toggle sits between Delete and Copy XML in DOM order. The
+            icon shown is the destination (sun = "click to go light", moon =
+            "click to go dark"). */}
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={toggleTheme}
+          aria-label={
+            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+          }
+          title={
+            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+          }
+        >
+          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
         </button>
         {/* Copy XML is the app's primary action — pushed to the far right end
             of the ribbon (margin-left: auto on .copy-button) and rendered
@@ -462,4 +518,44 @@ function nextAvailableSuffix(
 
 function escapeForRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function SunIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="4" />
+      <line x1="12" y1="2" x2="12" y2="4" />
+      <line x1="12" y1="20" x2="12" y2="22" />
+      <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
+      <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
+      <line x1="2" y1="12" x2="4" y2="12" />
+      <line x1="20" y1="12" x2="22" y2="12" />
+      <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
+      <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
+    </svg>
+  );
+}
+
+function MoonIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+    </svg>
+  );
 }

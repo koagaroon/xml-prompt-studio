@@ -45,6 +45,139 @@
   font-display: swap;
 }
 
+/* === THEME VARIABLES ===
+   :root holds the dark theme (default). [data-theme="light"] overrides
+   only the values that change. The theme attribute is set on <html> by
+   App.tsx (and by an inline FOUC-prevention script in index.html) based
+   on localStorage / system preference. */
+
+:root {
+  color-scheme: dark;
+
+  /* Backgrounds, deepest to shallowest */
+  --bg-app: rgba(7, 13, 21, 1);
+  --bg-panel: rgba(8, 14, 23, 0.72);
+  --bg-input: rgba(11, 19, 31, 0.72);
+  --bg-preview: rgba(5, 10, 18, 0.9);
+
+  /* Borders */
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --border-input: rgba(255, 255, 255, 0.14);
+  --border-divider: rgba(255, 255, 255, 0.16);
+  --border-focus: rgba(146, 199, 255, 0.7);
+
+  /* Text */
+  --text-primary: #f9f7f3;
+  --text-secondary: rgba(241, 237, 229, 0.7);
+  --text-muted: rgba(241, 237, 229, 0.55);
+  --text-accent: #84c1ff;
+  --text-code: #c9f5ff;
+
+  /* Buttons */
+  --btn-secondary-bg: rgba(34, 53, 79, 0.8);
+  --btn-secondary-hover: rgba(50, 97, 159, 0.9);
+  --btn-secondary-border: rgba(255, 255, 255, 0.14);
+  --btn-secondary-border-hover: rgba(163, 205, 255, 0.8);
+  --btn-primary-bg: rgba(50, 97, 159, 0.95);
+  --btn-primary-hover: rgba(75, 130, 195, 1);
+  --btn-primary-border: rgba(163, 205, 255, 0.7);
+  --btn-primary-border-hover: rgba(193, 220, 255, 0.95);
+  --btn-danger-bg: rgba(91, 33, 50, 0.9);
+  --btn-danger-hover: rgba(133, 56, 75, 0.95);
+
+  /* Element rows */
+  --row-bg: rgba(18, 26, 40, 0.82);
+  --row-hover: rgba(28, 42, 64, 0.9);
+  --row-active: rgba(33, 49, 73, 0.96);
+  --row-active-text: #c9f5ff;
+  --row-issue: rgba(82, 22, 38, 0.85);
+  --row-issue-active: rgba(120, 35, 56, 0.95);
+  --row-issue-text: #ffd9e2;
+  --preview-line-active: rgba(50, 97, 159, 0.22);
+
+  /* Issue / error / chip / badge */
+  --issue-bg: rgba(91, 33, 50, 0.82);
+  --issue-text: #ffd9e2;
+  --issue-input-border: rgba(220, 80, 110, 0.85);
+  --issue-input-bg: rgba(60, 18, 30, 0.55);
+  --badge-bg: rgba(133, 56, 75, 0.9);
+  --badge-text: #ffd9e2;
+  --chip-bg: rgba(34, 53, 79, 0.6);
+  --chip-border: rgba(255, 255, 255, 0.1);
+  --chip-text: rgba(201, 245, 255, 0.95);
+  --chip-hover-bg: rgba(50, 97, 159, 0.85);
+  --chip-hover-border: rgba(163, 205, 255, 0.7);
+
+  /* Modal */
+  --modal-overlay: rgba(0, 0, 0, 0.55);
+  --modal-bg: rgba(15, 23, 36, 0.98);
+  --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+
+  /* Bloom (Copy XML success). Tuned per theme so the glow reads well on
+     each background. */
+  --bloom-edge: rgba(64, 200, 100, 0.85);
+  --bloom-mid: rgba(64, 200, 100, 0.55);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-app: #f4f4ef;
+  --bg-panel: rgba(255, 255, 255, 0.92);
+  --bg-input: rgba(255, 255, 255, 0.85);
+  --bg-preview: rgba(248, 248, 243, 0.95);
+
+  --border-subtle: rgba(35, 30, 25, 0.1);
+  --border-input: rgba(35, 30, 25, 0.16);
+  --border-divider: rgba(35, 30, 25, 0.14);
+  --border-focus: rgba(50, 97, 159, 0.7);
+
+  --text-primary: #1f1c19;
+  --text-secondary: rgba(35, 30, 25, 0.72);
+  --text-muted: rgba(35, 30, 25, 0.5);
+  --text-accent: #1e40af;
+  --text-code: #0f2540;
+
+  --btn-secondary-bg: rgba(232, 240, 252, 0.9);
+  --btn-secondary-hover: rgba(200, 220, 250, 1);
+  --btn-secondary-border: rgba(50, 97, 159, 0.25);
+  --btn-secondary-border-hover: rgba(50, 97, 159, 0.55);
+  --btn-primary-bg: rgba(50, 97, 159, 0.95);
+  --btn-primary-hover: rgba(75, 130, 195, 1);
+  --btn-primary-border: rgba(50, 97, 159, 0.7);
+  --btn-primary-border-hover: rgba(75, 130, 195, 0.9);
+  --btn-danger-bg: rgba(220, 80, 110, 0.9);
+  --btn-danger-hover: rgba(245, 100, 130, 1);
+
+  --row-bg: rgba(255, 255, 255, 0.85);
+  --row-hover: rgba(245, 245, 240, 1);
+  --row-active: rgba(220, 235, 255, 1);
+  --row-active-text: #0f2540;
+  --row-issue: rgba(254, 226, 226, 0.95);
+  --row-issue-active: rgba(252, 200, 210, 0.95);
+  --row-issue-text: #9b1c1c;
+  --preview-line-active: rgba(50, 97, 159, 0.12);
+
+  --issue-bg: rgba(254, 226, 226, 0.95);
+  --issue-text: #9b1c1c;
+  --issue-input-border: rgba(220, 80, 110, 0.85);
+  --issue-input-bg: rgba(254, 240, 240, 0.7);
+  --badge-bg: rgba(220, 80, 110, 0.95);
+  --badge-text: #ffffff;
+  --chip-bg: rgba(232, 240, 252, 0.7);
+  --chip-border: rgba(50, 97, 159, 0.2);
+  --chip-text: #0f2540;
+  --chip-hover-bg: rgba(50, 97, 159, 0.15);
+  --chip-hover-border: rgba(50, 97, 159, 0.55);
+
+  --modal-overlay: rgba(40, 40, 35, 0.5);
+  --modal-bg: rgba(255, 255, 255, 0.98);
+  --modal-shadow: 0 20px 60px rgba(40, 40, 35, 0.25);
+
+  --bloom-edge: rgba(34, 170, 80, 0.85);
+  --bloom-mid: rgba(34, 170, 80, 0.55);
+}
+
 /* === RESET === */
 
 * {
@@ -56,22 +189,32 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+  /* CJK fallback chain: after Inter (Latin only) and the system English
+     fonts, fall through to the simplified-Chinese system fonts that are
+     usually present on Windows / macOS / Linux respectively. This means
+     CJK characters typed in Tag Name or Text Content render correctly even
+     though we don't bundle CJK web fonts. */
   font-family:
     "Inter",
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     system-ui,
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
     sans-serif;
-  background: rgba(7, 13, 21, 1);
-  color: #f9f7f3;
+  background: var(--bg-app);
+  color: var(--text-primary);
   /* App owns the viewport — no body scrolling. Each column inside the grid
      handles its own overflow so long preview / textarea content doesn't
      scroll the whole page. */
   overflow: hidden;
-  /* Slightly nicer Inter rendering on most screens. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  transition:
+    background 200ms ease,
+    color 200ms ease;
 }
 
 #root {
@@ -104,35 +247,39 @@ select {
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
   border-radius: 14px;
-  background: rgba(8, 14, 23, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
   backdrop-filter: blur(18px);
   align-items: center;
   flex-shrink: 0;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
 }
 
 .ribbon-divider {
   width: 1px;
   height: 1.6rem;
-  background: rgba(255, 255, 255, 0.16);
+  background: var(--border-divider);
   margin: 0 0.25rem;
 }
 
 .ribbon button {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(34, 53, 79, 0.8);
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
   border-radius: 10px;
   padding: 0.5rem 0.95rem;
   cursor: pointer;
   transition:
     background 160ms ease,
     border-color 160ms ease,
-    transform 160ms ease;
+    transform 160ms ease,
+    color 200ms ease;
 }
 
 .ribbon button:hover:not(:disabled) {
-  background: rgba(50, 97, 159, 0.9);
-  border-color: rgba(163, 205, 255, 0.8);
+  background: var(--btn-secondary-hover);
+  border-color: var(--btn-secondary-border-hover);
   transform: translateY(-1px);
 }
 
@@ -142,29 +289,46 @@ select {
 }
 
 .ribbon button.danger-button {
-  background: rgba(91, 33, 50, 0.9);
+  background: var(--btn-danger-bg);
 }
 
 .ribbon button.danger-button:hover:not(:disabled) {
-  background: rgba(133, 56, 75, 0.95);
+  background: var(--btn-danger-hover);
+}
+
+/* Theme toggle: small icon button, no text. Sits between Delete and Copy XML
+   (in the ribbon DOM order); still gets pushed against the right group
+   because Copy XML is the only button with margin-left: auto. */
+.ribbon button.theme-toggle {
+  padding: 0.45rem 0.55rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ribbon button.theme-toggle svg {
+  width: 1.05rem;
+  height: 1.05rem;
 }
 
 /* Copy XML is the app's primary action. Pinned to the right end via
    margin-left: auto, rendered bold and on a brighter accent so it reads at
    a different visual level than the per-element ops. The trailing space
-   between Delete and Copy XML is the visual separator — no divider needed. */
+   between Delete (or theme toggle) and Copy XML is the visual separator —
+   no divider needed. */
 .ribbon button.copy-button {
   margin-left: auto;
   font-weight: 700;
-  background: rgba(50, 97, 159, 0.95);
-  border-color: rgba(163, 205, 255, 0.7);
+  background: var(--btn-primary-bg);
+  border-color: var(--btn-primary-border);
   letter-spacing: 0.02em;
   padding: 0.5rem 1.15rem;
+  color: #ffffff;
 }
 
 .ribbon button.copy-button:hover:not(:disabled) {
-  background: rgba(75, 130, 195, 1);
-  border-color: rgba(193, 220, 255, 0.95);
+  background: var(--btn-primary-hover);
+  border-color: var(--btn-primary-border-hover);
 }
 
 /* === BODY: 3-COLUMN GRID === */
@@ -184,20 +348,23 @@ select {
 .column {
   display: flex;
   flex-direction: column;
-  background: rgba(8, 14, 23, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
   border-radius: 16px;
   padding: 0.85rem 1rem;
   backdrop-filter: blur(18px);
   /* Same min-height: 0 reasoning. Each column scrolls its own overflow. */
   min-height: 0;
   overflow: hidden;
+  transition:
+    background 200ms ease,
+    border-color 200ms ease;
 }
 
 .column-title {
   margin: 0 0 0.6rem 0;
   font-size: 0.84rem;
-  color: #84c1ff;
+  color: var(--text-accent);
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -224,26 +391,28 @@ select {
   gap: 0.5rem;
   width: 100%;
   border: none;
-  background: rgba(18, 26, 40, 0.82);
+  background: var(--row-bg);
   color: inherit;
   text-align: left;
   border-radius: 10px;
   padding: 0.55rem 0.75rem;
   font-size: 0.9rem;
   cursor: pointer;
-  transition: background 120ms ease;
+  transition:
+    background 120ms ease,
+    color 200ms ease;
 }
 
 .element-row:hover {
-  background: rgba(28, 42, 64, 0.9);
+  background: var(--row-hover);
 }
 
 /* Q3 locked: pure background highlight for selected row. No ring, no left
    color bar. Try this minimal treatment first; revisit only if user feedback
    says it's hard to see. */
 .element-row.is-active {
-  background: rgba(33, 49, 73, 0.96);
-  color: #c9f5ff;
+  background: var(--row-active);
+  color: var(--row-active-text);
 }
 
 /* Q4 locked: persistent red highlight on rows that have any validation or
@@ -251,27 +420,36 @@ select {
    is how problems are surfaced — no separate warning/validation/duplicate
    boxes anymore. */
 .element-row.has-issue {
-  background: rgba(82, 22, 38, 0.85);
-  color: #ffd9e2;
+  background: var(--row-issue);
+  color: var(--row-issue-text);
 }
 
 .element-row.has-issue.is-active {
-  background: rgba(120, 35, 56, 0.95);
+  background: var(--row-issue-active);
 }
 
 .element-label {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  /* CJK mono fallback similar to body, but for monospace contexts. */
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
 }
 
 .element-badge {
   font-size: 0.72rem;
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
-  background: rgba(133, 56, 75, 0.9);
-  color: #ffd9e2;
+  background: var(--badge-bg);
+  color: var(--badge-text);
   font-weight: 600;
 }
 
@@ -280,8 +458,16 @@ select {
 .line-title {
   margin: 0 0 0.85rem 0;
   font-size: 1.3rem;
-  color: #c9f5ff;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  color: var(--text-code);
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -291,7 +477,7 @@ select {
 .field-label {
   display: block;
   font-size: 0.85rem;
-  color: rgba(241, 237, 229, 0.7);
+  color: var(--text-secondary);
   margin: 0.5rem 0 0.35rem 0;
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -300,19 +486,31 @@ select {
 /* Middle column is the main work area — text sizes are intentionally larger
    than the side columns to reduce attention pressure when reading/editing. */
 .tag-name-input {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(11, 19, 31, 0.72);
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-primary);
   border-radius: 8px;
   padding: 0.65rem 0.9rem;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
   font-size: 1.1rem;
   width: 100%;
   outline: none;
-  transition: border-color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 200ms ease,
+    color 200ms ease;
 }
 
 .tag-name-input:focus {
-  border-color: rgba(146, 199, 255, 0.7);
+  border-color: var(--border-focus);
 }
 
 /* Tag-name red border for validation issues (empty or doesn't match the
@@ -320,8 +518,8 @@ select {
    "the Tag Name field is the problem"; the row red highlight tells you
    "which element". They reinforce, don't conflict. */
 .tag-name-input.input-error {
-  border-color: rgba(220, 80, 110, 0.85);
-  background: rgba(60, 18, 30, 0.55);
+  border-color: var(--issue-input-border);
+  background: var(--issue-input-bg);
 }
 
 .preset-chips {
@@ -334,54 +532,75 @@ select {
 
 .preset-label {
   font-size: 0.78rem;
-  color: rgba(241, 237, 229, 0.55);
+  color: var(--text-muted);
   margin-right: 0.2rem;
 }
 
 .chip {
-  background: rgba(34, 53, 79, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(201, 245, 255, 0.95);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
+  color: var(--chip-text);
   border-radius: 999px;
   padding: 0.3rem 0.7rem;
   font-size: 0.82rem;
   cursor: pointer;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
   transition:
     background 120ms ease,
-    border-color 120ms ease;
+    border-color 120ms ease,
+    color 200ms ease;
 }
 
 .chip:hover {
-  background: rgba(50, 97, 159, 0.85);
-  border-color: rgba(163, 205, 255, 0.7);
+  background: var(--chip-hover-bg);
+  border-color: var(--chip-hover-border);
 }
 
 .text-content-area {
   flex: 1;
   min-height: 6rem;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(11, 19, 31, 0.72);
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-primary);
   border-radius: 10px;
   padding: 0.85rem 1rem;
   resize: none;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
   font-size: 1.05rem;
   line-height: 1.65;
   outline: none;
-  transition: border-color 120ms ease;
+  transition:
+    border-color 120ms ease,
+    background 200ms ease,
+    color 200ms ease;
 }
 
 .text-content-area:focus {
-  border-color: rgba(146, 199, 255, 0.7);
+  border-color: var(--border-focus);
 }
 
 .error-strip {
   margin-top: 0.6rem;
   padding: 0.55rem 0.85rem;
   border-radius: 10px;
-  background: rgba(91, 33, 50, 0.82);
-  color: #ffd9e2;
+  background: var(--issue-bg);
+  color: var(--issue-text);
   font-size: 0.88rem;
   flex-shrink: 0;
 }
@@ -392,14 +611,25 @@ select {
   position: relative;
   flex: 1;
   overflow: auto;
-  background: rgba(5, 10, 18, 0.9);
+  background: var(--bg-preview);
   border-radius: 12px;
   padding: 1rem 1.1rem;
-  font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
+  font-family:
+    "JetBrains Mono",
+    "Cascadia Mono",
+    "Cascadia Code",
+    "Consolas",
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    monospace;
   font-size: 0.95rem;
   line-height: 1.55;
-  color: #c9f5ff;
+  color: var(--text-code);
   min-height: 0;
+  transition:
+    background 200ms ease,
+    color 200ms ease;
 }
 
 .preview-line {
@@ -413,16 +643,16 @@ select {
 }
 
 .preview-line.is-active {
-  background: rgba(50, 97, 159, 0.22);
+  background: var(--preview-line-active);
 }
 
 .preview-indicator {
-  color: #84c1ff;
+  color: var(--text-accent);
   font-weight: 700;
 }
 
 .preview-empty {
-  color: rgba(241, 237, 229, 0.5);
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -441,18 +671,18 @@ select {
 @keyframes bloom-fade {
   0% {
     box-shadow:
-      inset 0 0 0 2px rgba(64, 200, 100, 0.85),
-      0 0 0 0 rgba(64, 200, 100, 0.7);
+      inset 0 0 0 2px var(--bloom-edge),
+      0 0 0 0 var(--bloom-edge);
   }
   40% {
     box-shadow:
-      inset 0 0 0 2px rgba(64, 200, 100, 0.55),
-      0 0 28px 6px rgba(64, 200, 100, 0.55);
+      inset 0 0 0 2px var(--bloom-mid),
+      0 0 28px 6px var(--bloom-mid);
   }
   100% {
     box-shadow:
-      inset 0 0 0 0 rgba(64, 200, 100, 0),
-      0 0 0 0 rgba(64, 200, 100, 0);
+      inset 0 0 0 0 transparent,
+      0 0 0 0 transparent;
   }
 }
 
@@ -461,7 +691,7 @@ select {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.55);
+  background: var(--modal-overlay);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -470,23 +700,23 @@ select {
 }
 
 .confirm-dialog {
-  background: rgba(15, 23, 36, 0.98);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--modal-bg);
+  border: 1px solid var(--border-subtle);
   border-radius: 14px;
   padding: 1.5rem 1.75rem;
   max-width: 420px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--modal-shadow);
+  color: var(--text-primary);
 }
 
 .confirm-dialog h3 {
   margin: 0 0 0.6rem 0;
-  color: #f9f7f3;
   font-size: 1.05rem;
 }
 
 .confirm-dialog p {
   margin: 0 0 1.25rem 0;
-  color: rgba(241, 237, 229, 0.7);
+  color: var(--text-secondary);
   font-size: 0.92rem;
 }
 
@@ -497,22 +727,26 @@ select {
 }
 
 .dialog-buttons button {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(34, 53, 79, 0.8);
+  border: 1px solid var(--btn-secondary-border);
+  background: var(--btn-secondary-bg);
+  color: var(--text-primary);
   border-radius: 10px;
   padding: 0.5rem 1.1rem;
   cursor: pointer;
-  transition: background 120ms ease;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
 }
 
 .dialog-buttons button:hover {
-  background: rgba(50, 97, 159, 0.9);
+  background: var(--btn-secondary-hover);
 }
 
 .dialog-buttons button.danger-button {
-  background: rgba(91, 33, 50, 0.9);
+  background: var(--btn-danger-bg);
+  color: #ffffff;
 }
 
 .dialog-buttons button.danger-button:hover {
-  background: rgba(133, 56, 75, 0.95);
+  background: var(--btn-danger-hover);
 }
