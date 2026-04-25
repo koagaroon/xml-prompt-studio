@@ -22,9 +22,13 @@ export type NodeOutlineItem = {
 // on every edit and the entire preview re-renders. `primary` is derivable
 // from kind ("self-closing" | "single-line" | "open" are primary) but kept
 // as a precomputed flag for hot-path checks in App.tsx.
+//
+// `nodeId` is non-nullable: every line renderNode emits is tied to a
+// concrete XmlNode. The earlier `string | null` type was defensive for
+// a code path that doesn't exist.
 export type PreviewLine = {
   text: string;
-  nodeId: string | null;
+  nodeId: string;
   primary: boolean;
   kind: "self-closing" | "single-line" | "open" | "text" | "close";
 };

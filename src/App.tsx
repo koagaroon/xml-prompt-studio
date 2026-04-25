@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   createBlankDocument,
   createNode,
@@ -14,6 +14,17 @@ import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
 
 // Hard-coded preset chip list. User-configurable presets is a v3 question.
 const PRESET_NAMES = ["feedback", "question", "instruction", "extra"];
+
+// Hard cap on copy-able XML length (JS string chars / UTF-16 code units).
+// Mirrors MAX_XML_BYTES in src/lib.rs so both sides reject runaway payloads
+// before either layer allocates gigabytes for clipboard conversion.
+const MAX_XML_LENGTH = 50_000_000;
+
+// Stable element IDs for the form fields in the Input column. Earlier these
+// were per-active-node and churned on every selection, confusing autofill
+// and a11y caches even though there's only one of each on screen.
+const TAG_NAME_INPUT_ID = "tag-name-input";
+const TEXT_CONTENT_INPUT_ID = "text-content-area";
 
 type Theme = "dark" | "light";
 
@@ -50,6 +61,14 @@ export default function App() {
   const [copyToken, setCopyToken] = useState(0);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
+
+  // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
+  // IPC calls and arboard's global Windows clipboard handle races between
+  // them. Single boolean ref prevents re-entry until the active call settles.
+  const copyInFlight = useRef(false);
+
+  // Cancel-button focus target for the New Blank confirmation modal.
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   // Preview is the slow recompute (string join over textContent that may be
   // large). Deferring its input lets typing in the Tag Name / Text Content
@@ -89,19 +108,19 @@ export default function App() {
     [documentRoot]
   );
 
-  // Set of node ids with any kind of issue (validation OR duplicate).
-  // Drives the persistent red highlight on element rows.
-  const issueNodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    validationIssues.forEach((issue) => ids.add(issue.nodeId));
-    duplicateIssues.forEach((issue) => ids.add(issue.nodeId));
-    return ids;
+  // Single-pass union: duplicateNodeIds is a subset of issueNodeIds, so
+  // build them together to avoid scanning duplicateIssues twice.
+  const { issueNodeIds, duplicateNodeIds } = useMemo(() => {
+    const dup = new Set<string>();
+    for (const issue of duplicateIssues) {
+      dup.add(issue.nodeId);
+    }
+    const all = new Set<string>(dup);
+    for (const issue of validationIssues) {
+      all.add(issue.nodeId);
+    }
+    return { issueNodeIds: all, duplicateNodeIds: dup };
   }, [validationIssues, duplicateIssues]);
-
-  const duplicateNodeIds = useMemo(
-    () => new Set(duplicateIssues.map((issue) => issue.nodeId)),
-    [duplicateIssues]
-  );
 
   // Single buildPreview call serves both consumers — buildXml is just
   // buildPreview(...).xml so calling them separately walks the tree twice.
@@ -124,9 +143,8 @@ export default function App() {
   const tagNameInvalid = validationIssues.some(
     (issue) => issue.nodeId === activeNode.id
   );
-  const lineTitle = activeNode.tagName.trim()
-    ? `<${activeNode.tagName.trim()}>`
-    : "(empty tag)";
+  const trimmedTag = activeNode.tagName.trim();
+  const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
 
   const requestNewBlank = () => {
     setShowConfirmReset(true);
@@ -238,10 +256,21 @@ export default function App() {
   };
 
   const copyPreview = async () => {
+    // Re-entry guard — drop overlapping clicks while a copy is in flight.
+    if (copyInFlight.current) {
+      return;
+    }
     if (!xmlPreview) {
       setErrorMessage("Fix validation issues before copying XML.");
       return;
     }
+    if (xmlPreview.length > MAX_XML_LENGTH) {
+      setErrorMessage(
+        `XML payload too large to copy (${xmlPreview.length.toLocaleString()} characters; limit ${MAX_XML_LENGTH.toLocaleString()}).`
+      );
+      return;
+    }
+    copyInFlight.current = true;
     try {
       await copyXmlToClipboard(xmlPreview);
       // Increment token → bloom overlay remounts → CSS animation replays.
@@ -249,11 +278,40 @@ export default function App() {
       setCopyToken((t) => t + 1);
       setErrorMessage("");
     } catch (error) {
+      // Tauri commands reject with a string (the Err(String) returned by
+      // Rust), not an `Error` instance. Branch on the actual runtime shape:
+      // string → use it directly; Error → use .message; anything else →
+      // generic fallback. The earlier `instanceof Error`-only check was
+      // always false for Tauri rejections and swallowed clip.exe stderr.
       const message =
-        error instanceof Error ? error.message : "Failed to copy XML to clipboard.";
+        typeof error === "string"
+          ? error
+          : error instanceof Error
+            ? error.message
+            : "Failed to copy XML to clipboard.";
       setErrorMessage(message);
+    } finally {
+      copyInFlight.current = false;
     }
   };
+
+  // Modal accessibility: focus the Cancel button when the confirmation
+  // dialog opens, and let Escape cancel. Without this the originating
+  // ribbon button keeps focus and screen readers don't announce the
+  // dialog's appearance.
+  useEffect(() => {
+    if (!showConfirmReset) {
+      return;
+    }
+    cancelButtonRef.current?.focus();
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setShowConfirmReset(false);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [showConfirmReset]);
 
   return (
     <div className="app-shell">
@@ -333,13 +391,13 @@ export default function App() {
         </section>
 
         <section className="column input">
-          <h2 className="line-title">{lineTitle}</h2>
+          <h2 className="element-title">{lineTitle}</h2>
 
-          <label className="field-label" htmlFor={`tag-name-${activeNode.id}`}>
+          <label className="field-label" htmlFor={TAG_NAME_INPUT_ID}>
             Tag Name
           </label>
           <input
-            id={`tag-name-${activeNode.id}`}
+            id={TAG_NAME_INPUT_ID}
             name="tagName"
             value={activeNode.tagName}
             className={`tag-name-input ${tagNameInvalid ? "input-error" : ""}`}
@@ -360,14 +418,11 @@ export default function App() {
             ))}
           </div>
 
-          <label
-            className="field-label"
-            htmlFor={`text-content-${activeNode.id}`}
-          >
+          <label className="field-label" htmlFor={TEXT_CONTENT_INPUT_ID}>
             Text Content
           </label>
           <textarea
-            id={`text-content-${activeNode.id}`}
+            id={TEXT_CONTENT_INPUT_ID}
             name="textContent"
             className="text-content-area"
             value={activeNode.textContent}
@@ -439,7 +494,11 @@ export default function App() {
             <h3 id="confirm-title">Discard current document?</h3>
             <p>This will replace the document with a fresh blank.</p>
             <div className="dialog-buttons">
-              <button type="button" onClick={cancelNewBlank}>
+              <button
+                type="button"
+                ref={cancelButtonRef}
+                onClick={cancelNewBlank}
+              >
                 Cancel
               </button>
               <button

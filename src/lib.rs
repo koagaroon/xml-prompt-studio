@@ -3,8 +3,22 @@ use tauri::{LogicalSize, Manager, Size};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
+// Hard cap on the size of any XML payload sent through the IPC. Tauri's
+// channel can carry arbitrarily large strings; without a cap, a runaway
+// pasted blob in Text Content would force arboard + utf16le_with_bom to
+// allocate gigabytes. 50_000_000 bytes ≈ 47.7 MiB of UTF-8, which is far
+// beyond any realistic prompt-engineering payload.
+const MAX_XML_BYTES: usize = 50_000_000;
+
 #[tauri::command]
 fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
+    if xml.len() > MAX_XML_BYTES {
+        return Err(format!(
+            "XML payload too large to copy ({} bytes; limit {} bytes).",
+            xml.len(),
+            MAX_XML_BYTES
+        ));
+    }
     match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.clone())) {
         Ok(()) => Ok(()),
         Err(_) => fallback_copy_via_clip(&xml),
@@ -35,7 +49,16 @@ fn fallback_copy_via_clip(xml: &str) -> Result<(), String> {
         // double-failure path (arboard AND clip.exe both fail). If we ever
         // need to surface the message verbatim, adopt `encoding_rs` and
         // detect the active codepage. Don't "simplify" this comment away.
-        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        // When clip.exe fails with empty stderr (it usually does), surface a
+        // non-empty fallback string. An empty error message would suppress
+        // the front-end error strip entirely (see App.tsx — `{errorMessage
+        // && ...}`), so the user would see no feedback at all.
+        if stderr.is_empty() {
+            Err("Clipboard write failed (arboard and clip.exe both failed).".to_string())
+        } else {
+            Err(stderr)
+        }
     }
 }
 

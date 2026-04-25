@@ -455,7 +455,7 @@ select {
 
 /* === INPUT COLUMN === */
 
-.line-title {
+.element-title {
   margin: 0 0 0.85rem 0;
   font-size: 1.3rem;
   color: var(--text-code);
