@@ -104,6 +104,8 @@ All dependencies use licenses compatible with MIT.
 | [@tauri-apps/api](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | Frontend-to-Rust IPC bridge |
 | [React](https://react.dev/) | MIT | UI framework |
 | [arboard](https://github.com/1Password/arboard) | MIT OR Apache-2.0 | Cross-platform clipboard access (Rust) |
+| [Inter](https://rsms.me/inter/) | SIL OFL 1.1 | Bundled UI font (Regular / Medium / Bold) |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | SIL OFL 1.1 | Bundled monospace font (Regular / SemiBold) |
 
 #### Build-time only (not shipped)
 

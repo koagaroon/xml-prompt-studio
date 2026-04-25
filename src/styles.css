@@ -1,3 +1,50 @@
+/* === BUNDLED FONTS ===
+   Inter + JetBrains Mono are bundled (public/fonts/) so the app looks the
+   same on every machine, regardless of which system fonts are installed.
+   See public/fonts/LICENSES.md for OFL attributions. font-display: swap
+   prevents FOIT — the system fallback shows during the brief window before
+   .woff2 files are decoded. */
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Medium.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-SemiBold.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* === RESET === */
 
 * {
@@ -22,6 +69,9 @@ body {
      handles its own overflow so long preview / textarea content doesn't
      scroll the whole page. */
   overflow: hidden;
+  /* Slightly nicer Inter rendering on most screens. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 #root {
