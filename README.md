@@ -1,58 +1,62 @@
 # XML Prompt Studio
 
-XML Prompt Studio is a small Windows desktop app for building XML prompts with a focused, element-only workflow.
+A Windows desktop app for composing XML-tagged prompts to send to Claude Code and other CLI tools.
 
-The project deliberately avoids becoming a generic XML IDE. It is optimized for one job: help you write nested XML prompt structures quickly, keep the currently edited element obvious, and show a readable formatted preview that can be copied directly into a CLI workflow.
+Build nested structures like `<feedback>...<reply>...</reply></feedback>` in a focused three-column UI — element outline on the left, the focused element's editor in the middle, and a live formatted preview on the right — then click **Copy XML** to paste the result straight into a chat.
+
+The app is deliberately not a generic XML IDE: element-only, no attributes, no namespaces, no schema. Tag-name validation tracks the full W3C XML 1.0 §2.3 `Name` production, so any letter the spec allows — including Chinese, Japanese, Korean, Greek — is a valid tag name.
 
 ## Why it exists
 
-This app reduces prompt-authoring friction. It is optimized for composing XML-tag-wrapped messages (`<feedback>`, `<reply>`, `<question>`, etc.) for conversations with Claude Code and other CLI tools. The preview pane produces formatted XML that gets copied to the clipboard and pasted into a chat.
+Prompt engineering with Claude often benefits from explicit XML-style structure (`<feedback>…</feedback>`, `<question>…</question>`, etc.). Hand-typing these in a chat window is fiddly and error-prone. This app makes building and copying nested structures a few clicks, with live preview and validation.
 
 ## Features
 
-- Element-only XML editing
-- Nested child elements
-- Sibling insertion
-- Line reordering
-- Element deletion and root reset
-- Readable XML preview
-- Preview-side selection indicator
-- Copy XML to clipboard through Tauri
-- Duplicate sibling-name warnings
-- Fixed-height scrollable line list
+- Element-only XML editing — nested children, sibling insertion, reorder up/down, delete
+- Validation against the full W3C XML 1.0 §2.3 `Name` production — Unicode letters and ideographs work as tag names
+- Live formatted preview that exactly mirrors what gets copied to the clipboard
+- One-click preset chips (`feedback` / `question` / `instruction` / `extra`) that fill the Tag Name input, auto-suffixing `_1`, `_2`, … to keep siblings unique
+- Persistent red row highlight + red input border for any element with a validation or duplicate-name issue
+- WYSIWYG text content — `<`, `&`, `>` go to the clipboard verbatim, suitable for LLM prompts (which are pattern-matched, not strictly XML-parsed)
+- Confirmation modal on **New Blank** to prevent accidental wipe
+- Copy XML success feedback via a 1-second green bloom on the preview pane
+- Dark / light theme toggle with system-preference default and persisted choice
 - DPI-aware startup sizing and centered window placement
+- Bundled fonts (Inter + JetBrains Mono) for consistent look across machines
 
-## Tech Stack
+## Tech stack
 
-- Tauri 2
-- React
-- TypeScript
-- Vite
-- Rust
+- [Tauri 2](https://tauri.app/) (Rust core + WebView2)
+- [React](https://react.dev/) 18 with TypeScript
+- [Vite](https://vite.dev/) frontend build
+- [arboard](https://github.com/1Password/arboard) clipboard layer (with a Windows `clip.exe` fallback for RDP / locked-clipboard cases)
+- [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) fonts, bundled under SIL OFL 1.1
 
 ## Install & Run
 
 ### Prerequisites (Windows)
 
-- [Node.js](https://nodejs.org/) (v20+)
+- [Node.js](https://nodejs.org/) v20+
 - [Rust toolchain](https://rustup.rs/) (`rustup` + `cargo`)
 - Visual Studio Build Tools (MSVC linker)
-- WebView2 (pre-installed on Windows 10/11)
+- WebView2 (pre-installed on Windows 10 / 11)
 
 ### Development
 
 ```powershell
-npm install          # installs @tauri-apps/cli into node_modules/.bin
-npm run tauri dev    # first run compiles the Rust deps, slow once
+npm install          # one-time, installs JS deps into node_modules/.bin
+npm run tauri dev    # first run compiles the Rust crates, slow once
 ```
 
 If you see `'tauri' is not recognized`, `npm install` was skipped.
 
-### Frontend build
+### Production build
 
 ```powershell
-npm run build
+npm run tauri build
 ```
+
+The portable single-exe lands at `target/release/xml-prompt-studio.exe` — installer bundling is off by default (`bundle.active: false` in `tauri.conf.json`); flip it to `true` for a one-off MSI / NSIS bundle.
 
 ### Type check
 
@@ -62,39 +66,44 @@ npx tsc --noEmit
 
 ### Rust check
 
-The Rust crate lives at the repo root (no `src-tauri/` subdirectory), so `cargo` commands run from the repo root:
+The Rust crate lives at the repo root (no `src-tauri/` subdirectory), so `cargo` runs from the repo root:
 
 ```powershell
 cargo check
 ```
 
-## Future Ideas
+## Future ideas
 
-Reasonable extensions if they continue to support the same product direction:
+Direction-compatible extensions worth considering:
 
-- Keyboard navigation for moving between lines
-- Better duplicate suggestions
-- Optional quick-insert common prompt elements
-- Export/import of the current tree
-- Undo/redo
+- Keyboard navigation between elements and to reorder (Alt+↑/↓ to move, arrows to select)
+- Smarter duplicate-name guidance ("merge these into one element with multi-line text content")
+- User-configurable preset list (currently hard-coded to four names)
+- Export / import of the current tree as JSON
+- Undo / redo — the data model is already immutable, a history stack is straightforward
 
-## Non-Goals for Now
+## Non-goals
+
+Intentional product boundaries, not missing features:
 
 - Full XML editor parity
 - Attributes, namespaces, DTDs, or schema tooling
+- Multiple top-level elements (single-root per W3C XML 1.0 §2.1)
 - Complex document import
-- Rich text editing
+- Rich-text editing inside text content
 - Multi-document workspace features
 
 ## License
 
 Copyright (c) 2026 koagaroon
 
-This project is licensed under the [MIT License](LICENSE).
+The application's source code is licensed under the [MIT License](LICENSE).
 
-### Third-Party Dependencies
+### Bundled fonts
 
-All dependencies use licenses compatible with MIT.
+The fonts in `public/fonts/` ship with the application binary under their own license, the SIL Open Font License (OFL) Version 1.1 — separate from the project's MIT license. The verbatim license texts are included alongside the font files; see [`public/fonts/LICENSES.md`](public/fonts/LICENSES.md) for an index, and the [`Inter-LICENSE.txt`](public/fonts/Inter-LICENSE.txt) / [`JetBrainsMono-OFL.txt`](public/fonts/JetBrainsMono-OFL.txt) files for the full text.
+
+### Third-party dependencies
 
 #### Runtime (shipped with the application)
 
