@@ -99,6 +99,24 @@ select {
   background: rgba(133, 56, 75, 0.95);
 }
 
+/* Copy XML is the app's primary action. Pinned to the right end via
+   margin-left: auto, rendered bold and on a brighter accent so it reads at
+   a different visual level than the per-element ops. The trailing space
+   between Delete and Copy XML is the visual separator — no divider needed. */
+.ribbon button.copy-button {
+  margin-left: auto;
+  font-weight: 700;
+  background: rgba(50, 97, 159, 0.95);
+  border-color: rgba(163, 205, 255, 0.7);
+  letter-spacing: 0.02em;
+  padding: 0.5rem 1.15rem;
+}
+
+.ribbon button.copy-button:hover:not(:disabled) {
+  background: rgba(75, 130, 195, 1);
+  border-color: rgba(193, 220, 255, 0.95);
+}
+
 /* === BODY: 3-COLUMN GRID === */
 
 .body {
@@ -210,8 +228,8 @@ select {
 /* === INPUT COLUMN === */
 
 .line-title {
-  margin: 0 0 0.75rem 0;
-  font-size: 1.15rem;
+  margin: 0 0 0.85rem 0;
+  font-size: 1.3rem;
   color: #c9f5ff;
   font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
   font-weight: 600;
@@ -222,20 +240,22 @@ select {
 
 .field-label {
   display: block;
-  font-size: 0.8rem;
-  color: rgba(241, 237, 229, 0.65);
-  margin: 0.4rem 0 0.3rem 0;
+  font-size: 0.85rem;
+  color: rgba(241, 237, 229, 0.7);
+  margin: 0.5rem 0 0.35rem 0;
   font-weight: 500;
   letter-spacing: 0.04em;
 }
 
+/* Middle column is the main work area — text sizes are intentionally larger
+   than the side columns to reduce attention pressure when reading/editing. */
 .tag-name-input {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(11, 19, 31, 0.72);
   border-radius: 8px;
-  padding: 0.55rem 0.8rem;
+  padding: 0.65rem 0.9rem;
   font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
-  font-size: 1rem;
+  font-size: 1.1rem;
   width: 100%;
   outline: none;
   transition: border-color 120ms ease;
@@ -293,11 +313,11 @@ select {
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(11, 19, 31, 0.72);
   border-radius: 10px;
-  padding: 0.75rem 0.9rem;
+  padding: 0.85rem 1rem;
   resize: none;
   font-family: "JetBrains Mono", "Cascadia Mono", "Consolas", monospace;
-  font-size: 0.95rem;
-  line-height: 1.6;
+  font-size: 1.05rem;
+  line-height: 1.65;
   outline: none;
   transition: border-color 120ms ease;
 }

@@ -213,9 +213,6 @@ export default function App() {
         <button type="button" onClick={requestNewBlank}>
           New Blank
         </button>
-        <button type="button" onClick={copyPreview}>
-          Copy XML
-        </button>
         <span className="ribbon-divider" aria-hidden="true" />
         <button type="button" onClick={addChild}>
           Add Child
@@ -236,6 +233,13 @@ export default function App() {
           disabled={isRoot}
         >
           Delete
+        </button>
+        {/* Copy XML is the app's primary action — pushed to the far right end
+            of the ribbon (margin-left: auto on .copy-button) and rendered
+            bold to read at a different visual level than the per-element
+            operations in the middle. */}
+        <button type="button" className="copy-button" onClick={copyPreview}>
+          Copy XML
         </button>
       </header>
 
