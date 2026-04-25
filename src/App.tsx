@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   createBlankDocument,
   createNode,
@@ -10,7 +10,7 @@ import {
 } from "./document";
 import { copyXmlToClipboard } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
-import { buildPreview, buildXml, findDuplicateNodes, validateDocument } from "./xml";
+import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
 
 // Hard-coded preset chip list. User-configurable presets is a v3 question.
 const PRESET_NAMES = ["feedback", "question", "instruction", "extra"];
@@ -40,13 +40,23 @@ function readInitialTheme(): Theme {
 
 export default function App() {
   const [documentRoot, setDocumentRoot] = useState<XmlNode>(createBlankDocument);
-  const [selectedNodeId, setSelectedNodeId] = useState<string>(documentRoot.id);
-  const [errorMessage, setErrorMessage] = useState<string>("");
+  // Lazy initializer reads documentRoot.id only on first render. Without
+  // the wrapper, the property access fires on every render even though
+  // React ignores the value after mount.
+  const [selectedNodeId, setSelectedNodeId] = useState(() => documentRoot.id);
+  const [errorMessage, setErrorMessage] = useState("");
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
-  const [copyToken, setCopyToken] = useState<number>(0);
-  const [showConfirmReset, setShowConfirmReset] = useState<boolean>(false);
+  const [copyToken, setCopyToken] = useState(0);
+  const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
+
+  // Preview is the slow recompute (string join over textContent that may be
+  // large). Deferring its input lets typing in the Tag Name / Text Content
+  // inputs stay responsive — React keeps the previous preview frame visible
+  // until the new one is ready. Validation, outline, and the input column
+  // continue to use the latest documentRoot for immediate feedback.
+  const deferredRoot = useDeferredValue(documentRoot);
 
   // Keep DOM and storage in sync with state. The inline script in
   // index.html sets the initial attribute pre-render; this effect handles
@@ -93,19 +103,17 @@ export default function App() {
     [duplicateIssues]
   );
 
-  const xmlPreview = useMemo(() => {
+  // Single buildPreview call serves both consumers — buildXml is just
+  // buildPreview(...).xml so calling them separately walks the tree twice.
+  // Uses deferredRoot so heavy text content doesn't block typing.
+  const previewBuild = useMemo(() => {
     if (validationIssues.length > 0) {
-      return "";
+      return { xml: "", lines: [] };
     }
-    return buildXml(documentRoot);
-  }, [documentRoot, validationIssues]);
-
-  const previewLines = useMemo(() => {
-    if (validationIssues.length > 0) {
-      return [];
-    }
-    return buildPreview(documentRoot).lines;
-  }, [documentRoot, validationIssues]);
+    return buildPreview(deferredRoot);
+  }, [deferredRoot, validationIssues]);
+  const xmlPreview = previewBuild.xml;
+  const previewLines = previewBuild.lines;
 
   const elementOutline = useMemo(
     () => createElementOutline(documentRoot, duplicateNodeIds),
@@ -225,7 +233,7 @@ export default function App() {
     if (!parent) {
       return;
     }
-    const suffix = nextAvailableSuffix(parent, baseName, activeNode.id);
+    const suffix = nextAvailableSuffix(parent, baseName);
     setActiveTagName(`${baseName}_${suffix}`);
   };
 
@@ -306,18 +314,11 @@ export default function App() {
             {elementOutline.map((item) => {
               const hasIssue = issueNodeIds.has(item.id);
               const isActive = activeNode.id === item.id;
-              const classes = [
-                "element-row",
-                isActive ? "is-active" : "",
-                hasIssue ? "has-issue" : ""
-              ]
-                .filter(Boolean)
-                .join(" ");
               return (
                 <button
                   key={item.id}
                   type="button"
-                  className={classes}
+                  className={`element-row ${isActive ? "is-active" : ""} ${hasIssue ? "has-issue" : ""}`}
                   style={{ paddingLeft: `${0.75 + item.depth * 1.25}rem` }}
                   onClick={() => setSelectedNodeId(item.id)}
                 >
@@ -384,11 +385,16 @@ export default function App() {
           <h2 className="column-title">Preview</h2>
           <div className="preview-pane">
             {xmlPreview ? (
-              previewLines.map((line, index) => {
+              previewLines.map((line) => {
                 const isActive = line.nodeId === activeNode.id;
+                // Stable per-(node, kind) key — each node produces at most
+                // three lines (open / text / close) or a single self-closing
+                // / single-line, all with distinct kinds. So nodeId+kind is
+                // unique and survives sibling reordering / inserts without
+                // forcing React to rebuild every preview row.
                 return (
                   <div
-                    key={`${line.nodeId ?? "line"}-${index}`}
+                    key={`${line.nodeId ?? "line"}-${line.kind}`}
                     className={`preview-line ${isActive ? "is-active" : ""}`}
                   >
                     <span className="preview-indicator" aria-hidden="true">
@@ -485,22 +491,19 @@ function truncate(value: string, maxLength: number): string {
   return `${value.slice(0, maxLength - 1)}…`;
 }
 
-// Find lowest unused integer ≥1 among siblings whose tagName matches
-// `<baseName>_<digits>`. The active element itself is excluded from the
-// scan — the caller's intent is to rename the active element to a unique
-// suffix, so its current name shouldn't block its own assignment.
-function nextAvailableSuffix(
-  parent: XmlNode,
-  baseName: string,
-  excludeNodeId: string
-): number {
+// Find the lowest unused integer ≥1 among siblings whose tagName matches
+// `<baseName>_<positive-decimal>`. The active element is included in the
+// scan — clicking the preset chip on an element already named e.g.
+// `feedback_3` should advance it (siblings + self {1, 2, 3} → next 4),
+// not silently rewrite to the same value.
+//
+// Suffix regex requires `[1-9]\d*` to reject leading zeros, so e.g.
+// `feedback_001` does NOT collide with `feedback_1` in the used set.
+function nextAvailableSuffix(parent: XmlNode, baseName: string): number {
   const escaped = escapeForRegex(baseName);
-  const re = new RegExp(`^${escaped}_(\\d+)$`);
+  const re = new RegExp(`^${escaped}_([1-9]\\d*)$`);
   const used = new Set<number>();
   for (const child of parent.children) {
-    if (child.id === excludeNodeId) {
-      continue;
-    }
     const match = child.tagName.trim().match(re);
     if (match) {
       const n = parseInt(match[1], 10);
@@ -516,8 +519,11 @@ function nextAvailableSuffix(
   return n;
 }
 
+// Escape regex metacharacters. Both `[` and `]` are explicitly escaped
+// inside the character class for cross-engine portability — V8 tolerates
+// the unescaped forms but older Safari/JavaScriptCore did not.
 function escapeForRegex(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|\[\]\\]/g, "\\$&");
 }
 
 function SunIcon() {

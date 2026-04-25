@@ -61,10 +61,12 @@ export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
         return;
       }
 
+      const parentTag = node.tagName.trim();
+      const location = parentTag ? `under <${parentTag}>` : "among siblings";
       group.forEach((duplicateNode) => {
         issues.push({
           nodeId: duplicateNode.id,
-          message: `Duplicate element name <${tagName}> under <${node.tagName.trim() || "parent"}>.`
+          message: `Duplicate element name <${tagName}> ${location}.`
         });
       });
     });
@@ -94,7 +96,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
       {
         text: `${indent}<${tagName}/>`,
         nodeId: node.id,
-        primary: true
+        primary: true,
+        kind: "self-closing"
       }
     ];
   }
@@ -105,18 +108,19 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
       {
         text: `${indent}<${tagName}>${textContent}</${tagName}>`,
         nodeId: node.id,
-        primary: true
+        primary: true,
+        kind: "single-line"
       }
     ];
   }
 
   // Start-tag + (optional char data) + child elements + end-tag, multi-line
-
   const lines: PreviewLine[] = [
     {
       text: `${indent}<${tagName}>`,
       nodeId: node.id,
-      primary: true
+      primary: true,
+      kind: "open"
     }
   ];
 
@@ -124,7 +128,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
     lines.push({
       text: `${indent}  ${textContent}`,
       nodeId: node.id,
-      primary: false
+      primary: false,
+      kind: "text"
     });
   }
 
@@ -135,7 +140,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   lines.push({
     text: `${indent}</${tagName}>`,
     nodeId: node.id,
-    primary: false
+    primary: false,
+    kind: "close"
   });
 
   return lines;

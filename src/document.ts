@@ -51,31 +51,28 @@ export function deleteNode(root: XmlNode, targetId: string): XmlNode {
 }
 
 export function moveNode(root: XmlNode, targetId: string, direction: -1 | 1): XmlNode {
-  const movedChildren = root.children.map((child) => moveNode(child, targetId, direction));
-  const index = movedChildren.findIndex((child) => child.id === targetId);
-
-  if (index === -1) {
+  // First check if the target is a direct child of root — common case for
+  // top-level moves. If so, swap locally and return without recursing into
+  // grandchildren, saving a tree walk per move.
+  const localIndex = root.children.findIndex((child) => child.id === targetId);
+  if (localIndex !== -1) {
+    const nextIndex = localIndex + direction;
+    if (nextIndex < 0 || nextIndex >= root.children.length) {
+      return root;
+    }
+    const reordered = [...root.children];
+    const [item] = reordered.splice(localIndex, 1);
+    reordered.splice(nextIndex, 0, item);
     return {
       ...root,
-      children: movedChildren
+      children: reordered
     };
   }
 
-  const nextIndex = index + direction;
-  if (nextIndex < 0 || nextIndex >= movedChildren.length) {
-    return {
-      ...root,
-      children: movedChildren
-    };
-  }
-
-  const reordered = [...movedChildren];
-  const [item] = reordered.splice(index, 1);
-  reordered.splice(nextIndex, 0, item);
-
+  // Target is not a direct child — recurse into descendants.
   return {
     ...root,
-    children: reordered
+    children: root.children.map((child) => moveNode(child, targetId, direction))
   };
 }
 
