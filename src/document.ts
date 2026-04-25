@@ -7,7 +7,10 @@ export function createId(prefix: string): string {
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function createNode(tagName = "element"): XmlNode {
+// Default tagName is empty for new children/siblings — the user fills it in
+// (or clicks a preset chip). Empty tag triggers validation red border, which
+// is the intended cue to "name this element".
+export function createNode(tagName = ""): XmlNode {
   return {
     id: createId("node"),
     tagName,
@@ -16,8 +19,11 @@ export function createNode(tagName = "element"): XmlNode {
   };
 }
 
+// Blank document starts with `<feedback>` as the root tag — matches the most
+// common usage of this tool (composing feedback / prompts to send to LLMs).
+// Spec §2.1: exactly one root element. Don't seed with multiple roots.
 export function createBlankDocument(): XmlNode {
-  return createNode("prompt");
+  return createNode("feedback");
 }
 
 export function updateNode(
