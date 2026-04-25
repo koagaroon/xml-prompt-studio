@@ -80,7 +80,7 @@ export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
 function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   const indent = "  ".repeat(depth);
   const tagName = node.tagName.trim();
-  const textContent = escapeXml(node.textContent);
+  const textContent = node.textContent;
 
   if (node.children.length === 0 && textContent === "") {
     return [
@@ -129,14 +129,6 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   });
 
   return lines;
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replace(/&(?!(?:#\d+|#x[0-9A-Fa-f]+|amp|lt|gt|apos|quot);)/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/'/g, "&apos;");
 }
 
 function isValidXmlName(value: string): boolean {
