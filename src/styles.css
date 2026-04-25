@@ -82,15 +82,10 @@ textarea {
 .panel-header,
 .section-row,
 .toolbar,
-.status-stack {
-  display: flex;
-  gap: 0.8rem;
-}
-
 .top-bar {
   align-items: flex-start;
   flex-wrap: wrap;
-  justify-content: space-between;
+  justify-content: flex-end;
   border-radius: 24px;
   padding: clamp(0.9rem, 1.6vw, 1.2rem) clamp(1rem, 1.8vw, 1.35rem);
 }
@@ -164,21 +159,6 @@ textarea {
   color: rgba(241, 237, 229, 0.68);
 }
 
-.attributes-section {
-  margin-top: 1rem;
-}
-
-.attribute-row,
-.node-actions {
-  flex-wrap: wrap;
-  align-items: center;
-  margin-top: 0.8rem;
-}
-
-.node-actions > * {
-  flex: 0 1 auto;
-}
-
 .secondary-button {
   background: rgba(34, 53, 79, 0.8);
 }
@@ -187,22 +167,12 @@ textarea {
   background: rgba(91, 33, 50, 0.9);
 }
 
-.status-stack {
-  flex-direction: column;
-}
-
-.status-banner,
 .error-banner,
 .validation-box,
 .warning-box,
 .duplicate-box {
   border-radius: 16px;
   padding: 0.85rem 1rem;
-}
-
-.status-banner {
-  background: rgba(25, 72, 45, 0.84);
-  color: #d4f4df;
 }
 
 .error-banner,
