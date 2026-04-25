@@ -82,6 +82,12 @@ textarea {
 .panel-header,
 .section-row,
 .toolbar,
+.status-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8rem;
+}
+
 .top-bar {
   align-items: flex-start;
   flex-wrap: wrap;
@@ -167,12 +173,18 @@ textarea {
   background: rgba(91, 33, 50, 0.9);
 }
 
+.status-banner,
 .error-banner,
 .validation-box,
 .warning-box,
 .duplicate-box {
   border-radius: 16px;
   padding: 0.85rem 1rem;
+}
+
+.status-banner {
+  background: rgba(25, 72, 45, 0.84);
+  color: #d4f4df;
 }
 
 .error-banner,

@@ -15,6 +15,7 @@ import { buildPreview, buildXml, findDuplicateNodes, validateDocument } from "./
 export default function App() {
   const [documentRoot, setDocumentRoot] = useState<XmlNode>(createBlankDocument);
   const [selectedNodeId, setSelectedNodeId] = useState<string>(documentRoot.id);
+  const [statusMessage, setStatusMessage] = useState<string>("Ready.");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
   const activeNode = useMemo(
@@ -64,6 +65,14 @@ export default function App() {
     [activeNode.id, duplicateIssues, validationIssues]
   );
 
+  const resetDocument = () => {
+    const nextRoot = createBlankDocument();
+    setDocumentRoot(nextRoot);
+    setSelectedNodeId(nextRoot.id);
+    setStatusMessage("Started a new blank document.");
+    setErrorMessage("");
+  };
+
   const addChild = (parentId: string) => {
     const child = createNode();
     setDocumentRoot((currentRoot) =>
@@ -73,6 +82,7 @@ export default function App() {
       }))
     );
     setSelectedNodeId(child.id);
+    setStatusMessage("Added a new line.");
     setErrorMessage("");
   };
 
@@ -99,21 +109,20 @@ export default function App() {
       })
     );
     setSelectedNodeId(sibling.id);
+    setStatusMessage("Added a sibling line.");
     setErrorMessage("");
   };
 
   const removeSelectedNode = () => {
     if (activeNode.id === documentRoot.id) {
-      const nextRoot = createBlankDocument();
-      setDocumentRoot(nextRoot);
-      setSelectedNodeId(nextRoot.id);
-      setErrorMessage("");
+      resetDocument();
       return;
     }
 
     const parentId = findParentId(documentRoot, activeNode.id);
     setDocumentRoot((currentRoot) => deleteNode(currentRoot, activeNode.id));
     setSelectedNodeId(parentId ?? documentRoot.id);
+    setStatusMessage("Deleted the selected line.");
     setErrorMessage("");
   };
 
@@ -129,6 +138,7 @@ export default function App() {
 
     try {
       await copyXmlToClipboard(xmlPreview);
+      setStatusMessage("XML copied to the clipboard.");
       setErrorMessage("");
     } catch (error) {
       const message =
@@ -141,13 +151,21 @@ export default function App() {
     <div className="app-shell">
       <header className="top-bar">
         <div className="toolbar">
+          <button type="button" className="secondary-button" onClick={resetDocument}>
+            New Blank
+          </button>
           <button type="button" className="secondary-button" onClick={copyPreview}>
             Copy XML
           </button>
         </div>
       </header>
 
-      {errorMessage && <div className="error-banner">{errorMessage}</div>}
+      {(statusMessage || errorMessage) && (
+        <div className="status-stack">
+          {statusMessage && <div className="status-banner">{statusMessage}</div>}
+          {errorMessage && <div className="error-banner">{errorMessage}</div>}
+        </div>
+      )}
 
       <main className="workspace">
         <section className="panel editor-panel">
