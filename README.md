@@ -76,10 +76,8 @@ cargo check
 
 Direction-compatible extensions worth considering:
 
-- Keyboard navigation between elements and to reorder (Alt+↑/↓ to move, arrows to select)
 - Smarter duplicate-name guidance ("merge these into one element with multi-line text content")
 - User-configurable preset list (currently hard-coded to four names)
-- Export / import of the current tree as JSON
 - Undo / redo — the data model is already immutable, a history stack is straightforward
 
 ## Non-goals
