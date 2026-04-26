@@ -15,10 +15,19 @@ import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
 // Hard-coded preset chip list. User-configurable presets is a v3 question.
 const PRESET_NAMES = ["feedback", "question", "instruction", "extra"];
 
-// Hard cap on copy-able XML length (JS string chars / UTF-16 code units).
-// Mirrors MAX_XML_BYTES in src/lib.rs so both sides reject runaway payloads
-// before either layer allocates gigabytes for clipboard conversion.
-const MAX_XML_LENGTH = 50_000_000;
+// Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
+// Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
+// code units), which diverged by up to 3× for CJK / emoji content — a 50M
+// char Chinese payload would pass the JS check (50M code units) but fail
+// the Rust check (~150 MB UTF-8). Bytes on both sides keeps the cap
+// meaningful.
+const MAX_XML_BYTES = 50_000_000;
+
+// Soft cap on tree depth. Past this the recursive walkers in document.ts /
+// xml.ts risk a "Maximum call stack size exceeded" RangeError on render.
+// In practice no document needs anywhere near this; the guard exists so
+// runaway "Add Child" clicks can't crash the app.
+const MAX_DEPTH = 256;
 
 // Stable element IDs for the form fields in the Input column. Earlier these
 // were per-active-node and churned on every selection, confusing autofill
@@ -122,15 +131,25 @@ export default function App() {
     return { issueNodeIds: all, duplicateNodeIds: dup };
   }, [validationIssues, duplicateIssues]);
 
-  // Single buildPreview call serves both consumers — buildXml is just
-  // buildPreview(...).xml so calling them separately walks the tree twice.
-  // Uses deferredRoot so heavy text content doesn't block typing.
+  // Validation against the deferred root, used to gate the on-screen
+  // preview. The build runs against deferredRoot, so the gate must too —
+  // otherwise the live-root validation could pass while deferredRoot is
+  // briefly invalid in a transient frame, and renderNode would emit
+  // malformed lines like `<>...</>`.
+  const deferredValidationIssues = useMemo(
+    () => validateDocument(deferredRoot),
+    [deferredRoot]
+  );
+
+  // Single buildPreview call serves the on-screen preview lines. Uses
+  // deferredRoot so heavy text content doesn't block typing — the input
+  // column shows the latest state immediately, the preview catches up.
   const previewBuild = useMemo(() => {
-    if (validationIssues.length > 0) {
+    if (deferredValidationIssues.length > 0) {
       return { xml: "", lines: [] };
     }
     return buildPreview(deferredRoot);
-  }, [deferredRoot, validationIssues]);
+  }, [deferredRoot, deferredValidationIssues]);
   const xmlPreview = previewBuild.xml;
   const previewLines = previewBuild.lines;
 
@@ -145,6 +164,10 @@ export default function App() {
   );
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
+  // Depth of the currently active element. Read from the already-computed
+  // outline rather than walking the tree again.
+  const activeDepth =
+    elementOutline.find((item) => item.id === activeNode.id)?.depth ?? 0;
 
   const requestNewBlank = () => {
     setShowConfirmReset(true);
@@ -163,6 +186,11 @@ export default function App() {
   };
 
   const addChild = () => {
+    // Soft depth guard — refuse rather than risk stack overflow on render.
+    if (activeDepth >= MAX_DEPTH) {
+      setErrorMessage(`Element nesting depth limit reached (${MAX_DEPTH}).`);
+      return;
+    }
     const child = createNode();
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({
@@ -260,19 +288,32 @@ export default function App() {
     if (copyInFlight.current) {
       return;
     }
-    if (!xmlPreview) {
+
+    // Build from the LIVE documentRoot, not the deferred one. Copy XML is
+    // an explicit user action that must capture the latest state — the
+    // useDeferredValue trick is only for keystroke-smoothness on the
+    // on-screen preview. Using deferredRoot here would silently copy stale
+    // text after rapid type-then-click.
+    const liveIssues = validateDocument(documentRoot);
+    if (liveIssues.length > 0) {
       setErrorMessage("Fix validation issues before copying XML.");
       return;
     }
-    if (xmlPreview.length > MAX_XML_LENGTH) {
+    const liveXml = buildPreview(documentRoot).xml;
+
+    // Count UTF-8 bytes (matches the Rust-side cap exactly). JS string
+    // length is UTF-16 code units which can be up to 3× off for CJK / emoji.
+    const liveBytes = new TextEncoder().encode(liveXml).length;
+    if (liveBytes > MAX_XML_BYTES) {
       setErrorMessage(
-        `XML payload too large to copy (${xmlPreview.length.toLocaleString()} characters; limit ${MAX_XML_LENGTH.toLocaleString()}).`
+        `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
       );
       return;
     }
+
     copyInFlight.current = true;
     try {
-      await copyXmlToClipboard(xmlPreview);
+      await copyXmlToClipboard(liveXml);
       // Increment token → bloom overlay remounts → CSS animation replays.
       // Q5 locked: green is reserved for Copy XML success only.
       setCopyToken((t) => t + 1);
@@ -376,8 +417,17 @@ export default function App() {
                 <button
                   key={item.id}
                   type="button"
-                  className={`element-row ${isActive ? "is-active" : ""} ${hasIssue ? "has-issue" : ""}`}
-                  style={{ paddingLeft: `${0.75 + item.depth * 1.25}rem` }}
+                  className={[
+                    "element-row",
+                    isActive && "is-active",
+                    hasIssue && "has-issue"
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  // Depth passed via custom property; styles.css computes
+                  // padding-left through calc() so we don't need
+                  // 'unsafe-inline' style-src in the CSP for this.
+                  style={{ "--depth": item.depth } as React.CSSProperties}
                   onClick={() => setSelectedNodeId(item.id)}
                 >
                   <span className="element-label">{item.label}</span>
@@ -449,8 +499,10 @@ export default function App() {
                 // forcing React to rebuild every preview row.
                 return (
                   <div
-                    key={`${line.nodeId ?? "line"}-${line.kind}`}
-                    className={`preview-line ${isActive ? "is-active" : ""}`}
+                    key={`${line.nodeId}-${line.kind}`}
+                    className={["preview-line", isActive && "is-active"]
+                      .filter(Boolean)
+                      .join(" ")}
                   >
                     <span className="preview-indicator" aria-hidden="true">
                       {isActive && line.primary ? ">" : ""}
@@ -479,11 +531,11 @@ export default function App() {
       </main>
 
       {showConfirmReset && (
-        <div
-          className="modal-overlay"
-          role="presentation"
-          onClick={cancelNewBlank}
-        >
+        // Overlay has no explicit role — the inner div carries
+        // role="dialog" + aria-modal="true". Keeping a click handler on
+        // the overlay for click-outside-to-cancel; AT users have Escape
+        // and the focused Cancel button (see useEffect for focus mgmt).
+        <div className="modal-overlay" onClick={cancelNewBlank}>
           <div
             className="confirm-dialog"
             role="dialog"

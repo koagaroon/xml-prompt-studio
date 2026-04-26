@@ -24,9 +24,9 @@ export function validateDocument(root: XmlNode): ValidationIssue[] {
   return issues;
 }
 
-export function buildXml(root: XmlNode): string {
-  return buildPreview(root).xml;
-}
+// Note: buildXml was removed (round 2 N-R2-6) — all callers now use
+// buildPreview(root).xml directly. If a future export feature wants a
+// dedicated wrapper, restore it then.
 
 export function buildPreview(root: XmlNode): {
   xml: string;

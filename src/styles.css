@@ -384,6 +384,11 @@ select {
   min-height: 0;
 }
 
+/* `--depth` is set via React inline style on each row. Visual indent caps
+   at 12 levels via min() — beyond that, deeper elements show at the same
+   left edge so the label doesn't run off-screen. The deeper-than-12 case
+   is rare (max real-world tree depth tends to be 4–6) but the cap is
+   defensive against pathological docs. */
 .element-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -395,7 +400,8 @@ select {
   color: inherit;
   text-align: left;
   border-radius: 10px;
-  padding: 0.55rem 0.75rem;
+  padding: 0.55rem 0.75rem 0.55rem
+    calc(0.75rem + min(var(--depth, 0), 12) * 1.25rem);
   font-size: 0.9rem;
   cursor: pointer;
   transition:

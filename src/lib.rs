@@ -12,6 +12,11 @@ const MAX_XML_BYTES: usize = 50_000_000;
 
 #[tauri::command]
 fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
+    // Check the UTF-8 size up front. Also implicitly bounds the
+    // utf16le_with_bom path: at 50 MB UTF-8, the worst-case UTF-16
+    // expansion is at most 2× (4-byte non-BMP chars become 4 bytes via
+    // surrogate pairs; ASCII becomes 2 bytes). The fallback's allocation
+    // is therefore ≤ ~100 MB even in the pessimal case.
     if xml.len() > MAX_XML_BYTES {
         return Err(format!(
             "XML payload too large to copy ({} bytes; limit {} bytes).",
@@ -19,7 +24,11 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
             MAX_XML_BYTES
         ));
     }
-    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.clone())) {
+    // Try arboard with a borrowed slice first — `set_text` accepts
+    // `Into<Cow<str>>` so a borrow is enough. Only clone for the fallback
+    // path, which actually needs to keep the string alive past arboard's
+    // failure. Saves a 50 MB clone on the happy path.
+    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.as_str())) {
         Ok(()) => Ok(()),
         Err(_) => fallback_copy_via_clip(&xml),
     }
@@ -33,11 +42,17 @@ fn fallback_copy_via_clip(xml: &str) -> Result<(), String> {
         .spawn()
         .map_err(|error| error.to_string())?;
 
-    if let Some(stdin) = child.stdin.as_mut() {
-        stdin
-            .write_all(&utf16le_with_bom(xml))
-            .map_err(|error| error.to_string())?;
-    }
+    // If stdin handle is missing (rare but possible if the child process
+    // failed to plumb its pipe), bail with an explicit error rather than
+    // silently writing nothing — clip.exe would otherwise report success
+    // on empty input and the user would see a bloom on an empty clipboard.
+    let stdin = child
+        .stdin
+        .as_mut()
+        .ok_or_else(|| "clip.exe stdin handle missing".to_string())?;
+    stdin
+        .write_all(&utf16le_with_bom(xml))
+        .map_err(|error| error.to_string())?;
 
     let output = child.wait_with_output().map_err(|error| error.to_string())?;
     if output.status.success() {
@@ -63,7 +78,13 @@ fn fallback_copy_via_clip(xml: &str) -> Result<(), String> {
 }
 
 fn utf16le_with_bom(value: &str) -> Vec<u8> {
-    let mut bytes = vec![0xFF, 0xFE];
+    // Pre-allocate the output buffer to avoid the ~25 reallocations that
+    // happen as Vec grows from 0 to ~50 MB. UTF-16 of UTF-8 input is at
+    // most `value.len() * 2` bytes (worst case ASCII → each byte becomes
+    // 2 bytes) plus the 2-byte BOM. Slight over-estimate for non-BMP
+    // input, but bounded.
+    let mut bytes = Vec::with_capacity(2 + value.len() * 2);
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
     for code_unit in value.encode_utf16() {
         bytes.extend_from_slice(&code_unit.to_le_bytes());
     }
