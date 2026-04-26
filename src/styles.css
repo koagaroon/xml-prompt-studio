@@ -6,7 +6,7 @@
    .woff2 files are decoded. */
 
 @font-face {
-  font-family: "Inter";
+  font-family: Inter;
   src: url("/fonts/Inter-Regular.woff2") format("woff2");
   font-weight: 400;
   font-style: normal;
@@ -14,7 +14,7 @@
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: Inter;
   src: url("/fonts/Inter-Medium.woff2") format("woff2");
   font-weight: 500;
   font-style: normal;
@@ -22,7 +22,7 @@
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: Inter;
   src: url("/fonts/Inter-Bold.woff2") format("woff2");
   font-weight: 700;
   font-style: normal;
@@ -55,127 +55,120 @@
   color-scheme: dark;
 
   /* Backgrounds, deepest to shallowest */
-  --bg-app: rgba(7, 13, 21, 1);
-  --bg-panel: rgba(8, 14, 23, 0.72);
-  --bg-input: rgba(11, 19, 31, 0.72);
-  --bg-preview: rgba(5, 10, 18, 0.9);
+  --bg-app: rgb(7 13 21 / 100%);
+  --bg-panel: rgb(8 14 23 / 72%);
+  --bg-input: rgb(11 19 31 / 72%);
+  --bg-preview: rgb(5 10 18 / 90%);
 
   /* Borders */
-  --border-subtle: rgba(255, 255, 255, 0.1);
-  --border-input: rgba(255, 255, 255, 0.14);
-  --border-divider: rgba(255, 255, 255, 0.16);
-  --border-focus: rgba(146, 199, 255, 0.7);
+  --border-subtle: rgb(255 255 255 / 10%);
+  --border-input: rgb(255 255 255 / 14%);
+  --border-divider: rgb(255 255 255 / 16%);
+  --border-focus: rgb(146 199 255 / 70%);
 
   /* Text */
   --text-primary: #f9f7f3;
-  --text-secondary: rgba(241, 237, 229, 0.7);
-  --text-muted: rgba(241, 237, 229, 0.55);
+  --text-secondary: rgb(241 237 229 / 70%);
+  --text-muted: rgb(241 237 229 / 55%);
   --text-accent: #84c1ff;
   --text-code: #c9f5ff;
 
   /* Buttons */
-  --btn-secondary-bg: rgba(34, 53, 79, 0.8);
-  --btn-secondary-hover: rgba(50, 97, 159, 0.9);
-  --btn-secondary-border: rgba(255, 255, 255, 0.14);
-  --btn-secondary-border-hover: rgba(163, 205, 255, 0.8);
-  --btn-primary-bg: rgba(50, 97, 159, 0.95);
-  --btn-primary-hover: rgba(75, 130, 195, 1);
-  --btn-primary-border: rgba(163, 205, 255, 0.7);
-  --btn-primary-border-hover: rgba(193, 220, 255, 0.95);
-  --btn-danger-bg: rgba(91, 33, 50, 0.9);
-  --btn-danger-hover: rgba(133, 56, 75, 0.95);
+  --btn-secondary-bg: rgb(34 53 79 / 80%);
+  --btn-secondary-hover: rgb(50 97 159 / 90%);
+  --btn-secondary-border: rgb(255 255 255 / 14%);
+  --btn-secondary-border-hover: rgb(163 205 255 / 80%);
+  --btn-primary-bg: rgb(50 97 159 / 95%);
+  --btn-primary-hover: rgb(75 130 195 / 100%);
+  --btn-primary-border: rgb(163 205 255 / 70%);
+  --btn-primary-border-hover: rgb(193 220 255 / 95%);
+  --btn-danger-bg: rgb(91 33 50 / 90%);
+  --btn-danger-hover: rgb(133 56 75 / 95%);
 
   /* Element rows */
-  --row-bg: rgba(18, 26, 40, 0.82);
-  --row-hover: rgba(28, 42, 64, 0.9);
-  --row-active: rgba(33, 49, 73, 0.96);
+  --row-bg: rgb(18 26 40 / 82%);
+  --row-hover: rgb(28 42 64 / 90%);
+  --row-active: rgb(33 49 73 / 96%);
   --row-active-text: #c9f5ff;
-  --row-issue: rgba(82, 22, 38, 0.85);
-  --row-issue-active: rgba(120, 35, 56, 0.95);
+  --row-issue: rgb(82 22 38 / 85%);
+  --row-issue-active: rgb(120 35 56 / 95%);
   --row-issue-text: #ffd9e2;
-  --preview-line-active: rgba(50, 97, 159, 0.22);
+  --preview-line-active: rgb(50 97 159 / 22%);
 
   /* Issue / error / chip / badge */
-  --issue-bg: rgba(91, 33, 50, 0.82);
+  --issue-bg: rgb(91 33 50 / 82%);
   --issue-text: #ffd9e2;
-  --issue-input-border: rgba(220, 80, 110, 0.85);
-  --issue-input-bg: rgba(60, 18, 30, 0.55);
-  --badge-bg: rgba(133, 56, 75, 0.9);
+  --issue-input-border: rgb(220 80 110 / 85%);
+  --issue-input-bg: rgb(60 18 30 / 55%);
+  --badge-bg: rgb(133 56 75 / 90%);
   --badge-text: #ffd9e2;
-  --chip-bg: rgba(34, 53, 79, 0.6);
-  --chip-border: rgba(255, 255, 255, 0.1);
-  --chip-text: rgba(201, 245, 255, 0.95);
-  --chip-hover-bg: rgba(50, 97, 159, 0.85);
-  --chip-hover-border: rgba(163, 205, 255, 0.7);
+  --chip-bg: rgb(34 53 79 / 60%);
+  --chip-border: rgb(255 255 255 / 10%);
+  --chip-text: rgb(201 245 255 / 95%);
+  --chip-hover-bg: rgb(50 97 159 / 85%);
+  --chip-hover-border: rgb(163 205 255 / 70%);
 
   /* Modal */
-  --modal-overlay: rgba(0, 0, 0, 0.55);
-  --modal-bg: rgba(15, 23, 36, 0.98);
-  --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --modal-overlay: rgb(0 0 0 / 55%);
+  --modal-bg: rgb(15 23 36 / 98%);
+  --modal-shadow: 0 20px 60px rgb(0 0 0 / 50%);
 
   /* Bloom (Copy XML success). Tuned per theme so the glow reads well on
      each background. */
-  --bloom-edge: rgba(64, 200, 100, 0.85);
-  --bloom-mid: rgba(64, 200, 100, 0.55);
+  --bloom-edge: rgb(64 200 100 / 85%);
+  --bloom-mid: rgb(64 200 100 / 55%);
 }
 
 [data-theme="light"] {
   color-scheme: light;
 
   --bg-app: #f4f4ef;
-  --bg-panel: rgba(255, 255, 255, 0.92);
-  --bg-input: rgba(255, 255, 255, 0.85);
-  --bg-preview: rgba(248, 248, 243, 0.95);
-
-  --border-subtle: rgba(35, 30, 25, 0.1);
-  --border-input: rgba(35, 30, 25, 0.16);
-  --border-divider: rgba(35, 30, 25, 0.14);
-  --border-focus: rgba(50, 97, 159, 0.7);
-
+  --bg-panel: rgb(255 255 255 / 92%);
+  --bg-input: rgb(255 255 255 / 85%);
+  --bg-preview: rgb(248 248 243 / 95%);
+  --border-subtle: rgb(35 30 25 / 10%);
+  --border-input: rgb(35 30 25 / 16%);
+  --border-divider: rgb(35 30 25 / 14%);
+  --border-focus: rgb(50 97 159 / 70%);
   --text-primary: #1f1c19;
-  --text-secondary: rgba(35, 30, 25, 0.72);
-  --text-muted: rgba(35, 30, 25, 0.5);
+  --text-secondary: rgb(35 30 25 / 72%);
+  --text-muted: rgb(35 30 25 / 50%);
   --text-accent: #1e40af;
   --text-code: #0f2540;
-
-  --btn-secondary-bg: rgba(232, 240, 252, 0.9);
-  --btn-secondary-hover: rgba(200, 220, 250, 1);
-  --btn-secondary-border: rgba(50, 97, 159, 0.25);
-  --btn-secondary-border-hover: rgba(50, 97, 159, 0.55);
-  --btn-primary-bg: rgba(50, 97, 159, 0.95);
-  --btn-primary-hover: rgba(75, 130, 195, 1);
-  --btn-primary-border: rgba(50, 97, 159, 0.7);
-  --btn-primary-border-hover: rgba(75, 130, 195, 0.9);
-  --btn-danger-bg: rgba(220, 80, 110, 0.9);
-  --btn-danger-hover: rgba(245, 100, 130, 1);
-
-  --row-bg: rgba(255, 255, 255, 0.85);
-  --row-hover: rgba(245, 245, 240, 1);
-  --row-active: rgba(220, 235, 255, 1);
+  --btn-secondary-bg: rgb(232 240 252 / 90%);
+  --btn-secondary-hover: rgb(200 220 250 / 100%);
+  --btn-secondary-border: rgb(50 97 159 / 25%);
+  --btn-secondary-border-hover: rgb(50 97 159 / 55%);
+  --btn-primary-bg: rgb(50 97 159 / 95%);
+  --btn-primary-hover: rgb(75 130 195 / 100%);
+  --btn-primary-border: rgb(50 97 159 / 70%);
+  --btn-primary-border-hover: rgb(75 130 195 / 90%);
+  --btn-danger-bg: rgb(220 80 110 / 90%);
+  --btn-danger-hover: rgb(245 100 130 / 100%);
+  --row-bg: rgb(255 255 255 / 85%);
+  --row-hover: rgb(245 245 240 / 100%);
+  --row-active: rgb(220 235 255 / 100%);
   --row-active-text: #0f2540;
-  --row-issue: rgba(254, 226, 226, 0.95);
-  --row-issue-active: rgba(252, 200, 210, 0.95);
+  --row-issue: rgb(254 226 226 / 95%);
+  --row-issue-active: rgb(252 200 210 / 95%);
   --row-issue-text: #9b1c1c;
-  --preview-line-active: rgba(50, 97, 159, 0.12);
-
-  --issue-bg: rgba(254, 226, 226, 0.95);
+  --preview-line-active: rgb(50 97 159 / 12%);
+  --issue-bg: rgb(254 226 226 / 95%);
   --issue-text: #9b1c1c;
-  --issue-input-border: rgba(220, 80, 110, 0.85);
-  --issue-input-bg: rgba(254, 240, 240, 0.7);
-  --badge-bg: rgba(220, 80, 110, 0.95);
-  --badge-text: #ffffff;
-  --chip-bg: rgba(232, 240, 252, 0.7);
-  --chip-border: rgba(50, 97, 159, 0.2);
+  --issue-input-border: rgb(220 80 110 / 85%);
+  --issue-input-bg: rgb(254 240 240 / 70%);
+  --badge-bg: rgb(220 80 110 / 95%);
+  --badge-text: #fff;
+  --chip-bg: rgb(232 240 252 / 70%);
+  --chip-border: rgb(50 97 159 / 20%);
   --chip-text: #0f2540;
-  --chip-hover-bg: rgba(50, 97, 159, 0.15);
-  --chip-hover-border: rgba(50, 97, 159, 0.55);
-
-  --modal-overlay: rgba(40, 40, 35, 0.5);
-  --modal-bg: rgba(255, 255, 255, 0.98);
-  --modal-shadow: 0 20px 60px rgba(40, 40, 35, 0.25);
-
-  --bloom-edge: rgba(34, 170, 80, 0.85);
-  --bloom-mid: rgba(34, 170, 80, 0.55);
+  --chip-hover-bg: rgb(50 97 159 / 15%);
+  --chip-hover-border: rgb(50 97 159 / 55%);
+  --modal-overlay: rgb(40 40 35 / 50%);
+  --modal-bg: rgb(255 255 255 / 98%);
+  --modal-shadow: 0 20px 60px rgb(40 40 35 / 25%);
+  --bloom-edge: rgb(34 170 80 / 85%);
+  --bloom-mid: rgb(34 170 80 / 55%);
 }
 
 /* === RESET === */
@@ -189,13 +182,14 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
+
   /* CJK fallback chain: after Inter (Latin only) and the system English
      fonts, fall through to the simplified-Chinese system fonts that are
      usually present on Windows / macOS / Linux respectively. This means
      CJK characters typed in Tag Name or Text Content render correctly even
      though we don't bundle CJK web fonts. */
   font-family:
-    "Inter",
+    Inter,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
@@ -206,6 +200,7 @@ body {
     sans-serif;
   background: var(--bg-app);
   color: var(--text-primary);
+
   /* App owns the viewport — no body scrolling. Each column inside the grid
      handles its own overflow so long preview / textarea content doesn't
      scroll the whole page. */
@@ -323,7 +318,7 @@ select {
   border-color: var(--btn-primary-border);
   letter-spacing: 0.02em;
   padding: 0.5rem 1.15rem;
-  color: #ffffff;
+  color: #fff;
 }
 
 .ribbon button.copy-button:hover:not(:disabled) {
@@ -335,6 +330,7 @@ select {
 
 .body {
   display: grid;
+
   /* Elements column gets a wider minimum (260px) and slightly more max
      (22%) so depth-based indentation has room to be visible without
      squeezing labels. Beyond that the .element-list scrolls horizontally
@@ -342,6 +338,7 @@ select {
   grid-template-columns: minmax(260px, 22%) minmax(0, 1fr) minmax(280px, 32%);
   gap: 0.75rem;
   flex: 1;
+
   /* min-height: 0 lets the grid shrink below its content height so children
      (which set their own overflow) actually scroll instead of pushing the
      page. Without this, flex-children default to min-height: auto and the
@@ -357,6 +354,7 @@ select {
   border-radius: 16px;
   padding: 0.85rem 1rem;
   backdrop-filter: blur(18px);
+
   /* Same min-height: 0 reasoning. Each column scrolls its own overflow. */
   min-height: 0;
   overflow: hidden;
@@ -366,7 +364,7 @@ select {
 }
 
 .column-title {
-  margin: 0 0 0.6rem 0;
+  margin: 0 0 0.6rem;
   font-size: 0.84rem;
   color: var(--text-accent);
   font-weight: 700;
@@ -380,9 +378,11 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
+
   /* Both axes scroll: vertical for long lists, horizontal for deeply
      nested rows whose indentation pushes them past the column width. */
   overflow: auto;
+
   /* Vertical breathing room so first/last rows aren't clipped against the
      scroll container edge. */
   padding: 4px 0.3rem 4px 0;
@@ -400,6 +400,7 @@ select {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
+
   /* `min-width: 100%` keeps shallow rows full-width inside the column;
      `width: max-content` lets deeply-indented rows extend past the column
      and trigger horizontal scroll on .element-list. Together they make the
@@ -449,12 +450,13 @@ select {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+
   /* CJK mono fallback similar to body, but for monospace contexts. */
   font-family:
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -473,14 +475,14 @@ select {
 /* === INPUT COLUMN === */
 
 .element-title {
-  margin: 0 0 0.85rem 0;
+  margin: 0 0 0.85rem;
   font-size: 1.3rem;
   color: var(--text-code);
   font-family:
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -495,7 +497,7 @@ select {
   display: block;
   font-size: 0.85rem;
   color: var(--text-secondary);
-  margin: 0.5rem 0 0.35rem 0;
+  margin: 0.5rem 0 0.35rem;
   font-weight: 500;
   letter-spacing: 0.04em;
 }
@@ -525,8 +527,9 @@ select {
 
 @keyframes preset-overwrite-pulse {
   0% {
-    box-shadow: inset 0 0 0 2px rgba(245, 175, 70, 0.85);
+    box-shadow: inset 0 0 0 2px rgb(245 175 70 / 85%);
   }
+
   100% {
     box-shadow: inset 0 0 0 0 transparent;
   }
@@ -544,7 +547,7 @@ select {
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -576,7 +579,7 @@ select {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
-  margin: 0.55rem 0 0.4rem 0;
+  margin: 0.55rem 0 0.4rem;
 }
 
 .preset-label {
@@ -597,7 +600,7 @@ select {
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -626,7 +629,7 @@ select {
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -667,7 +670,7 @@ select {
     "JetBrains Mono",
     "Cascadia Mono",
     "Cascadia Code",
-    "Consolas",
+    Consolas,
     "Microsoft YaHei UI",
     "PingFang SC",
     "Noto Sans CJK SC",
@@ -688,6 +691,7 @@ select {
   align-items: start;
   padding: 0.05rem 0.2rem;
   border-radius: 6px;
+
   /* `pre` (no wrap) preserves indentation for every line. The earlier
      `pre-wrap` would visually break long URLs by wrapping continuations
      to column 0, losing the depth indent. Long lines now extend past the
@@ -728,11 +732,13 @@ select {
       inset 0 0 0 2px var(--bloom-edge),
       0 0 0 0 var(--bloom-edge);
   }
+
   40% {
     box-shadow:
       inset 0 0 0 2px var(--bloom-mid),
       0 0 28px 6px var(--bloom-mid);
   }
+
   100% {
     box-shadow:
       inset 0 0 0 0 transparent,
@@ -764,12 +770,12 @@ select {
 }
 
 .confirm-dialog h3 {
-  margin: 0 0 0.6rem 0;
+  margin: 0 0 0.6rem;
   font-size: 1.05rem;
 }
 
 .confirm-dialog p {
-  margin: 0 0 1.25rem 0;
+  margin: 0 0 1.25rem;
   color: var(--text-secondary);
   font-size: 0.92rem;
 }
@@ -798,7 +804,7 @@ select {
 
 .dialog-buttons button.danger-button {
   background: var(--btn-danger-bg);
-  color: #ffffff;
+  color: #fff;
 }
 
 .dialog-buttons button.danger-button:hover {

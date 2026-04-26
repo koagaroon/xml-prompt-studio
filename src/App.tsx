@@ -662,6 +662,9 @@ function nextAvailableSuffix(parent: XmlNode, baseName: string): number {
 // inside the character class for cross-engine portability — V8 tolerates
 // the unescaped forms but older Safari/JavaScriptCore did not.
 function escapeForRegex(value: string): string {
+  // The explicit `\[` is intentional for older WebKit / JavaScriptCore;
+  // modern engines accept it as a no-op so ESLint complains.
+  // eslint-disable-next-line no-useless-escape
   return value.replace(/[.*+?^${}()|\[\]\\]/g, "\\$&");
 }
 

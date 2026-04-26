@@ -1,7 +1,7 @@
 use arboard::Clipboard;
-use tauri::{LogicalSize, Manager, Size};
 use std::io::Write;
 use std::process::{Command, Stdio};
+use tauri::{LogicalSize, Manager, Size};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
 // channel can carry arbitrarily large strings; without a cap, a runaway
@@ -37,6 +37,11 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
 // command-line clipboard tool; we shell out as a last resort. This whole
 // path triggers rarely (arboard failure is the trigger) but matters when
 // it does — RDP sessions on Windows, sandboxed Wayland on Linux, etc.
+//
+// `#[allow(clippy::needless_return)]` — the cfg-gated branches each end
+// with an explicit `return` for readability. Removing them works on the
+// active branch but leaves the source asymmetric across the four arms.
+#[allow(clippy::needless_return)]
 fn fallback_copy_native(xml: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
@@ -57,23 +62,12 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         if spawn_and_pipe("wl-copy", &[], xml.as_bytes()).is_ok() {
             return Ok(());
         }
-        return spawn_and_pipe(
-            "xclip",
-            &["-selection", "clipboard"],
-            xml.as_bytes(),
-        );
+        return spawn_and_pipe("xclip", &["-selection", "clipboard"], xml.as_bytes());
     }
-    #[cfg(not(any(
-        target_os = "windows",
-        target_os = "macos",
-        target_os = "linux"
-    )))]
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = xml; // silence unused-variable warning on unsupported OSes
-        return Err(
-            "Clipboard fallback not implemented for this operating system."
-                .to_string(),
-        );
+        return Err("Clipboard fallback not implemented for this operating system.".to_string());
     }
 }
 
@@ -102,7 +96,9 @@ fn spawn_and_pipe(cmd: &str, args: &[&str], payload: &[u8]) -> Result<(), String
         .write_all(payload)
         .map_err(|error| format!("{}: {}", cmd, error))?;
 
-    let output = child.wait_with_output().map_err(|error| error.to_string())?;
+    let output = child
+        .wait_with_output()
+        .map_err(|error| error.to_string())?;
     if output.status.success() {
         return Ok(());
     }

@@ -165,6 +165,11 @@ const NAME_START_CHAR =
 const NAME_CHAR =
   NAME_START_CHAR + "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
 
+// The combining-mark ranges (̀-ͯ, ‿-⁀) are mandated by
+// the W3C XML 1.0 §2.3 NameChar production. ESLint warns because such
+// codepoints can produce visually-combined characters in a class; we accept
+// that — spec conformance wins.
+// eslint-disable-next-line no-misleading-character-class
 const NAME_REGEX = new RegExp(`^[${NAME_START_CHAR}][${NAME_CHAR}]*$`, "u");
 
 function isValidXmlName(value: string): boolean {
