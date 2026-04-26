@@ -39,6 +39,19 @@ const MAX_DEPTH = 256;
 // breadth axis.
 const MAX_SIBLINGS = 1000;
 
+// Per-field byte caps. Without these, pasting hundreds of MB into a single
+// field locks typing because the four useMemo walkers (validate / duplicate
+// / preview / outline) re-run on every keystroke. The total MAX_XML_BYTES
+// = 50 MB cap is enforced at copy time, but the typing-lag surface hits
+// well before that when one field gets oversized.
+//
+// Caps are in UTF-8 bytes for parity with MAX_XML_BYTES. Tag-name cap is
+// generous — in practice tag names are short (<50 chars). textContent cap
+// at 10 MB allows large prompt bodies (~5–10 M ASCII chars) but keeps the
+// total tree below 50 MB even with multiple maxed-out leaves.
+const MAX_TAG_NAME_BYTES = 1024;
+const MAX_TEXT_CONTENT_BYTES = 10_000_000;
+
 // Stable element IDs for the form fields in the Input column. Earlier these
 // were per-active-node and churned on every selection, confusing autofill
 // and a11y caches even though there's only one of each on screen.
@@ -292,6 +305,12 @@ export default function App() {
   };
 
   const setActiveTagName = (tagName: string) => {
+    if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
+      setErrorMessage(
+        `Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`
+      );
+      return;
+    }
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
@@ -304,6 +323,12 @@ export default function App() {
   };
 
   const setActiveTextContent = (textContent: string) => {
+    if (exceedsByteCap(textContent, MAX_TEXT_CONTENT_BYTES)) {
+      setErrorMessage(
+        `Text content too long (limit ${MAX_TEXT_CONTENT_BYTES} bytes).`
+      );
+      return;
+    }
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, textContent }))
     );
@@ -715,6 +740,17 @@ function truncate(value: string, maxLength: number): string {
     return value;
   }
   return `${codePoints.slice(0, maxLength - 1).join("")}…`;
+}
+
+// Cheap UTF-8 byte-count check using the upper-bound trick from copyPreview:
+// UTF-8 byte count is at most 3 × string length (BMP-heavy worst case), so
+// if `length * 3 ≤ cap` we know we're under without running TextEncoder.
+// Only encode-and-measure when the cheap bound doesn't decide it.
+function exceedsByteCap(value: string, cap: number): boolean {
+  if (value.length * 3 <= cap) {
+    return false;
+  }
+  return new TextEncoder().encode(value).length > cap;
 }
 
 // Find the lowest unused integer ≥1 among siblings whose tagName matches
