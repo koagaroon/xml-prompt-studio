@@ -16,10 +16,6 @@ export function validateDocument(root: XmlNode): ValidationIssue[] {
   return issues;
 }
 
-// Note: buildXml was removed (round 2 N-R2-6) — all callers now use
-// buildPreview(root).xml directly. If a future export feature wants a
-// dedicated wrapper, restore it then.
-
 export function buildPreview(root: XmlNode): {
   xml: string;
   lines: PreviewLine[];
@@ -81,6 +77,15 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   // outputs LLM-prompt markup, not strict XML, so users can write `<` `>` `&`
   // and have them appear literally in the prompt. Don't reintroduce escaping
   // unless adding an explicit "strict mode" toggle.
+  //
+  // Caveat for future maintainers: if textContent contains "\n", a single
+  // PreviewLine.text will render across multiple visual rows because
+  // styles.css applies `white-space: pre` to .preview-line. The
+  // "1 PreviewLine = 1 visual row" assumption holds in layout most of
+  // the time but breaks here. Virtualization (e.g., react-window) can't
+  // be wired in without first splitting newline-bearing text into one
+  // PreviewLine per physical line, while preserving the (nodeId, kind)
+  // key uniqueness above (likely by adding a per-line index to kind).
   const textContent = node.textContent;
 
   // Spec §3.1 distinguishes three forms — empty-element tag, start+end-tag

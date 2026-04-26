@@ -3,15 +3,12 @@
 // `__TAURI_INTERNALS__` object, which was undocumented and subject to silent
 // rename across Tauri versions.
 
+import { invoke } from "@tauri-apps/api/core";
+
 declare global {
   interface Window {
     isTauri?: boolean;
   }
-}
-
-async function loadInvoke() {
-  const module = await import("@tauri-apps/api/core");
-  return module.invoke;
 }
 
 function isTauriEnvironment(): boolean {
@@ -20,7 +17,6 @@ function isTauriEnvironment(): boolean {
 
 export async function copyXmlToClipboard(xml: string): Promise<void> {
   if (isTauriEnvironment()) {
-    const invoke = await loadInvoke();
     await invoke("copy_xml_to_clipboard", { xml });
     return;
   }

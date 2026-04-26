@@ -504,12 +504,12 @@ export default function App() {
                     .filter(Boolean)
                     .join(" ")}
                   aria-current={isActive ? "true" : undefined}
-                  // React assigns the CSS custom property programmatically
-                  // through `element.style.setProperty(...)`, which CSP
-                  // permits under `style-src 'self'`. The relevant rule is
-                  // the API call shape, not the calc() in styles.css —
-                  // inline `style="..."` attribute strings are what would
-                  // require `'unsafe-inline'`, and React does not emit those.
+                  // React mutates `element.style` via DOM (setProperty for
+                  // custom vars, property assignment for normal props) —
+                  // neither requires CSP `unsafe-inline`, which only
+                  // governs parser-time inline `style="..."` attribute
+                  // strings and `<style>` blocks. The calc() in styles.css
+                  // is unrelated to this; it's just where the var is read.
                   style={{ "--depth": item.depth } as React.CSSProperties}
                   onClick={() => setSelectedNodeId(item.id)}
                 >
