@@ -335,7 +335,11 @@ select {
 
 .body {
   display: grid;
-  grid-template-columns: minmax(220px, 18%) minmax(0, 1fr) minmax(280px, 32%);
+  /* Elements column gets a wider minimum (260px) and slightly more max
+     (22%) so depth-based indentation has room to be visible without
+     squeezing labels. Beyond that the .element-list scrolls horizontally
+     — see overflow: auto below. */
+  grid-template-columns: minmax(260px, 22%) minmax(0, 1fr) minmax(280px, 32%);
   gap: 0.75rem;
   flex: 1;
   /* min-height: 0 lets the grid shrink below its content height so children
@@ -376,7 +380,9 @@ select {
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
-  overflow-y: auto;
+  /* Both axes scroll: vertical for long lists, horizontal for deeply
+     nested rows whose indentation pushes them past the column width. */
+  overflow: auto;
   /* Vertical breathing room so first/last rows aren't clipped against the
      scroll container edge. */
   padding: 4px 0.3rem 4px 0;
@@ -394,7 +400,12 @@ select {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.5rem;
-  width: 100%;
+  /* `min-width: 100%` keeps shallow rows full-width inside the column;
+     `width: max-content` lets deeply-indented rows extend past the column
+     and trigger horizontal scroll on .element-list. Together they make the
+     indentation visible at any depth without clipping the label. */
+  min-width: 100%;
+  width: max-content;
   border: none;
   background: var(--row-bg);
   color: inherit;
