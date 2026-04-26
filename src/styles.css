@@ -283,8 +283,12 @@ select {
   cursor: not-allowed;
 }
 
+/* White text on the danger background reads cleanly in both themes; the
+   default --text-primary inherited from .ribbon button is too dark on the
+   light-theme red. Matches the .dialog-buttons danger-button treatment. */
 .ribbon button.danger-button {
   background: var(--btn-danger-bg);
+  color: #fff;
 }
 
 .ribbon button.danger-button:hover:not(:disabled) {

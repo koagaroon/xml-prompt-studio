@@ -1,8 +1,24 @@
 import type { XmlNode } from "./types";
 
+// One-shot flag so the Math.random fallback warning fires at most once per
+// session — the first occurrence is the diagnostic signal; repetition would
+// just spam the console.
+let mathRandomFallbackWarned = false;
+
 export function createId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID()}`;
+  }
+  if (!mathRandomFallbackWarned) {
+    mathRandomFallbackWarned = true;
+    // Tauri 2 webview always provides crypto.randomUUID, so reaching this
+    // path means an environment-probe regression worth investigating.
+    // Math.random gives ~41 bits of entropy — birthday-collision risk
+    // emerges around ~1.5M IDs in a single document, at which point
+    // findNode / findParentId could mis-resolve to the first matching id.
+    console.warn(
+      "createId: crypto.randomUUID unavailable; using Math.random fallback"
+    );
   }
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -102,9 +118,9 @@ export function findParentId(root: XmlNode, targetId: string): string | null {
       return root.id;
     }
 
-    const nestedResult = findParentId(child, targetId);
-    if (nestedResult) {
-      return nestedResult;
+    const result = findParentId(child, targetId);
+    if (result) {
+      return result;
     }
   }
 

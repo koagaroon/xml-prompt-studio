@@ -25,8 +25,10 @@ const MAX_XML_BYTES = 50_000_000;
 
 // Soft cap on tree depth. Past this the recursive walkers in document.ts /
 // xml.ts risk a "Maximum call stack size exceeded" RangeError on render.
-// In practice no document needs anywhere near this; the guard exists so
-// runaway "Add Child" clicks can't crash the app.
+// Semantics: the root element is at depth 0; the deepest reachable element
+// is at depth MAX_DEPTH, so a path from root to leaf can have up to
+// MAX_DEPTH + 1 nodes. In practice no document needs anywhere near this;
+// the guard exists so runaway "Add Child" clicks can't crash the app.
 const MAX_DEPTH = 256;
 
 // Stable element IDs for the form fields in the Input column. Earlier these
@@ -462,9 +464,12 @@ export default function App() {
                     .filter(Boolean)
                     .join(" ")}
                   aria-current={isActive ? "true" : undefined}
-                  // Depth passed via custom property; styles.css computes
-                  // padding-left through calc() so we don't need
-                  // 'unsafe-inline' style-src in the CSP for this.
+                  // React assigns the CSS custom property programmatically
+                  // through `element.style.setProperty(...)`, which CSP
+                  // permits under `style-src 'self'`. The relevant rule is
+                  // the API call shape, not the calc() in styles.css —
+                  // inline `style="..."` attribute strings are what would
+                  // require `'unsafe-inline'`, and React does not emit those.
                   style={{ "--depth": item.depth } as React.CSSProperties}
                   onClick={() => setSelectedNodeId(item.id)}
                 >
@@ -651,6 +656,9 @@ function buildElementLabel(node: XmlNode): string {
   return `<${tagName}>${suffix}`;
 }
 
+// `maxLength` is the cap on output length, not on input. The ellipsis
+// counts toward the cap — slice(0, maxLength - 1) reserves one character
+// for "…", so the returned string is at most `maxLength` characters total.
 function truncate(value: string, maxLength: number): string {
   if (value.length <= maxLength) {
     return value;

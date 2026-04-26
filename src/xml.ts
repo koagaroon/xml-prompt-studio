@@ -78,6 +78,15 @@ export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
   return issues;
 }
 
+// Each node emits at most one line per `kind`:
+//   - "self-closing" alone (no children, no text)
+//   - "single-line"  alone (no children, has text)
+//   - "open" + optional "text" + zero or more child lines + "close"
+// Invariant: at most one line per (nodeId, kind) tuple. App.tsx uses
+// `${nodeId}-${kind}` as the React key for preview rows, so if a future
+// change splits text across multiple lines (e.g., paragraph wrapping),
+// that key uniqueness must be preserved — add a per-line index to the
+// kind, don't just emit two `kind: "text"` lines for the same node.
 function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   const indent = "  ".repeat(depth);
   const tagName = node.tagName.trim();

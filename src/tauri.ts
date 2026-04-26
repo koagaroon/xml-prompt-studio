@@ -25,5 +25,10 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     return;
   }
 
+  // Browser fallback: when the frontend runs in a plain browser (e.g.,
+  // `npm run dev` opened directly without `tauri dev`), there's no Rust
+  // backend to invoke. The browser Clipboard API works for development
+  // smoke testing; production builds always go through the Tauri path
+  // above for the wider permissions and clip.exe / wl-copy fallbacks.
   await navigator.clipboard.writeText(xml);
 }
