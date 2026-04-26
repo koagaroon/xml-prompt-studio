@@ -85,6 +85,13 @@ export default function App() {
   // Cancel-button focus target for the New Blank confirmation modal.
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Refs on the ribbon and body so the modal's focus trap can mark them
+  // inert while the dialog is open (see the showConfirmReset effect below).
+  // Using the DOM .inert property directly avoids depending on @types/react's
+  // inert prop typing, which shifts across minor versions.
+  const ribbonRef = useRef<HTMLElement>(null);
+  const bodyRef = useRef<HTMLElement>(null);
+
   // Preview is the slow recompute (string join over textContent that may be
   // large). Deferring its input lets typing in the Tag Name / Text Content
   // inputs stay responsive — React keeps the previous preview frame visible
@@ -358,26 +365,35 @@ export default function App() {
   };
 
   // Modal accessibility: focus the Cancel button when the confirmation
-  // dialog opens, and let Escape cancel. Without this the originating
-  // ribbon button keeps focus and screen readers don't announce the
-  // dialog's appearance.
+  // dialog opens, mark the rest of the app inert so Tab focus is trapped
+  // inside the dialog, and let Escape cancel. Without this the originating
+  // ribbon button keeps focus, Tab can escape behind the overlay, and screen
+  // readers don't announce the dialog's appearance.
   useEffect(() => {
     if (!showConfirmReset) {
       return;
     }
     cancelButtonRef.current?.focus();
+    const ribbon = ribbonRef.current;
+    const body = bodyRef.current;
+    if (ribbon) ribbon.inert = true;
+    if (body) body.inert = true;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setShowConfirmReset(false);
       }
     };
     window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
+    return () => {
+      window.removeEventListener("keydown", handleKey);
+      if (ribbon) ribbon.inert = false;
+      if (body) body.inert = false;
+    };
   }, [showConfirmReset]);
 
   return (
     <div className="app-shell">
-      <header className="ribbon">
+      <header className="ribbon" ref={ribbonRef}>
         <button type="button" onClick={requestNewBlank}>
           New Blank
         </button>
@@ -427,7 +443,7 @@ export default function App() {
         </button>
       </header>
 
-      <main className="body">
+      <main className="body" ref={bodyRef}>
         <section className="column elements">
           <h2 className="column-title">Elements</h2>
           <div className="element-list">
@@ -445,6 +461,7 @@ export default function App() {
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  aria-current={isActive ? "true" : undefined}
                   // Depth passed via custom property; styles.css computes
                   // padding-left through calc() so we don't need
                   // 'unsafe-inline' style-src in the CSP for this.
@@ -577,10 +594,13 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
+            aria-describedby="confirm-desc"
             onClick={(event) => event.stopPropagation()}
           >
             <h3 id="confirm-title">Discard current document?</h3>
-            <p>This will replace the document with a fresh blank.</p>
+            <p id="confirm-desc">
+              This will replace the document with a fresh blank.
+            </p>
             <div className="dialog-buttons">
               <button
                 type="button"

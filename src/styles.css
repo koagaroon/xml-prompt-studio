@@ -810,3 +810,35 @@ select {
 .dialog-buttons button.danger-button:hover {
   background: var(--btn-danger-hover);
 }
+
+/* === KEYBOARD FOCUS ===
+   Default browser focus ring reads poorly against the dark glass panels and
+   varies across OS/browser. Explicit :focus-visible outline using the same
+   accent color as input borders gives keyboard users a consistent indicator.
+   :focus-visible (not :focus) intentionally — mouse clicks shouldn't show
+   the ring; only keyboard focus does. Inputs already use a border-color
+   transition for focus, so they're not included here. */
+
+.ribbon button:focus-visible,
+.chip:focus-visible,
+.element-row:focus-visible,
+.dialog-buttons button:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* === REDUCED MOTION ===
+   Respect the OS reduced-motion preference. Bloom (~1s) and amber pulse
+   (~250ms) are visual flourishes — no information is conveyed by the
+   animation itself, so collapsing them to effectively-instant is the
+   right behavior. The transition rule covers all the 120-200ms theme/hover
+   transitions sprinkled through the file. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
