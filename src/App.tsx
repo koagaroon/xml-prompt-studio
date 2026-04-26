@@ -70,6 +70,12 @@ export default function App() {
   const [copyToken, setCopyToken] = useState(0);
   const [showConfirmReset, setShowConfirmReset] = useState(false);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
+  // Increments each time a preset chip overwrites a non-empty tag name.
+  // The Tag Name input wrapper renders a transient overlay keyed on this
+  // counter, so each increment remounts the overlay and replays the
+  // amber-flash animation — letting the user notice "I just overwrote
+  // something" without blocking their re-pick flow.
+  const [presetOverwriteFlash, setPresetOverwriteFlash] = useState(0);
 
   // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
   // IPC calls and arboard's global Windows clipboard handle races between
@@ -265,6 +271,13 @@ export default function App() {
   };
 
   const insertPreset = (baseName: string) => {
+    // If the active element already has a non-empty tag name, trigger the
+    // amber-flash overlay so the user notices the overwrite. Doesn't block
+    // the re-pick flow (no modal, no debounce) — just a visual cue.
+    if (activeNode.tagName.trim() !== "") {
+      setPresetOverwriteFlash((k) => k + 1);
+    }
+
     // B-style suffix: every click writes `<base>_<N>` — even the first one is
     // `_1`, not bare `<base>`. N is the lowest unused integer ≥1 among the
     // active element's siblings whose tagName matches `<base>_<digits>`.
@@ -446,13 +459,28 @@ export default function App() {
           <label className="field-label" htmlFor={TAG_NAME_INPUT_ID}>
             Tag Name
           </label>
-          <input
-            id={TAG_NAME_INPUT_ID}
-            name="tagName"
-            value={activeNode.tagName}
-            className={`tag-name-input ${tagNameInvalid ? "input-error" : ""}`}
-            onChange={(event) => setActiveTagName(event.target.value)}
-          />
+          <div className="tag-name-wrap">
+            <input
+              id={TAG_NAME_INPUT_ID}
+              name="tagName"
+              value={activeNode.tagName}
+              className={["tag-name-input", tagNameInvalid && "input-error"]
+                .filter(Boolean)
+                .join(" ")}
+              onChange={(event) => setActiveTagName(event.target.value)}
+            />
+            {/* Amber pulse on the input border when a preset chip overwrote
+                a non-empty tag. Key change forces remount, which replays the
+                CSS animation. pointer-events: none so it doesn't intercept
+                clicks/focus on the input below. */}
+            {presetOverwriteFlash > 0 && (
+              <div
+                key={presetOverwriteFlash}
+                className="preset-overwrite-flash"
+                aria-hidden="true"
+              />
+            )}
+          </div>
 
           <div className="preset-chips">
             <span className="preset-label">Quick fill:</span>

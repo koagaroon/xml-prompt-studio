@@ -500,6 +500,38 @@ select {
   letter-spacing: 0.04em;
 }
 
+/* Wrapper makes the absolutely-positioned amber-flash overlay (when a
+   preset chip overwrites a non-empty tag) line up exactly with the input. */
+.tag-name-wrap {
+  position: relative;
+  display: flex;
+}
+
+.tag-name-wrap .tag-name-input {
+  flex: 1;
+}
+
+/* Transient overlay: brief amber pulse around the Tag Name input when a
+   preset chip overwrote a non-empty value. The element is keyed on
+   presetOverwriteFlash in App.tsx so each click remounts and replays the
+   animation; pointer-events: none keeps it from intercepting input focus. */
+.preset-overwrite-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  pointer-events: none;
+  animation: preset-overwrite-pulse 250ms ease-out forwards;
+}
+
+@keyframes preset-overwrite-pulse {
+  0% {
+    box-shadow: inset 0 0 0 2px rgba(245, 175, 70, 0.85);
+  }
+  100% {
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+}
+
 /* Middle column is the main work area — text sizes are intentionally larger
    than the side columns to reduce attention pressure when reading/editing. */
 .tag-name-input {
