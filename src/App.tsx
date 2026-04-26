@@ -545,13 +545,11 @@ export default function App() {
                 <button
                   key={item.id}
                   type="button"
-                  className={[
+                  className={cx(
                     "element-row",
                     isActive && "is-active",
                     hasIssue && "has-issue"
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
+                  )}
                   aria-current={isActive ? "true" : undefined}
                   // React mutates `element.style` via DOM (setProperty for
                   // custom vars, property assignment for normal props) —
@@ -591,9 +589,7 @@ export default function App() {
               id={TAG_NAME_INPUT_ID}
               name="tagName"
               value={activeNode.tagName}
-              className={["tag-name-input", tagNameInvalid && "input-error"]
-                .filter(Boolean)
-                .join(" ")}
+              className={cx("tag-name-input", tagNameInvalid && "input-error")}
               onChange={(event) => setActiveTagName(event.target.value)}
             />
             {/* Amber pulse on the input border when a preset chip overwrote
@@ -655,9 +651,7 @@ export default function App() {
                 return (
                   <div
                     key={`${line.nodeId}-${line.kind}`}
-                    className={["preview-line", isActive && "is-active"]
-                      .filter(Boolean)
-                      .join(" ")}
+                    className={cx("preview-line", isActive && "is-active")}
                   >
                     <span className="preview-indicator" aria-hidden="true">
                       {isActive && line.primary ? ">" : ""}
@@ -775,6 +769,14 @@ function exceedsByteCap(value: string, cap: number): boolean {
     return false;
   }
   return new TextEncoder().encode(value).length > cap;
+}
+
+// Compose a className from base + conditional class names. Same shape as
+// the React community's clsx / classnames libraries — falsy values drop
+// out, the rest joins with spaces. Used at every site where we conditionally
+// add `is-active` / `has-issue` / `input-error` etc.
+function cx(...names: (string | false | null | undefined)[]): string {
+  return names.filter(Boolean).join(" ");
 }
 
 // Find the lowest unused integer ≥1 among siblings whose tagName matches
