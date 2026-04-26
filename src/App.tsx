@@ -4,7 +4,7 @@ import {
   createNode,
   deleteNode,
   findNode,
-  findParentId,
+  findParent,
   moveNode,
   updateNode
 } from "./document";
@@ -261,18 +261,13 @@ export default function App() {
       setErrorMessage("The root element cannot have a sibling.");
       return;
     }
-    const parentId = findParentId(documentRoot, activeNode.id);
-    if (!parentId) {
+    const parent = findParent(documentRoot, activeNode.id);
+    if (!parent) {
       // Active node is non-root but has no parent in the tree — should be
       // unreachable by construction. Log so a future regression surfaces
       // instead of "Add Sibling does nothing." Same shape as createId's
       // crypto.randomUUID fallback (per principle 3 in the design doc).
       console.warn("addSibling: parent of active node not found");
-      return;
-    }
-    const parent = findNode(documentRoot, parentId);
-    if (!parent) {
-      console.warn("addSibling: parent id resolved but node not found");
       return;
     }
     if (parent.children.length >= MAX_SIBLINGS) {
@@ -282,7 +277,7 @@ export default function App() {
 
     const sibling = createNode();
     setDocumentRoot((current) =>
-      updateNode(current, parentId, (node) => {
+      updateNode(current, parent.id, (node) => {
         const index = node.children.findIndex((c) => c.id === activeNode.id);
         const insertAt = index === -1 ? node.children.length : index + 1;
         return {
@@ -307,15 +302,15 @@ export default function App() {
       return;
     }
 
-    // Mixed pattern: closure read for findParentId + documentRoot.id
+    // Mixed pattern: closure read for findParent + documentRoot.id
     // fallback, functional updater for the tree mutation. Safe because
     // the root's identity is stable — only confirmNewBlank replaces the
     // root, and that path doesn't reach this function. Other handlers in
     // this file commit to functional updaters; the closure reads here
     // are intentional, not an oversight.
-    const parentId = findParentId(documentRoot, activeNode.id);
+    const parent = findParent(documentRoot, activeNode.id);
     setDocumentRoot((current) => deleteNode(current, activeNode.id));
-    setSelectedNodeId(parentId ?? documentRoot.id);
+    setSelectedNodeId(parent?.id ?? documentRoot.id);
     setErrorMessage("");
   };
 
@@ -373,15 +368,11 @@ export default function App() {
     // B-style suffix: every click writes `<base>_<N>` — even the first one is
     // `_1`, not bare `<base>`. N is the lowest unused integer ≥1 among the
     // active element's siblings whose tagName matches `<base>_<digits>`.
-    const parentId = findParentId(documentRoot, activeNode.id);
-    if (!parentId) {
+    const parent = findParent(documentRoot, activeNode.id);
+    if (!parent) {
       // Active element is root (no siblings under single-root invariant).
       // Just use _1.
       setActiveTagName(`${baseName}_1`);
-      return;
-    }
-    const parent = findNode(documentRoot, parentId);
-    if (!parent) {
       return;
     }
     const suffix = nextAvailableSuffix(parent, baseName);

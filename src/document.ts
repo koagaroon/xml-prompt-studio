@@ -15,7 +15,7 @@ export function createId(prefix: string): string {
     // path means an environment-probe regression worth investigating.
     // Math.random gives ~41 bits of entropy — birthday-collision risk
     // emerges around ~1.5M IDs in a single document, at which point
-    // findNode / findParentId could mis-resolve to the first matching id.
+    // findNode / findParent could mis-resolve to the first matching id.
     console.warn(
       "createId: crypto.randomUUID unavailable; using Math.random fallback"
     );
@@ -112,13 +112,17 @@ export function findNode(root: XmlNode, targetId: string): XmlNode | null {
   return null;
 }
 
-export function findParentId(root: XmlNode, targetId: string): string | null {
+// Returns the parent NODE (not just the id), so callers don't need a
+// follow-up findNode lookup to read fields off the parent. Returns null
+// if `targetId` is the root (root has no parent in the tree) or if no
+// node with `targetId` exists.
+export function findParent(root: XmlNode, targetId: string): XmlNode | null {
   for (const child of root.children) {
     if (child.id === targetId) {
-      return root.id;
+      return root;
     }
 
-    const result = findParentId(child, targetId);
+    const result = findParent(child, targetId);
     if (result) {
       return result;
     }
