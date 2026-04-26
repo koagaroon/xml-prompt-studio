@@ -5,16 +5,8 @@ export function validateDocument(root: XmlNode): ValidationIssue[] {
 
   const walk = (node: XmlNode) => {
     const tagName = node.tagName.trim();
-    if (!tagName) {
-      issues.push({
-        nodeId: node.id,
-        message: "Tag name cannot be empty."
-      });
-    } else if (!isValidXmlName(tagName)) {
-      issues.push({
-        nodeId: node.id,
-        message: "Tag name does not match the W3C XML 1.0 Name production."
-      });
+    if (!tagName || !isValidXmlName(tagName)) {
+      issues.push({ nodeId: node.id });
     }
 
     node.children.forEach(walk);
@@ -56,18 +48,13 @@ export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
       byTagName.set(tagName, group);
     });
 
-    byTagName.forEach((group, tagName) => {
+    byTagName.forEach((group) => {
       if (group.length < 2) {
         return;
       }
 
-      const parentTag = node.tagName.trim();
-      const location = parentTag ? `under <${parentTag}>` : "among siblings";
       group.forEach((duplicateNode) => {
-        issues.push({
-          nodeId: duplicateNode.id,
-          message: `Duplicate element name <${tagName}> ${location}.`
-        });
+        issues.push({ nodeId: duplicateNode.id });
       });
     });
 

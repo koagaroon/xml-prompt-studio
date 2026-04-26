@@ -13,7 +13,7 @@ import type { NodeOutlineItem, XmlNode } from "./types";
 import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
 
 // Hard-coded preset chip list. User-configurable presets is a v3 question.
-const PRESET_NAMES = ["feedback", "question", "instruction", "extra"];
+const PRESET_NAMES = ["feedback", "question", "instruction", "extra"] as const;
 
 // Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
 // Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
@@ -78,7 +78,7 @@ export default function App() {
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
-  const [showConfirmReset, setShowConfirmReset] = useState(false);
+  const [showConfirmNewBlank, setShowConfirmNewBlank] = useState(false);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
   // Increments each time a preset chip overwrites a non-empty tag name.
   // The Tag Name input wrapper renders a transient overlay keyed on this
@@ -96,7 +96,7 @@ export default function App() {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   // Refs on the ribbon and body so the modal's focus trap can mark them
-  // inert while the dialog is open (see the showConfirmReset effect below).
+  // inert while the dialog is open (see the showConfirmNewBlank effect below).
   // Using the DOM .inert property directly avoids depending on @types/react's
   // inert prop typing, which shifts across minor versions.
   const ribbonRef = useRef<HTMLElement>(null);
@@ -193,7 +193,7 @@ export default function App() {
     elementOutline.find((item) => item.id === activeNode.id)?.depth ?? 0;
 
   const requestNewBlank = () => {
-    setShowConfirmReset(true);
+    setShowConfirmNewBlank(true);
   };
 
   const confirmNewBlank = () => {
@@ -201,11 +201,11 @@ export default function App() {
     setDocumentRoot(nextRoot);
     setSelectedNodeId(nextRoot.id);
     setErrorMessage("");
-    setShowConfirmReset(false);
+    setShowConfirmNewBlank(false);
   };
 
   const cancelNewBlank = () => {
-    setShowConfirmReset(false);
+    setShowConfirmNewBlank(false);
   };
 
   const addChild = () => {
@@ -402,7 +402,7 @@ export default function App() {
   // overlay, screen readers don't announce the dialog, and on close the
   // keyboard user lands on <body> with no anchor back to where they were.
   useEffect(() => {
-    if (!showConfirmReset) {
+    if (!showConfirmNewBlank) {
       return;
     }
     // Capture the element that triggered the modal so focus can return
@@ -419,7 +419,7 @@ export default function App() {
     if (body) body.inert = true;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setShowConfirmReset(false);
+        setShowConfirmNewBlank(false);
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -431,7 +431,7 @@ export default function App() {
       // silent no-op, so order matters here.
       previouslyFocused?.focus();
     };
-  }, [showConfirmReset]);
+  }, [showConfirmNewBlank]);
 
   return (
     <div className="app-shell">
@@ -628,7 +628,7 @@ export default function App() {
         </section>
       </main>
 
-      {showConfirmReset && (
+      {showConfirmNewBlank && (
         // Overlay has no explicit role — the inner div carries
         // role="dialog" + aria-modal="true". Keeping a click handler on
         // the overlay for click-outside-to-cancel; AT users have Escape

@@ -5,9 +5,12 @@ export type XmlNode = {
   children: XmlNode[];
 };
 
+// `message` was dropped per v2 redesign Q4 — error text is no longer the
+// signaling channel. Validation issues now drive the row-level red highlight
+// + Tag Name input red border, both keyed off `nodeId`. The struct stays in
+// case future per-issue metadata (severity, hint, etc.) is needed.
 export type ValidationIssue = {
   nodeId: string;
-  message: string;
 };
 
 export type NodeOutlineItem = {
