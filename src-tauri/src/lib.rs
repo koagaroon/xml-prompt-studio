@@ -66,11 +66,15 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
     {
         // Try Wayland's wl-copy first (modern), fall back to X11's xclip
         // (legacy). Either may be missing depending on the distro / session
-        // type; the user gets a coherent error if both fail.
-        if spawn_and_pipe("wl-copy", &[], xml.as_bytes()).is_ok() {
-            return Ok(());
-        }
-        return spawn_and_pipe("xclip", &["-selection", "clipboard"], xml.as_bytes());
+        // type; if both fail, chain the errors (mirrors the arboard→native
+        // chaining above) so the user sees the full failure trail when
+        // diagnosing "why doesn't Copy work on this Linux session?".
+        let wl_err = match spawn_and_pipe("wl-copy", &[], xml.as_bytes()) {
+            Ok(()) => return Ok(()),
+            Err(err) => err,
+        };
+        return spawn_and_pipe("xclip", &["-selection", "clipboard"], xml.as_bytes())
+            .map_err(|xclip_err| format!("wl-copy: {wl_err}; xclip: {xclip_err}"));
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
