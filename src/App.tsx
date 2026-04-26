@@ -201,9 +201,16 @@ export default function App() {
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   // Depth of the currently active element. Read from the already-computed
-  // outline rather than walking the tree again.
+  // outline rather than walking the tree again. The find() should never
+  // miss — activeNode falls back to documentRoot, which is always at
+  // outline[0]. Fail closed (?? MAX_DEPTH) rather than open (?? 0) so
+  // a missed lookup refuses Add Child instead of silently bypassing the
+  // depth guard. The "Element nesting depth limit reached" message in
+  // that path is technically misleading, but the alternative is unbounded
+  // recursion if the invariant ever breaks.
   const activeDepth =
-    elementOutline.find((item) => item.id === activeNode.id)?.depth ?? 0;
+    elementOutline.find((item) => item.id === activeNode.id)?.depth ??
+    MAX_DEPTH;
 
   const requestNewBlank = () => {
     setShowConfirmNewBlank(true);
@@ -294,6 +301,12 @@ export default function App() {
       return;
     }
 
+    // Mixed pattern: closure read for findParentId + documentRoot.id
+    // fallback, functional updater for the tree mutation. Safe because
+    // the root's identity is stable — only confirmNewBlank replaces the
+    // root, and that path doesn't reach this function. Other handlers in
+    // this file commit to functional updaters; the closure reads here
+    // are intentional, not an oversight.
     const parentId = findParentId(documentRoot, activeNode.id);
     setDocumentRoot((current) => deleteNode(current, activeNode.id));
     setSelectedNodeId(parentId ?? documentRoot.id);
