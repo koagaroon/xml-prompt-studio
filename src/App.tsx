@@ -263,10 +263,16 @@ export default function App() {
     }
     const parentId = findParentId(documentRoot, activeNode.id);
     if (!parentId) {
+      // Active node is non-root but has no parent in the tree — should be
+      // unreachable by construction. Log so a future regression surfaces
+      // instead of "Add Sibling does nothing." Same shape as createId's
+      // crypto.randomUUID fallback (per principle 3 in the design doc).
+      console.warn("addSibling: parent of active node not found");
       return;
     }
     const parent = findNode(documentRoot, parentId);
     if (!parent) {
+      console.warn("addSibling: parent id resolved but node not found");
       return;
     }
     if (parent.children.length >= MAX_SIBLINGS) {

@@ -149,6 +149,15 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![copy_xml_to_clipboard])
         .setup(|app| {
+            // The window's `width` / `height` in tauri.conf.json (currently
+            // 1080×720) are the pre-setup-render initial size — what users
+            // see for the first frame before this closure runs. Once setup
+            // executes we override with monitor-derived dimensions clamped
+            // to [820, 1600] × [560, 1100]. The JSON values fall inside
+            // that clamp range so they remain a coherent fallback if
+            // monitor probing fails (e.g., headless environments), but
+            // they aren't algorithmically derived from the clamp; treat
+            // them as a sane default, not a designed midpoint.
             if let Some(window) = app.get_webview_window("main") {
                 let monitor = window
                     .current_monitor()
