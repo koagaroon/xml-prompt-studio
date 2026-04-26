@@ -227,6 +227,14 @@ export default function App() {
       setErrorMessage(`Element nesting depth limit reached (${MAX_DEPTH}).`);
       return;
     }
+    // Sibling-count guard, symmetric with addSibling. Add Child grows
+    // activeNode.children which addSibling would also grow; without this
+    // guard, holding Add Child reproduces the same O(N²) UI freeze the
+    // breadth cap was added to prevent.
+    if (activeNode.children.length >= MAX_SIBLINGS) {
+      setErrorMessage(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      return;
+    }
     const child = createNode();
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({
@@ -379,19 +387,16 @@ export default function App() {
     }
     const liveXml = buildPreview(documentRoot).xml;
 
-    // UTF-8 byte count is bounded above by 3 × liveXml.length (BMP-heavy
-    // worst case). When the upper bound is already under the cap, skip the
-    // full TextEncoder().encode() — saves a 50 MB Uint8Array allocation on
-    // the happy path. Only encode-and-measure when the string length is
-    // close enough that the bound doesn't decide it.
-    if (liveXml.length * 3 > MAX_XML_BYTES) {
+    // Reuse the same length × 3 short-circuit + TextEncoder fallback as the
+    // per-field caps via exceedsByteCap. The actual byte count is only
+    // needed for the user-facing error message, so it's computed inside
+    // the failure branch (one TextEncoder pass total in the worst case).
+    if (exceedsByteCap(liveXml, MAX_XML_BYTES)) {
       const liveBytes = new TextEncoder().encode(liveXml).length;
-      if (liveBytes > MAX_XML_BYTES) {
-        setErrorMessage(
-          `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
-        );
-        return;
-      }
+      setErrorMessage(
+        `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
+      );
+      return;
     }
 
     copyInFlight.current = true;
