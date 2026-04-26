@@ -688,7 +688,12 @@ select {
   align-items: start;
   padding: 0.05rem 0.2rem;
   border-radius: 6px;
-  white-space: pre-wrap;
+  /* `pre` (no wrap) preserves indentation for every line. The earlier
+     `pre-wrap` would visually break long URLs by wrapping continuations
+     to column 0, losing the depth indent. Long lines now extend past the
+     preview pane width and trigger its horizontal scroll (preview-pane
+     already has overflow: auto). */
+  white-space: pre;
 }
 
 .preview-line.is-active {
