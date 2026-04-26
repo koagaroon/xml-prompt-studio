@@ -29,7 +29,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 - [Tauri 2](https://tauri.app/) (Rust core + WebView2)
 - [React](https://react.dev/) 18 with TypeScript
 - [Vite](https://vite.dev/) frontend build
-- [arboard](https://github.com/1Password/arboard) clipboard layer (with a Windows `clip.exe` fallback for RDP / locked-clipboard cases)
+- [arboard](https://github.com/1Password/arboard) clipboard layer with cross-platform CLI fallbacks (Windows `clip.exe`, macOS `pbcopy`, Linux `wl-copy` / `xclip`) for RDP / locked-clipboard / sandboxed-Wayland cases
 - [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) fonts, bundled under SIL OFL 1.1
 
 ## Install & Run
@@ -66,9 +66,16 @@ npx tsc --noEmit
 
 ### Rust check
 
-The Rust crate lives at the repo root (no `src-tauri/` subdirectory), so `cargo` runs from the repo root:
+The Rust crate lives in `src-tauri/` (standard Tauri 2 layout):
 
 ```powershell
+cargo check --manifest-path src-tauri/Cargo.toml
+```
+
+Or from inside that directory:
+
+```powershell
+cd src-tauri
 cargo check
 ```
 
