@@ -31,6 +31,14 @@ const MAX_XML_BYTES = 50_000_000;
 // the guard exists so runaway "Add Child" clicks can't crash the app.
 const MAX_DEPTH = 256;
 
+// Soft cap on direct sibling count under any single parent. addSibling
+// allocates a freshly cloned tree + runs four useMemo walkers per click;
+// with no breadth bound, scripted/holdable clicks grow work as O(N²) and
+// freeze the UI around N≈10k. 1000 is far above any plausible authored
+// sibling count and well below the freeze. Symmetric to MAX_DEPTH for the
+// breadth axis.
+const MAX_SIBLINGS = 1000;
+
 // Stable element IDs for the form fields in the Input column. Earlier these
 // were per-active-node and churned on every selection, confusing autofill
 // and a11y caches even though there's only one of each on screen.
@@ -229,6 +237,14 @@ export default function App() {
     if (!parentId) {
       return;
     }
+    const parent = findNode(documentRoot, parentId);
+    if (!parent) {
+      return;
+    }
+    if (parent.children.length >= MAX_SIBLINGS) {
+      setErrorMessage(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      return;
+    }
 
     const sibling = createNode();
     setDocumentRoot((current) =>
@@ -279,12 +295,19 @@ export default function App() {
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
+    // Clear stale error strip on edit. After "Fix validation issues..." or
+    // "Sibling count limit reached..." appears, the user typing to fix it
+    // should make the strip go away — without this, it lingers until the
+    // next button-driven action. insertPreset reaches this through
+    // setActiveTagName so it's covered transitively.
+    setErrorMessage("");
   };
 
   const setActiveTextContent = (textContent: string) => {
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, textContent }))
     );
+    setErrorMessage("");
   };
 
   const insertPreset = (baseName: string) => {
@@ -331,14 +354,19 @@ export default function App() {
     }
     const liveXml = buildPreview(documentRoot).xml;
 
-    // Count UTF-8 bytes (matches the Rust-side cap exactly). JS string
-    // length is UTF-16 code units which can be up to 3× off for CJK / emoji.
-    const liveBytes = new TextEncoder().encode(liveXml).length;
-    if (liveBytes > MAX_XML_BYTES) {
-      setErrorMessage(
-        `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
-      );
-      return;
+    // UTF-8 byte count is bounded above by 3 × liveXml.length (BMP-heavy
+    // worst case). When the upper bound is already under the cap, skip the
+    // full TextEncoder().encode() — saves a 50 MB Uint8Array allocation on
+    // the happy path. Only encode-and-measure when the string length is
+    // close enough that the bound doesn't decide it.
+    if (liveXml.length * 3 > MAX_XML_BYTES) {
+      const liveBytes = new TextEncoder().encode(liveXml).length;
+      if (liveBytes > MAX_XML_BYTES) {
+        setErrorMessage(
+          `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
+        );
+        return;
+      }
     }
 
     copyInFlight.current = true;
@@ -368,13 +396,22 @@ export default function App() {
 
   // Modal accessibility: focus the Cancel button when the confirmation
   // dialog opens, mark the rest of the app inert so Tab focus is trapped
-  // inside the dialog, and let Escape cancel. Without this the originating
-  // ribbon button keeps focus, Tab can escape behind the overlay, and screen
-  // readers don't announce the dialog's appearance.
+  // inside the dialog, let Escape cancel, and restore focus to the
+  // triggering element on close. Without this the originating ribbon
+  // button keeps focus while the modal opens, Tab can escape behind the
+  // overlay, screen readers don't announce the dialog, and on close the
+  // keyboard user lands on <body> with no anchor back to where they were.
   useEffect(() => {
     if (!showConfirmReset) {
       return;
     }
+    // Capture the element that triggered the modal so focus can return
+    // there on close. Falls back to null if active element is something
+    // other than HTMLElement (e.g., SVG elements aren't focusable here).
+    const previouslyFocused =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     cancelButtonRef.current?.focus();
     const ribbon = ribbonRef.current;
     const body = bodyRef.current;
@@ -390,6 +427,9 @@ export default function App() {
       window.removeEventListener("keydown", handleKey);
       if (ribbon) ribbon.inert = false;
       if (body) body.inert = false;
+      // Restore focus AFTER un-inerting — focusing an inert element is a
+      // silent no-op, so order matters here.
+      previouslyFocused?.focus();
     };
   }, [showConfirmReset]);
 
@@ -656,14 +696,17 @@ function buildElementLabel(node: XmlNode): string {
   return `<${tagName}>${suffix}`;
 }
 
-// `maxLength` is the cap on output length, not on input. The ellipsis
-// counts toward the cap — slice(0, maxLength - 1) reserves one character
-// for "…", so the returned string is at most `maxLength` characters total.
+// `maxLength` is the cap on output length (in code points), not on input.
+// The ellipsis counts toward the cap — one code point is reserved for "…".
+// Iterates by code point via Array.from instead of slicing UTF-16 code
+// units, so supplementary-plane characters (CJK Extension B like 𠮷, emoji
+// like 🦀) at the boundary aren't split into orphan surrogates.
 function truncate(value: string, maxLength: number): string {
-  if (value.length <= maxLength) {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= maxLength) {
     return value;
   }
-  return `${value.slice(0, maxLength - 1)}…`;
+  return `${codePoints.slice(0, maxLength - 1).join("")}…`;
 }
 
 // Find the lowest unused integer ≥1 among siblings whose tagName matches
