@@ -27,9 +27,17 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     // Try arboard with a borrowed slice first — `set_text` accepts
     // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
     // fails. Saves a 50 MB clone on the happy path.
+    //
+    // When arboard fails AND the native fallback also fails, surface both
+    // error messages — diagnosing "why does Copy fail on this machine?"
+    // wants both signals (e.g., "arboard: clipboard busy; fallback:
+    // clip.exe stderr"), not just the last one. When the fallback
+    // succeeds, the arboard error is intentionally dropped: the user got
+    // their clipboard content, no need to spam them.
     match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.as_str())) {
         Ok(()) => Ok(()),
-        Err(_) => fallback_copy_native(&xml),
+        Err(arb_err) => fallback_copy_native(&xml)
+            .map_err(|fb_err| format!("arboard: {arb_err}; fallback: {fb_err}")),
     }
 }
 
