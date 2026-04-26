@@ -41,6 +41,11 @@ export function updateNode(
   };
 }
 
+// Deletes the node with `targetId` from `root`'s subtree. Caller must
+// ensure targetId ≠ root.id — root cannot delete itself, and calling with
+// the root id returns a clone of root with no deletion. Spec §2.1 (exactly
+// one root element) is the reason; "wipe to blank" routes through New
+// Blank, not Delete.
 export function deleteNode(root: XmlNode, targetId: string): XmlNode {
   return {
     ...root,

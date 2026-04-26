@@ -255,7 +255,15 @@ export default function App() {
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
+    // Root has no siblings to swap with; skip the work to avoid producing a
+    // freshly cloned tree that triggers all four useMemo walkers + a render
+    // for what is semantically a no-op. Matches the addSibling /
+    // removeSelectedNode pattern.
+    if (isRoot) {
+      return;
+    }
     setDocumentRoot((current) => moveNode(current, activeNode.id, direction));
+    setErrorMessage("");
   };
 
   const setActiveTagName = (tagName: string) => {
