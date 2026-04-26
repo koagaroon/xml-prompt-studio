@@ -12,6 +12,15 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+# Tauri major upgrade checklist (only triggers when WE choose to bump from
+# `^2` to `^3`; SemVer pin prevents silent jumps):
+#   1. Audit `tauri = { version, features }` below — list ONLY the features
+#      the app actually uses and add `default-features = false`. Tauri 2's
+#      defaults pull a plugin set we never touch; trimming shrinks the
+#      attack surface.
+#   2. Re-check `src-tauri/tauri.conf.json` CSP `connect-src` value
+#      (`https://ipc.localhost`) — the IPC scheme can change across Tauri
+#      majors. Mismatch silently breaks the IPC bridge.
 [dependencies]
 arboard = "3.4.1"
 tauri = { version = "2", features = [] }

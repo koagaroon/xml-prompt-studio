@@ -510,6 +510,14 @@ export default function App() {
                   // governs parser-time inline `style="..."` attribute
                   // strings and `<style>` blocks. The calc() in styles.css
                   // is unrelated to this; it's just where the var is read.
+                  //
+                  // React major upgrade checklist (only triggers when WE
+                  // bump `react` past 18 in package.json): verify React
+                  // still uses DOM setProperty() for `--*` custom vars
+                  // rather than emitting them as `style="..."` attribute
+                  // strings. The latter would be blocked by CSP
+                  // `style-src 'self'` and depth indentation would
+                  // silently collapse to 0.
                   style={{ "--depth": item.depth } as React.CSSProperties}
                   onClick={() => setSelectedNodeId(item.id)}
                 >
