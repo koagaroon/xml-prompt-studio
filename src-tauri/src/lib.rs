@@ -25,58 +25,104 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
         ));
     }
     // Try arboard with a borrowed slice first — `set_text` accepts
-    // `Into<Cow<str>>` so a borrow is enough. Only clone for the fallback
-    // path, which actually needs to keep the string alive past arboard's
-    // failure. Saves a 50 MB clone on the happy path.
+    // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
+    // fails. Saves a 50 MB clone on the happy path.
     match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.as_str())) {
         Ok(()) => Ok(()),
-        Err(_) => fallback_copy_via_clip(&xml),
+        Err(_) => fallback_copy_native(&xml),
     }
 }
 
-fn fallback_copy_via_clip(xml: &str) -> Result<(), String> {
-    let mut child = Command::new("clip")
+// Cross-platform fallback when arboard fails. Each OS has a built-in
+// command-line clipboard tool; we shell out as a last resort. This whole
+// path triggers rarely (arboard failure is the trigger) but matters when
+// it does — RDP sessions on Windows, sandboxed Wayland on Linux, etc.
+fn fallback_copy_native(xml: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        // clip.exe expects UTF-16 LE + BOM via stdin; without the BOM,
+        // CJK characters end up garbled.
+        return spawn_and_pipe("clip", &[], &utf16le_with_bom(xml));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // pbcopy reads UTF-8 from stdin by default.
+        return spawn_and_pipe("pbcopy", &[], xml.as_bytes());
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Try Wayland's wl-copy first (modern), fall back to X11's xclip
+        // (legacy). Either may be missing depending on the distro / session
+        // type; the user gets a coherent error if both fail.
+        if spawn_and_pipe("wl-copy", &[], xml.as_bytes()).is_ok() {
+            return Ok(());
+        }
+        return spawn_and_pipe(
+            "xclip",
+            &["-selection", "clipboard"],
+            xml.as_bytes(),
+        );
+    }
+    #[cfg(not(any(
+        target_os = "windows",
+        target_os = "macos",
+        target_os = "linux"
+    )))]
+    {
+        let _ = xml; // silence unused-variable warning on unsupported OSes
+        return Err(
+            "Clipboard fallback not implemented for this operating system."
+                .to_string(),
+        );
+    }
+}
+
+// Shared helper for "spawn a command, write payload to its stdin, surface
+// success/failure as Result<(), String>". All three native fallbacks share
+// the same shape; centralizing the error handling keeps the per-OS branches
+// short and consistent.
+fn spawn_and_pipe(cmd: &str, args: &[&str], payload: &[u8]) -> Result<(), String> {
+    let mut child = Command::new(cmd)
+        .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("{}: {}", cmd, error))?;
 
     // If stdin handle is missing (rare but possible if the child process
     // failed to plumb its pipe), bail with an explicit error rather than
-    // silently writing nothing — clip.exe would otherwise report success
+    // silently writing nothing — the child would otherwise report success
     // on empty input and the user would see a bloom on an empty clipboard.
     let stdin = child
         .stdin
         .as_mut()
-        .ok_or_else(|| "clip.exe stdin handle missing".to_string())?;
+        .ok_or_else(|| format!("{} stdin handle missing", cmd))?;
     stdin
-        .write_all(&utf16le_with_bom(xml))
-        .map_err(|error| error.to_string())?;
+        .write_all(payload)
+        .map_err(|error| format!("{}: {}", cmd, error))?;
 
     let output = child.wait_with_output().map_err(|error| error.to_string())?;
     if output.status.success() {
-        Ok(())
+        return Ok(());
+    }
+
+    // Stderr decoding caveat (Windows-specific but harmless elsewhere):
+    // on Chinese Windows the OEM codepage is CP936/GBK, not UTF-8, so
+    // `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD.
+    // Acceptable for this rare failure path. Don't "simplify" this away.
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+    if stderr.is_empty() {
+        // Empty stderr → surface a non-empty fallback so the front-end
+        // error strip (which renders only on truthy errorMessage) shows
+        // *something* instead of staying invisible.
+        Err(format!("{} failed with no stderr output.", cmd))
     } else {
-        // clip.exe stderr is rarely populated, but on Chinese Windows the
-        // OEM codepage is CP936/GBK, not UTF-8 — `from_utf8_lossy` will
-        // replace non-UTF-8 bytes with U+FFFD. Acceptable for this rare
-        // double-failure path (arboard AND clip.exe both fail). If we ever
-        // need to surface the message verbatim, adopt `encoding_rs` and
-        // detect the active codepage. Don't "simplify" this comment away.
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        // When clip.exe fails with empty stderr (it usually does), surface a
-        // non-empty fallback string. An empty error message would suppress
-        // the front-end error strip entirely (see App.tsx — `{errorMessage
-        // && ...}`), so the user would see no feedback at all.
-        if stderr.is_empty() {
-            Err("Clipboard write failed (arboard and clip.exe both failed).".to_string())
-        } else {
-            Err(stderr)
-        }
+        Err(stderr)
     }
 }
 
+#[cfg(target_os = "windows")]
 fn utf16le_with_bom(value: &str) -> Vec<u8> {
     // Pre-allocate the output buffer to avoid the ~25 reallocations that
     // happen as Vec grows from 0 to ~50 MB. UTF-16 of UTF-8 input is at
