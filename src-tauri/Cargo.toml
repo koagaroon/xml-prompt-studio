@@ -22,5 +22,5 @@ tauri-build = { version = "2", features = [] }
 #      (`https://ipc.localhost`) — the IPC scheme can change across Tauri
 #      majors. Mismatch silently breaks the IPC bridge.
 [dependencies]
-arboard = "3.4.1"
+arboard = "3.6.1"
 tauri = { version = "2", features = [] }
