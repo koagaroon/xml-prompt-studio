@@ -538,25 +538,28 @@ export default function App() {
                   type="button"
                   className={cx(
                     "element-row",
+                    `depth-${Math.min(item.depth, 12)}`,
                     isActive && "is-active",
                     hasIssue && "has-issue"
                   )}
                   aria-current={isActive ? "true" : undefined}
-                  // React mutates `element.style` via DOM (setProperty for
-                  // custom vars, property assignment for normal props) —
-                  // neither requires CSP `unsafe-inline`, which only
-                  // governs parser-time inline `style="..."` attribute
-                  // strings and `<style>` blocks. The calc() in styles.css
-                  // is unrelated to this; it's just where the var is read.
+                  // Depth indentation is applied via the `depth-N` class,
+                  // not via inline `style={{ "--depth": ... }}`. The
+                  // earlier inline-CSS-variable approach silently
+                  // collapsed to 0 in production builds: React 18 emits
+                  // the `style={{...}}` prop as a parser-time
+                  // `style="..."` attribute string in some commit paths,
+                  // which is governed by CSP `style-src 'self'` and gets
+                  // stripped by Chromium. Dev mode (Vite HMR) is more
+                  // permissive about CSP, which is why the bug was
+                  // invisible until the production exe was inspected.
+                  // Class-based padding goes through `class=""` parsing
+                  // and is unaffected by `style-src`.
                   //
-                  // React major upgrade checklist (only triggers when WE
-                  // bump `react` past 18 in package.json): verify React
-                  // still uses DOM setProperty() for `--*` custom vars
-                  // rather than emitting them as `style="..."` attribute
-                  // strings. The latter would be blocked by CSP
-                  // `style-src 'self'` and depth indentation would
-                  // silently collapse to 0.
-                  style={{ "--depth": item.depth } as React.CSSProperties}
+                  // The cap at 12 mirrors styles.css — there are
+                  // `.depth-0` through `.depth-12` rules; rows deeper
+                  // than 12 reuse `.depth-12`'s indent (rare in practice;
+                  // typical trees are 4–6 deep).
                   onClick={() => setSelectedNodeId(item.id)}
                 >
                   <span className="element-label">{item.label}</span>
