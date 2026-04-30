@@ -485,53 +485,66 @@ export default function App() {
   return (
     <div className="app-shell">
       <header className="ribbon" ref={ribbonRef}>
-        <button type="button" onClick={requestNewBlank}>
+        {/* Three-zone layout: anchor-left | cluster (centered, flex: 1) |
+            anchor-right. New Blank and Copy XML are the two anchor actions
+            — the things the user is most likely to do — and read as equal
+            visual weight. The five per-element operations sit in the center
+            cluster as a visually compact group with no internal divider. */}
+        <button
+          type="button"
+          className="new-blank-button"
+          onClick={requestNewBlank}
+        >
           New Blank
         </button>
-        <span className="ribbon-divider" aria-hidden="true" />
-        <button type="button" onClick={addChild}>
-          Add Child
-        </button>
-        <button type="button" onClick={addSibling} disabled={isRoot}>
-          Add Sibling
-        </button>
-        <button type="button" onClick={() => moveSelectedNode(-1)}>
-          Move Up
-        </button>
-        <button type="button" onClick={() => moveSelectedNode(1)}>
-          Move Down
-        </button>
-        <button
-          type="button"
-          className="danger-button"
-          onClick={removeSelectedNode}
-          disabled={isRoot}
-        >
-          Delete
-        </button>
-        {/* Theme toggle sits between Delete and Copy XML in DOM order. The
-            icon shown is the destination (sun = "click to go light", moon =
-            "click to go dark"). */}
-        <button
-          type="button"
-          className="theme-toggle"
-          onClick={toggleTheme}
-          aria-label={
-            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-          }
-          title={
-            theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-          }
-        >
-          {theme === "dark" ? <SunIcon /> : <MoonIcon />}
-        </button>
-        {/* Copy XML is the app's primary action — pushed to the far right end
-            of the ribbon (margin-left: auto on .copy-button) and rendered
-            bold to read at a different visual level than the per-element
-            operations in the middle. */}
-        <button type="button" className="copy-button" onClick={copyPreview}>
-          Copy XML
-        </button>
+
+        <div className="ribbon-cluster">
+          <button type="button" onClick={addChild}>
+            Add Child
+          </button>
+          <button type="button" onClick={addSibling} disabled={isRoot}>
+            Add Sibling
+          </button>
+          <button type="button" onClick={() => moveSelectedNode(-1)}>
+            Move Up
+          </button>
+          <button type="button" onClick={() => moveSelectedNode(1)}>
+            Move Down
+          </button>
+          <button
+            type="button"
+            className="danger-button"
+            onClick={removeSelectedNode}
+            disabled={isRoot}
+          >
+            Delete
+          </button>
+        </div>
+
+        <div className="ribbon-right">
+          {/* Theme toggle is a meta/settings control, not a document action,
+              so it sits with the Copy XML anchor on the right. The icon
+              shown is the destination (sun = "click to go light", moon =
+              "click to go dark"). */}
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={toggleTheme}
+            aria-label={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
+            title={
+              theme === "dark"
+                ? "Switch to light mode"
+                : "Switch to dark mode"
+            }
+          >
+            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+          </button>
+          <button type="button" className="copy-button" onClick={copyPreview}>
+            Copy XML
+          </button>
+        </div>
       </header>
 
       <main className="body" ref={bodyRef}>

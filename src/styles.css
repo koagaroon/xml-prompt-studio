@@ -234,29 +234,52 @@ select {
   padding: 0.75rem;
 }
 
-/* === RIBBON === */
+/* === RIBBON ===
+   Three-zone layout: New Blank anchor (left) · cluster (center, flex: 1)
+   · theme + Copy XML (right). The cluster takes remaining width and
+   centers its children, putting the per-element ops between the two
+   anchor actions. New Blank and Copy XML are visually equal weight (both
+   bold + larger padding) but distinct paint so the user can tell them
+   apart at a glance — Copy XML uses the primary blue fill, New Blank
+   uses an outlined-prominent treatment (thick border, transparent fill).
+*/
 
 .ribbon {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 0.5rem;
   padding: 0.6rem 0.75rem;
   border-radius: 14px;
   background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   backdrop-filter: blur(18px);
-  align-items: center;
   flex-shrink: 0;
   transition:
     background 200ms ease,
     border-color 200ms ease;
 }
 
-.ribbon-divider {
-  width: 1px;
-  height: 1.6rem;
-  background: var(--border-divider);
-  margin: 0 0.25rem;
+.ribbon-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+
+  /* flex: 1 lets the cluster take all remaining space between the two
+     anchors, which keeps it centered relative to the ribbon as long as
+     the anchors have similar widths. min-width: 0 allows it to shrink
+     past content size so flex-wrap on its children can kick in for
+     narrow windows. */
+  flex: 1;
+  min-width: 0;
+}
+
+.ribbon-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .ribbon button {
@@ -295,9 +318,8 @@ select {
   background: var(--btn-danger-hover);
 }
 
-/* Theme toggle: small icon button, no text. Sits between Delete and Copy XML
-   (in the ribbon DOM order); still gets pushed against the right group
-   because Copy XML is the only button with margin-left: auto. */
+/* Theme toggle: small icon button, no text. Lives in .ribbon-right next
+   to Copy XML — meta/settings control sits with the right-side anchor. */
 .ribbon button.theme-toggle {
   padding: 0.45rem 0.55rem;
   display: inline-flex;
@@ -310,13 +332,30 @@ select {
   height: 1.05rem;
 }
 
-/* Copy XML is the app's primary action. Pinned to the right end via
-   margin-left: auto, rendered bold and on a brighter accent so it reads at
-   a different visual level than the per-element ops. The trailing space
-   between Delete (or theme toggle) and Copy XML is the visual separator —
-   no divider needed. */
+/* New Blank anchor (left side of ribbon). Outlined-prominent treatment:
+   thick 2px border, transparent fill, bold weight, same padding as Copy
+   XML. Reads as an anchor action (equal visual weight to Copy XML) but
+   distinct paint — the user can spot which one is the destructive-reset
+   action vs. the success/exit action without parsing the label. */
+.ribbon button.new-blank-button {
+  font-weight: 700;
+  background: transparent;
+  border-width: 2px;
+  border-color: var(--btn-secondary-border-hover);
+  letter-spacing: 0.02em;
+  padding: 0.5rem 1.15rem;
+}
+
+.ribbon button.new-blank-button:hover:not(:disabled) {
+  background: var(--btn-secondary-hover);
+  border-color: var(--btn-primary-border-hover);
+  color: var(--text-primary);
+}
+
+/* Copy XML anchor (right side of ribbon). Primary action, filled blue,
+   bold weight. Reads as the "default" action — what the user came here
+   to do. */
 .ribbon button.copy-button {
-  margin-left: auto;
   font-weight: 700;
   background: var(--btn-primary-bg);
   border-color: var(--btn-primary-border);
