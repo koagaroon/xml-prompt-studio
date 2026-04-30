@@ -102,6 +102,12 @@
   --issue-input-bg: rgb(60 18 30 / 55%);
   --badge-bg: rgb(133 56 75 / 90%);
   --badge-text: #ffd9e2;
+
+  /* Warning strip (amber). Distinct from --issue-bg's red because warnings
+     report a side effect on a successful action (e.g., a preset restore
+     now collides with a sibling), not a refusal or failure. */
+  --warning-bg: rgb(120 75 25 / 80%);
+  --warning-text: #ffe5b3;
   --chip-bg: rgb(34 53 79 / 60%);
   --chip-border: rgb(255 255 255 / 10%);
   --chip-text: rgb(201 245 255 / 95%);
@@ -159,6 +165,8 @@
   --issue-input-bg: rgb(254 240 240 / 70%);
   --badge-bg: rgb(220 80 110 / 95%);
   --badge-text: #fff;
+  --warning-bg: rgb(254 235 200 / 95%);
+  --warning-text: #7a4500;
   --chip-bg: rgb(232 240 252 / 70%);
   --chip-border: rgb(50 97 159 / 20%);
   --chip-text: #0f2540;
@@ -722,6 +730,16 @@ select {
   color: var(--issue-text);
   font-size: 0.88rem;
   flex-shrink: 0;
+}
+
+/* Warning variant — amber-toned. Used when an action succeeded but
+   produced a side effect worth surfacing, e.g. restoring a preset chip's
+   prior tag name where a sibling now occupies that slot. The duplicate
+   itself shows via the existing red row highlight + Duplicate badge;
+   this strip explains why it just appeared. */
+.error-strip.is-warning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
 }
 
 /* === PREVIEW COLUMN === */

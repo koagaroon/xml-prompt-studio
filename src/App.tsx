@@ -60,6 +60,20 @@ const TEXT_CONTENT_INPUT_ID = "text-content-area";
 
 type Theme = "dark" | "light";
 
+// Per-element preset state. `lastApplied` is the chip name most recently
+// applied to this element; clicking the same chip again is a no-op while
+// this matches. `history` records, for each chip ever used on this
+// element, the exact tag name that was written — so clicking chip A
+// (yields A_3), then chip B (yields B_1), then A again restores A_3
+// rather than recomputing a fresh A_4. Manual edits to the tag name
+// clear `lastApplied` (so the next chip click applies) but preserve
+// `history` (so a subsequent chip click restores its prior name). See
+// docs/architecture/xml_prompt_studio_design.md for the full semantics.
+type ElementPresetMemory = {
+  lastApplied: string | null;
+  history: Map<string, string>;
+};
+
 // Read the initial theme from the same source the inline bootstrap script
 // in index.html uses, so React state and the DOM data-theme attribute agree
 // from the very first render. Falls back to system preference, then dark.
@@ -88,6 +102,14 @@ export default function App() {
   // React ignores the value after mount.
   const [selectedNodeId, setSelectedNodeId] = useState(() => documentRoot.id);
   const [errorMessage, setErrorMessage] = useState("");
+  // Severity controls the visual treatment of the message strip — red for
+  // errors (something failed or is blocked), amber for warnings (the action
+  // succeeded but produced a side effect worth noting, e.g. a preset
+  // restore now collides with a sibling). Severity is only read when
+  // errorMessage is non-empty, so we don't bother resetting it on clear.
+  const [errorSeverity, setErrorSeverity] = useState<"error" | "warning">(
+    "error"
+  );
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
@@ -115,6 +137,27 @@ export default function App() {
   const ribbonRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLElement>(null);
 
+  // Per-element preset state, keyed by node id. Tracks which chip was last
+  // applied (to make repeat clicks of the same chip a no-op) and what tag
+  // name each chip last produced on this element (so switching to another
+  // chip and back restores the original suffix instead of recomputing a
+  // fresh one). Lives in a ref because none of this state drives rendering
+  // — the visible tag name comes from documentRoot, which the chip
+  // handlers update via setDocumentRoot. Storage cost is tiny: a 100-
+  // element doc fully cycled is ~10 KB. Lifecycle: entries are added on
+  // first chip use against an element, swept on element delete, and
+  // wiped wholesale on New Blank.
+  const presetMemoryRef = useRef<Map<string, ElementPresetMemory>>(new Map());
+
+  const getPresetMemory = (nodeId: string): ElementPresetMemory => {
+    let memory = presetMemoryRef.current.get(nodeId);
+    if (!memory) {
+      memory = { lastApplied: null, history: new Map() };
+      presetMemoryRef.current.set(nodeId, memory);
+    }
+    return memory;
+  };
+
   // Preview is the slow recompute (string join over textContent that may be
   // large). Deferring its input lets typing in the Tag Name / Text Content
   // inputs stay responsive — React keeps the previous preview frame visible
@@ -136,6 +179,22 @@ export default function App() {
 
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
+  };
+
+  // Message-strip helpers. Centralized so every site that surfaces a
+  // user-facing message also sets the right severity, instead of every
+  // call having to remember to set both pieces of state. Errors stop or
+  // refuse an action; warnings let it proceed but flag a side effect.
+  const showError = (text: string) => {
+    setErrorMessage(text);
+    setErrorSeverity("error");
+  };
+  const showWarning = (text: string) => {
+    setErrorMessage(text);
+    setErrorSeverity("warning");
+  };
+  const clearMessage = () => {
+    clearMessage();
   };
 
   const activeNode = useMemo(
@@ -220,7 +279,11 @@ export default function App() {
     const nextRoot = createBlankDocument();
     setDocumentRoot(nextRoot);
     setSelectedNodeId(nextRoot.id);
-    setErrorMessage("");
+    clearMessage();
+    // New document means every old node ID is gone — wipe the entire
+    // memory map so it doesn't accumulate orphan entries across many
+    // "new blank" cycles.
+    presetMemoryRef.current.clear();
     setShowConfirmNewBlank(false);
   };
 
@@ -231,7 +294,7 @@ export default function App() {
   const addChild = () => {
     // Soft depth guard — refuse rather than risk stack overflow on render.
     if (activeDepth >= MAX_DEPTH) {
-      setErrorMessage(`Element nesting depth limit reached (${MAX_DEPTH}).`);
+      showError(`Element nesting depth limit reached (${MAX_DEPTH}).`);
       return;
     }
     // Sibling-count guard, symmetric with addSibling. Add Child grows
@@ -239,7 +302,7 @@ export default function App() {
     // guard, holding Add Child reproduces the same O(N²) UI freeze the
     // breadth cap was added to prevent.
     if (activeNode.children.length >= MAX_SIBLINGS) {
-      setErrorMessage(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`);
       return;
     }
     const child = createNode();
@@ -250,7 +313,7 @@ export default function App() {
       }))
     );
     setSelectedNodeId(child.id);
-    setErrorMessage("");
+    clearMessage();
   };
 
   const addSibling = () => {
@@ -258,7 +321,7 @@ export default function App() {
     // create a second root, violating well-formedness. The button is also
     // disabled at root level in the UI; this guard is defensive.
     if (isRoot) {
-      setErrorMessage("The root element cannot have a sibling.");
+      showError("The root element cannot have a sibling.");
       return;
     }
     const parent = findParent(documentRoot, activeNode.id);
@@ -271,7 +334,7 @@ export default function App() {
       return;
     }
     if (parent.children.length >= MAX_SIBLINGS) {
-      setErrorMessage(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`);
       return;
     }
 
@@ -291,7 +354,7 @@ export default function App() {
       })
     );
     setSelectedNodeId(sibling.id);
-    setErrorMessage("");
+    clearMessage();
   };
 
   const removeSelectedNode = () => {
@@ -318,9 +381,21 @@ export default function App() {
       activeNode.id,
       documentRoot.id
     );
+
+    // Sweep presetMemory for the deleted node and all its descendants —
+    // those IDs no longer exist anywhere in the tree, so leaving entries
+    // keyed by them is a small per-delete leak. Only the deleted subtree
+    // is swept; siblings' memories are untouched. The "freed-suffix slot
+    // flows into sibling chip behavior" extension was discussed and
+    // skipped — that rabbit hole has no bottom.
+    const deletedIds = collectSubtreeIds(activeNode);
+    for (const id of deletedIds) {
+      presetMemoryRef.current.delete(id);
+    }
+
     setDocumentRoot((current) => deleteNode(current, activeNode.id));
     setSelectedNodeId(target);
-    setErrorMessage("");
+    clearMessage();
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
@@ -332,14 +407,12 @@ export default function App() {
       return;
     }
     setDocumentRoot((current) => moveNode(current, activeNode.id, direction));
-    setErrorMessage("");
+    clearMessage();
   };
 
   const setActiveTagName = (tagName: string) => {
     if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
-      setErrorMessage(
-        `Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`
-      );
+      showError(`Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`);
       return;
     }
     setDocumentRoot((current) =>
@@ -350,12 +423,12 @@ export default function App() {
     // should make the strip go away — without this, it lingers until the
     // next button-driven action. insertPreset reaches this through
     // setActiveTagName so it's covered transitively.
-    setErrorMessage("");
+    clearMessage();
   };
 
   const setActiveTextContent = (textContent: string) => {
     if (exceedsByteCap(textContent, MAX_TEXT_CONTENT_BYTES)) {
-      setErrorMessage(
+      showError(
         `Text content too long (limit ${MAX_TEXT_CONTENT_BYTES} bytes).`
       );
       return;
@@ -363,29 +436,84 @@ export default function App() {
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, textContent }))
     );
-    setErrorMessage("");
+    clearMessage();
   };
 
-  const insertPreset = (baseName: string) => {
-    // If the active element already has a non-empty tag name, trigger the
-    // amber-flash overlay so the user notices the overwrite. Doesn't block
-    // the re-pick flow (no modal, no debounce) — just a visual cue.
+  const insertPreset = (chipName: string) => {
+    const memory = getPresetMemory(activeNode.id);
+
+    // Same-chip rapid click → no-op. lastApplied is cleared whenever the
+    // tag name is manually edited (see the Tag Name input's onChange), so
+    // this only blocks repeat clicks on a chip we just applied or restored.
+    if (memory.lastApplied === chipName) {
+      return;
+    }
+
+    const parent = findParent(documentRoot, activeNode.id);
+
+    // Decide which name to apply.
+    //   - If this chip has been used on this element before, restore the
+    //     exact name we wrote last time. Lets the user switch between
+    //     chips without losing the original suffix on either side.
+    //   - First time the chip touches this element, compute the next-free
+    //     `<chip>_<N>` suffix among siblings.
+    let nameToApply: string;
+    let collisionWarning = false;
+
+    const previous = memory.history.get(chipName);
+    if (previous !== undefined) {
+      nameToApply = previous;
+      // Restoration may collide with a sibling that has taken the slot
+      // since we last used this chip here. We restore anyway (keeps the
+      // promise that this chip → this name on this element), but flag
+      // the collision so the user knows why a duplicate badge just
+      // appeared on the row.
+      if (parent) {
+        const collidingSibling = parent.children.find(
+          (c) => c.id !== activeNode.id && c.tagName.trim() === nameToApply
+        );
+        collisionWarning = collidingSibling !== undefined;
+      }
+    } else if (!parent) {
+      // Active element is root (no siblings under spec §2.1's single-root
+      // invariant). Just use _1.
+      nameToApply = `${chipName}_1`;
+    } else {
+      const suffix = nextAvailableSuffix(parent, chipName);
+      nameToApply = `${chipName}_${suffix}`;
+    }
+
+    // Visual cue when overwriting a non-empty tag — same amber flash the
+    // prior version used. Skipped for empty → first-fill, since there's
+    // nothing being overwritten.
     if (activeNode.tagName.trim() !== "") {
       setPresetOverwriteFlash((k) => k + 1);
     }
 
-    // B-style suffix: every click writes `<base>_<N>` — even the first one is
-    // `_1`, not bare `<base>`. N is the lowest unused integer ≥1 among the
-    // active element's siblings whose tagName matches `<base>_<digits>`.
-    const parent = findParent(documentRoot, activeNode.id);
-    if (!parent) {
-      // Active element is root (no siblings under single-root invariant).
-      // Just use _1.
-      setActiveTagName(`${baseName}_1`);
-      return;
+    // Apply the name directly (skipping setActiveTagName, which would
+    // clearMessage and force us to re-set the warning afterward — one
+    // extra render). Byte-cap check is unnecessary here: chip names are
+    // bounded short by construction, and history values came from a
+    // prior valid apply.
+    setDocumentRoot((current) =>
+      updateNode(current, activeNode.id, (node) => ({
+        ...node,
+        tagName: nameToApply
+      }))
+    );
+
+    // Record the apply in memory. lastApplied prevents repeat clicks; the
+    // history entry lets a subsequent chip switch restore back here.
+    memory.history.set(chipName, nameToApply);
+    memory.lastApplied = chipName;
+
+    if (collisionWarning) {
+      showWarning(
+        `Restored "${nameToApply}" — a sibling already uses that name, so it now shows as a duplicate.`
+      );
+    } else {
+      clearMessage();
     }
-    const suffix = nextAvailableSuffix(parent, baseName);
-    setActiveTagName(`${baseName}_${suffix}`);
   };
 
   const copyPreview = async () => {
@@ -401,7 +529,7 @@ export default function App() {
     // text after rapid type-then-click.
     const liveIssues = validateDocument(documentRoot);
     if (liveIssues.length > 0) {
-      setErrorMessage("Fix validation issues before copying XML.");
+      showError("Fix validation issues before copying XML.");
       return;
     }
     const liveXml = buildPreview(documentRoot).xml;
@@ -412,7 +540,7 @@ export default function App() {
     // the failure branch (one TextEncoder pass total in the worst case).
     if (exceedsByteCap(liveXml, MAX_XML_BYTES)) {
       const liveBytes = new TextEncoder().encode(liveXml).length;
-      setErrorMessage(
+      showError(
         `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
       );
       return;
@@ -424,7 +552,7 @@ export default function App() {
       // Increment token → bloom overlay remounts → CSS animation replays.
       // Q5 locked: green is reserved for Copy XML success only.
       setCopyToken((t) => t + 1);
-      setErrorMessage("");
+      clearMessage();
     } catch (error) {
       // Tauri commands reject with a string (the Err(String) returned by
       // Rust), not an `Error` instance. Branch on the actual runtime shape:
@@ -437,7 +565,7 @@ export default function App() {
           : error instanceof Error
             ? error.message
             : "Failed to copy XML to clipboard.";
-      setErrorMessage(message);
+      showError(message);
     } finally {
       copyInFlight.current = false;
     }
@@ -606,7 +734,17 @@ export default function App() {
               name="tagName"
               value={activeNode.tagName}
               className={cx("tag-name-input", tagNameInvalid && "input-error")}
-              onChange={(event) => setActiveTagName(event.target.value)}
+              onChange={(event) => {
+                setActiveTagName(event.target.value);
+                // Manual typing clears `lastApplied` so the next chip
+                // click applies (vs. staying a no-op). `history` is
+                // preserved — clicking a previously-used chip afterward
+                // still restores its prior tag name on this element.
+                const memory = presetMemoryRef.current.get(activeNode.id);
+                if (memory) {
+                  memory.lastApplied = null;
+                }
+              }}
             />
             {/* Amber pulse on the input border when a preset chip overwrote
                 a non-empty tag. Key change forces remount, which replays the
@@ -647,7 +785,13 @@ export default function App() {
           />
 
           {errorMessage && (
-            <div className="error-strip" role="alert">
+            <div
+              className={cx(
+                "error-strip",
+                errorSeverity === "warning" && "is-warning"
+              )}
+              role="alert"
+            >
               {errorMessage}
             </div>
           )}
@@ -754,6 +898,24 @@ function createElementOutline(
 
   walk(root, 0);
   return items;
+}
+
+// Walks a subtree and returns every node ID it contains, including the
+// passed-in node. Used by removeSelectedNode to sweep presetMemory for
+// every entry that's about to become orphaned by the delete. Iterative
+// stack-based walk to match the implicit O(N) deleteNode cost without
+// adding recursion depth on top of it.
+function collectSubtreeIds(root: XmlNode): string[] {
+  const ids: string[] = [];
+  const stack: XmlNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    ids.push(node.id);
+    for (const child of node.children) {
+      stack.push(child);
+    }
+  }
+  return ids;
 }
 
 // Picks which element to select after the active one is deleted. The user-
