@@ -78,14 +78,17 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   // and have them appear literally in the prompt. Don't reintroduce escaping
   // unless adding an explicit "strict mode" toggle.
   //
-  // Caveat for future maintainers: if textContent contains "\n", a single
-  // PreviewLine.text will render across multiple visual rows because
-  // styles.css applies `white-space: pre` to .preview-line. The
-  // "1 PreviewLine = 1 visual row" assumption holds in layout most of
-  // the time but breaks here. Virtualization (e.g., react-window) can't
-  // be wired in without first splitting newline-bearing text into one
-  // PreviewLine per physical line, while preserving the (nodeId, kind)
-  // key uniqueness above (likely by adding a per-line index to kind).
+  // Caveat for future maintainers: a single PreviewLine.text can render
+  // across multiple visual rows in two cases — (1) if textContent contains
+  // "\n" (preserved by `white-space: pre-wrap` in styles.css), and (2) if
+  // the line is long enough to wrap inside the preview column (also from
+  // `pre-wrap` + `overflow-wrap: anywhere`). The "1 PreviewLine = 1 visual
+  // row" assumption holds for short single-line content but breaks in both
+  // cases above. Virtualization (e.g., react-window) can't be wired in
+  // without first splitting newline-bearing text into one PreviewLine per
+  // physical line and accounting for variable wrap heights, while
+  // preserving the (nodeId, kind) key uniqueness above (likely by adding
+  // a per-line index to kind).
   const textContent = node.textContent;
 
   // Spec §3.1 distinguishes three forms — empty-element tag, start+end-tag

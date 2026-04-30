@@ -309,8 +309,17 @@ export default function App() {
     // this file commit to functional updaters; the closure reads here
     // are intentional, not an oversight.
     const parent = findParent(documentRoot, activeNode.id);
+    // Pick the next selection BEFORE deletion so child indices are stable.
+    // Preference: previous sibling > next sibling > parent. Matches list-
+    // editor convention (file managers, table row deletes) where focus
+    // collapses toward the nearest neighbor, not jumps up a level.
+    const target = nextSelectionAfterDelete(
+      parent,
+      activeNode.id,
+      documentRoot.id
+    );
     setDocumentRoot((current) => deleteNode(current, activeNode.id));
-    setSelectedNodeId(parent?.id ?? documentRoot.id);
+    setSelectedNodeId(target);
     setErrorMessage("");
   };
 
@@ -600,7 +609,7 @@ export default function App() {
           </div>
 
           <div className="preset-chips">
-            <span className="preset-label">Quick fill:</span>
+            <span className="preset-label">Preset:</span>
             {PRESET_NAMES.map((name) => (
               <button
                 key={name}
@@ -732,6 +741,33 @@ function createElementOutline(
 
   walk(root, 0);
   return items;
+}
+
+// Picks which element to select after the active one is deleted. The user-
+// expected behavior is "fall to the nearest neighbor", which matches list
+// editors elsewhere — file managers, table row deletes, etc. Order:
+// previous sibling > next sibling > parent (only-child fallback). The
+// `fallbackId` is used when the parent lookup fails, which should be
+// unreachable for non-root deletes but keeps the function total.
+function nextSelectionAfterDelete(
+  parent: XmlNode | null,
+  deletedId: string,
+  fallbackId: string
+): string {
+  if (!parent) {
+    return fallbackId;
+  }
+  const idx = parent.children.findIndex((c) => c.id === deletedId);
+  if (idx === -1) {
+    return fallbackId;
+  }
+  if (idx > 0) {
+    return parent.children[idx - 1].id;
+  }
+  if (parent.children.length > 1) {
+    return parent.children[idx + 1].id;
+  }
+  return parent.id;
 }
 
 function buildElementLabel(node: XmlNode): string {

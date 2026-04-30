@@ -720,12 +720,17 @@ select {
   padding: 0.05rem 0.2rem;
   border-radius: 6px;
 
-  /* `pre` (no wrap) preserves indentation for every line. The earlier
-     `pre-wrap` would visually break long URLs by wrapping continuations
-     to column 0, losing the depth indent. Long lines now extend past the
-     preview pane width and trigger its horizontal scroll (preview-pane
-     already has overflow: auto). */
-  white-space: pre;
+  /* `pre-wrap` lets long content wrap inside the preview column so users
+     can review prompt text at a glance without horizontal scroll. The
+     tradeoff: wrapped continuations land at column 0 of the text cell
+     (not aligned with the leading indent of the original line), so deeply
+     indented long lines lose their indent visually on the wrap. Acceptable
+     for the prompt-review use case — readability of full text wins over
+     preserving indent on overflow. `overflow-wrap: anywhere` covers
+     pathological inputs (long URLs, contiguous CJK with no breakpoints)
+     by allowing breaks mid-token instead of letting them overflow. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .preview-line.is-active {
