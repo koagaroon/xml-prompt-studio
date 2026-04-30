@@ -653,6 +653,30 @@ select {
    Layout: [label] [chip-list (flex:1, scrolls)] [controls (right-pinned)].
    The chip list scrolls horizontally when squeezed so cog/Reset stay
    visible regardless of window width. */
+/* Field-level message rendered just below an input it relates to (the
+   Tag Name input today; can be applied to other fields later). Pads
+   into a small chip-like strip; severity controls the color. Lives
+   close to the field rather than in the global bottom strip — the cue
+   sits where the user is already looking. */
+.field-message {
+  margin-top: 0.4rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.field-message.is-warning {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.field-message.is-error {
+  background: var(--issue-bg);
+  color: var(--issue-text);
+}
+
 .preset-chips {
   display: flex;
   align-items: center;

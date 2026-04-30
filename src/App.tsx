@@ -248,6 +248,18 @@ export default function App() {
   // duplicate). Cleared on successful commit or cancel.
   const [chipEditError, setChipEditError] = useState("");
 
+  // Field-level message attached to the Tag Name input (rendered just
+  // below the input, not in the global error strip at the bottom of the
+  // column). `forNodeId` tags the element the message was raised for —
+  // a render-time check below ensures the message only shows for that
+  // element, so switching to another element makes it disappear without
+  // an effect+setState dance.
+  const [tagNameMessage, setTagNameMessage] = useState<{
+    text: string;
+    severity: "error" | "warning";
+    forNodeId: string;
+  } | null>(null);
+
   // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
   // IPC calls and arboard's global Windows clipboard handle races between
   // them. Single boolean ref prevents re-entry until the active call settles.
@@ -315,6 +327,7 @@ export default function App() {
       /* swallow — storage failure shouldn't break chip editing */
     }
   }, [presetChips]);
+
 
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
@@ -391,6 +404,15 @@ export default function App() {
     () => createElementOutline(documentRoot, duplicateNodeIds),
     [documentRoot, duplicateNodeIds]
   );
+
+  // The tag-name field-level message, gated on the element it was
+  // raised for. Switching elements makes the prior message disappear
+  // without us having to clear it explicitly. If the user comes back
+  // and is still at the cap, typing a key fires a fresh message.
+  const activeTagNameMessage =
+    tagNameMessage && tagNameMessage.forNodeId === activeNode.id
+      ? tagNameMessage
+      : null;
 
   // Which preset chip name (if any) is the lastApplied for the current
   // active element. Used to give that chip a subtle "is-applied"
@@ -681,11 +703,9 @@ export default function App() {
     // cap is the UX ceiling. Array.from counts codepoints so emoji /
     // supplementary-plane chars don't get split.
     //
-    // On overflow we truncate AND fire an amber warning rather than
-    // rejecting silently. With `maxLength` on the input the browser
-    // would block past-cap typing without telling the user; explicit
-    // truncate-and-warn surfaces the limit. The warning persists past
-    // the apply (we don't clearMessage in this branch).
+    // Both messages route to tagNameMessage (rendered immediately below
+    // the input) instead of the global bottom strip — the alert is
+    // about THIS field, so the cue lives next to it.
     let limitWarning: string | null = null;
     const codepoints = Array.from(tagName);
     if (codepoints.length > MAX_TAG_NAME_LENGTH) {
@@ -693,25 +713,31 @@ export default function App() {
       tagName = codepoints.slice(0, MAX_TAG_NAME_LENGTH).join("");
     }
     if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
-      // After codepoint truncation, still over byte cap — would only
-      // happen with many supplementary-plane chars within 24 codepoints.
-      // Reject (the user's last-good value is preserved).
-      showError(`Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`);
+      // After codepoint truncation, still over byte cap — only happens
+      // with many supplementary-plane chars within 24 codepoints. Reject
+      // (the user's last-good value is preserved).
+      setTagNameMessage({
+        text: `Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`,
+        severity: "error",
+        forNodeId: activeNode.id
+      });
       return;
     }
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
-    // Clear stale error strip on edit, OR show the limit warning if we
-    // just truncated. Without this, "Fix validation issues..." /
-    // "Sibling count limit reached..." would linger until the next
-    // button-driven action. insertPreset reaches this through
-    // setActiveTagName so it's covered transitively.
     if (limitWarning) {
-      showWarning(limitWarning);
+      setTagNameMessage({
+        text: limitWarning,
+        severity: "warning",
+        forNodeId: activeNode.id
+      });
     } else {
-      clearMessage();
+      setTagNameMessage(null);
     }
+    // Clear any stale GLOBAL message (depth/sibling/validation/copy) on
+    // tag-name edit. The field-level message above is independent.
+    clearMessage();
   };
 
   const setActiveTextContent = (textContent: string) => {
@@ -802,6 +828,10 @@ export default function App() {
     } else {
       clearMessage();
     }
+    // Chip-applied names are bounded short by construction (chip names
+    // ≤ 24 chars, suffix is `_<digits>`). A stale "reached the limit"
+    // warning from prior typing in this element no longer applies.
+    setTagNameMessage(null);
   };
 
   const copyPreview = async () => {
@@ -1050,6 +1080,22 @@ export default function App() {
               />
             )}
           </div>
+          {/* Field-level message anchored to the Tag Name input. Lives
+              here (not in the global bottom strip) because it's about
+              THIS field's value — the user looks at the input, the cue
+              should be next to it. Carries severity for color (amber
+              warning vs red error). */}
+          {activeTagNameMessage && (
+            <div
+              className={cx(
+                "field-message",
+                `is-${activeTagNameMessage.severity}`
+              )}
+              role="alert"
+            >
+              {activeTagNameMessage.text}
+            </div>
+          )}
 
           <div className={cx("preset-chips", editMode && "edit-mode")}>
             <span className="preset-label">Preset:</span>
