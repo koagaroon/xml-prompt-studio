@@ -772,10 +772,14 @@ select {
   /* Cap so individual chips never sprawl. Combined with the 24-char
      logical cap (MAX_PRESET_NAME_LENGTH in App.tsx) this only kicks in
      for adversarial input — but it prevents any chip from breaking the
-     row's visual rhythm. The inner .chip-label handles ellipsis on its
-     own; no overflow:hidden on the pill itself, which would clip the
-     keyboard focus outline (the inner label is what receives focus). */
+     row's visual rhythm. `overflow: hidden` clips inner backgrounds
+     (notably the chip-delete hover wash) to the pill's rounded right
+     corner instead of letting them bleed past as a square. The keyboard
+     focus indicator stays visible because it's drawn on the outer
+     .chip via `:has(:focus-visible)` (see the focus rule), not on the
+     inner buttons that would get clipped. */
   max-width: 12rem;
+  overflow: hidden;
   flex-shrink: 0;
   transition:
     background 120ms ease,
@@ -1120,13 +1124,16 @@ select {
 
 .ribbon button:focus-visible,
 .chip:focus-visible,
-.chip-label:focus-visible,
-.chip-delete:focus-visible,
+.chip:has(:focus-visible),
 .chip-add:focus-visible,
 .preset-cog:focus-visible,
 .preset-reset:focus-visible,
 .element-row:focus-visible,
 .dialog-buttons button:focus-visible {
+  /* For the chip pill, the outline lives on the outer .chip (via the
+     plain :focus-visible on the chip-editing input, or :has() for the
+     span case). Putting it on the inner chip-label / chip-delete would
+     get the outline clipped by the pill's `overflow: hidden`. */
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
