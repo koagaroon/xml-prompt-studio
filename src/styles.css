@@ -577,39 +577,6 @@ select {
   letter-spacing: 0.04em;
 }
 
-/* Wrapper makes the absolutely-positioned amber-flash overlay (when a
-   preset chip overwrites a non-empty tag) line up exactly with the input. */
-.tag-name-wrap {
-  position: relative;
-  display: flex;
-}
-
-.tag-name-wrap .tag-name-input {
-  flex: 1;
-}
-
-/* Transient overlay: brief amber pulse around the Tag Name input when a
-   preset chip overwrote a non-empty value. The element is keyed on
-   presetOverwriteFlash in App.tsx so each click remounts and replays the
-   animation; pointer-events: none keeps it from intercepting input focus. */
-.preset-overwrite-flash {
-  position: absolute;
-  inset: 0;
-  border-radius: 8px;
-  pointer-events: none;
-  animation: preset-overwrite-pulse 250ms ease-out forwards;
-}
-
-@keyframes preset-overwrite-pulse {
-  0% {
-    box-shadow: inset 0 0 0 2px rgb(245 175 70 / 85%);
-  }
-
-  100% {
-    box-shadow: inset 0 0 0 0 transparent;
-  }
-}
-
 /* Middle column is the main work area — text sizes are intentionally larger
    than the side columns to reduce attention pressure when reading/editing. */
 .tag-name-input {
@@ -881,32 +848,6 @@ select {
 /* :has() (Chromium 105+; Tauri 2's WebView2 / WKWebView / WebKitGTK
    all support it). */
 
-/* "Already applied" indicator — the chip whose tag name is currently on
-   the active element. Signals that clicking it again is a no-op
-   (lastApplied lock). Uses the saturated primary-blue + white text +
-   bold weight, same vocabulary as the Copy XML anchor button — the
-   user reads it as "this is the active/important one" without having
-   to learn a new color cue. Earlier draft used --row-active which sat
-   at almost the same shade as the default chip bg and was effectively
-   invisible. Suppressed in edit mode by the JSX (use mode only). */
-.chip.is-applied {
-  background: var(--btn-primary-bg);
-  border-color: var(--btn-primary-border);
-  color: #fff;
-}
-
-.chip.is-applied .chip-label {
-  font-weight: 600;
-}
-
-/* Leading ✓ mark in an is-applied chip — the unmistakable indicator that
-   stays visible regardless of hover state (the hover bg and the applied
-   bg are similar saturated blues, so color alone can't carry the cue). */
-.chip-applied-mark {
-  display: inline-block;
-  margin-right: 0.3em;
-  font-weight: 700;
-}
 
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
    border signals "empty slot you can fill" — distinct from solid chips. */

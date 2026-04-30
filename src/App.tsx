@@ -214,12 +214,6 @@ export default function App() {
     null
   );
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
-  // Increments each time a preset chip overwrites a non-empty tag name.
-  // The Tag Name input wrapper renders a transient overlay keyed on this
-  // counter, so each increment remounts the overlay and replays the
-  // amber-flash animation — letting the user notice "I just overwrote
-  // something" without blocking their re-pick flow.
-  const [presetOverwriteFlash, setPresetOverwriteFlash] = useState(0);
 
   // User-customizable preset chip list, persisted to localStorage. The
   // initial value is read from storage (with shape validation); a useEffect
@@ -257,6 +251,15 @@ export default function App() {
   const [tagNameMessage, setTagNameMessage] = useState<{
     text: string;
     severity: "error" | "warning";
+    forNodeId: string;
+  } | null>(null);
+
+  // Field-level message for the preset chip row. Today carries one
+  // case: the user clicked an already-applied chip (lastApplied lock),
+  // which is a no-op — the warning explains why nothing happened.
+  // Same forNodeId render-time gating as tagNameMessage.
+  const [presetMessage, setPresetMessage] = useState<{
+    text: string;
     forNodeId: string;
   } | null>(null);
 
@@ -413,21 +416,10 @@ export default function App() {
     tagNameMessage && tagNameMessage.forNodeId === activeNode.id
       ? tagNameMessage
       : null;
-
-  // Which preset chip name (if any) is the lastApplied for the current
-  // active element. Used to give that chip a subtle "is-applied"
-  // treatment in the row, signaling that clicking it again is a no-op.
-  //
-  // Reads from the ref during render is intentional: every mutation we
-  // do to memory.lastApplied (in insertPreset, the tag-name onChange,
-  // removeSelectedNode's sweep, confirmNewBlank's clear) is paired with
-  // a setDocumentRoot or setSelectedNodeId call. By the time React
-  // renders, the ref already holds the value the new state implies, so
-  // mirroring lastApplied into useState would just duplicate the same
-  // information. The react-hooks/refs lint rule can't see the pairing
-  // invariant, so the disable below is explicit.
-  // eslint-disable-next-line react-hooks/refs -- intentional: see comment above
-  const activeLastApplied = presetMemoryRef.current.get(activeNode.id)?.lastApplied ?? null;
+  const activePresetMessage =
+    presetMessage && presetMessage.forNodeId === activeNode.id
+      ? presetMessage
+      : null;
 
   const isRoot = activeNode.id === documentRoot.id;
   const tagNameInvalid = validationIssues.some(
@@ -759,7 +751,13 @@ export default function App() {
     // Same-chip rapid click → no-op. lastApplied is cleared whenever the
     // tag name is manually edited (see the Tag Name input's onChange), so
     // this only blocks repeat clicks on a chip we just applied or restored.
+    // Surface a warning strip explaining why nothing changed; without it
+    // the click is silent and the user thinks the app is broken.
     if (memory.lastApplied === chipName) {
+      setPresetMessage({
+        text: `"${chipName}" is already applied to this element — clicking it won't change the tag name.`,
+        forNodeId: activeNode.id
+      });
       return;
     }
 
@@ -797,13 +795,6 @@ export default function App() {
       nameToApply = `${chipName}_${suffix}`;
     }
 
-    // Visual cue when overwriting a non-empty tag — same amber flash the
-    // prior version used. Skipped for empty → first-fill, since there's
-    // nothing being overwritten.
-    if (activeNode.tagName.trim() !== "") {
-      setPresetOverwriteFlash((k) => k + 1);
-    }
-
     // Apply the name directly (skipping setActiveTagName, which would
     // clearMessage and force us to re-set the warning afterward — one
     // extra render). Byte-cap check is unnecessary here: chip names are
@@ -832,6 +823,9 @@ export default function App() {
     // ≤ 24 chars, suffix is `_<digits>`). A stale "reached the limit"
     // warning from prior typing in this element no longer applies.
     setTagNameMessage(null);
+    // Successful chip apply also moots any "already applied" warning
+    // (we just changed which chip is the lastApplied one).
+    setPresetMessage(null);
   };
 
   const copyPreview = async () => {
@@ -935,31 +929,49 @@ export default function App() {
             anchor-right. New Blank and Copy XML are the two anchor actions
             — the things the user is most likely to do — and read as equal
             visual weight. The five per-element operations sit in the center
-            cluster as a visually compact group with no internal divider. */}
+            cluster as a visually compact group with no internal divider.
+            All ribbon buttons carry `tabIndex={-1}` so the keyboard tab
+            cycle is just Tag Name ↔ Text Content (per user spec). They
+            stay mouse-clickable as before. */}
         <button
           type="button"
           className="new-blank-button"
+          tabIndex={-1}
           onClick={requestNewBlank}
         >
           New Blank
         </button>
 
         <div className="ribbon-cluster">
-          <button type="button" onClick={addChild}>
+          <button type="button" tabIndex={-1} onClick={addChild}>
             Add Child
           </button>
-          <button type="button" onClick={addSibling} disabled={isRoot}>
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={addSibling}
+            disabled={isRoot}
+          >
             Add Sibling
           </button>
-          <button type="button" onClick={() => moveSelectedNode(-1)}>
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => moveSelectedNode(-1)}
+          >
             Move Up
           </button>
-          <button type="button" onClick={() => moveSelectedNode(1)}>
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={() => moveSelectedNode(1)}
+          >
             Move Down
           </button>
           <button
             type="button"
             className="danger-button"
+            tabIndex={-1}
             onClick={removeSelectedNode}
             disabled={isRoot}
           >
@@ -975,6 +987,7 @@ export default function App() {
           <button
             type="button"
             className="theme-toggle"
+            tabIndex={-1}
             onClick={toggleTheme}
             aria-label={
               theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
@@ -987,7 +1000,12 @@ export default function App() {
           >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
-          <button type="button" className="copy-button" onClick={copyPreview}>
+          <button
+            type="button"
+            className="copy-button"
+            tabIndex={-1}
+            onClick={copyPreview}
+          >
             Copy XML
           </button>
         </div>
@@ -1011,6 +1029,7 @@ export default function App() {
                     hasIssue && "has-issue"
                   )}
                   aria-current={isActive ? "true" : undefined}
+                  tabIndex={-1}
                   // Depth indentation is applied via the `depth-N` class,
                   // not via inline `style={{ "--depth": ... }}`. The
                   // earlier inline-CSS-variable approach silently
@@ -1046,40 +1065,30 @@ export default function App() {
           <label className="field-label" htmlFor={TAG_NAME_INPUT_ID}>
             Tag Name
           </label>
-          <div className="tag-name-wrap">
-            <input
-              id={TAG_NAME_INPUT_ID}
-              name="tagName"
-              value={activeNode.tagName}
-              className={cx("tag-name-input", tagNameInvalid && "input-error")}
-              // No `maxLength` here on purpose — letting the browser
-              // silently truncate would hide the cap from the user.
-              // setActiveTagName below truncates AND fires an amber
-              // warning so the user knows the cap was hit.
-              onChange={(event) => {
-                setActiveTagName(event.target.value);
-                // Manual typing clears `lastApplied` so the next chip
-                // click applies (vs. staying a no-op). `history` is
-                // preserved — clicking a previously-used chip afterward
-                // still restores its prior tag name on this element.
-                const memory = presetMemoryRef.current.get(activeNode.id);
-                if (memory) {
-                  memory.lastApplied = null;
-                }
-              }}
-            />
-            {/* Amber pulse on the input border when a preset chip overwrote
-                a non-empty tag. Key change forces remount, which replays the
-                CSS animation. pointer-events: none so it doesn't intercept
-                clicks/focus on the input below. */}
-            {presetOverwriteFlash > 0 && (
-              <div
-                key={presetOverwriteFlash}
-                className="preset-overwrite-flash"
-                aria-hidden="true"
-              />
-            )}
-          </div>
+          <input
+            id={TAG_NAME_INPUT_ID}
+            name="tagName"
+            value={activeNode.tagName}
+            className={cx("tag-name-input", tagNameInvalid && "input-error")}
+            // No `maxLength` here on purpose — letting the browser
+            // silently truncate would hide the cap from the user.
+            // setActiveTagName below truncates AND fires an amber
+            // warning so the user knows the cap was hit.
+            onChange={(event) => {
+              setActiveTagName(event.target.value);
+              // Manual typing clears `lastApplied` so the next chip
+              // click applies (vs. staying a no-op). `history` is
+              // preserved — clicking a previously-used chip afterward
+              // still restores its prior tag name on this element.
+              const memory = presetMemoryRef.current.get(activeNode.id);
+              if (memory) {
+                memory.lastApplied = null;
+              }
+              // Manual typing also moots any stale "already applied"
+              // warning — the tag name is no longer "set by chip X".
+              setPresetMessage(null);
+            }}
+          />
           {/* Field-level message anchored to the Tag Name input. Lives
               here (not in the global bottom strip) because it's about
               THIS field's value — the user looks at the input, the cue
@@ -1139,18 +1148,11 @@ export default function App() {
                   // The pill chrome (background, border, max-width) lives on
                   // the outer span; both the text and × buttons sit *inside*
                   // the pill perimeter so the × visually belongs to the
-                  // chip rather than dangling next to it.
-                  // `is-applied` highlights the chip whose tag name is
-                  // currently on the active element. Suppressed in edit
-                  // mode — clicking a chip there means "rename", not
-                  // "apply", so the use-time indicator would mislead.
-                  <span
-                    key={name}
-                    className={cx(
-                      "chip",
-                      !editMode && name === activeLastApplied && "is-applied"
-                    )}
-                  >
+                  // chip rather than dangling next to it. The "this preset
+                  // is already applied" cue is rendered as a warning strip
+                  // below the chip row when the user clicks an
+                  // already-applied chip — see presetMessage in insertPreset.
+                  <span key={name} className="chip">
                     <button
                       type="button"
                       className="chip-label"
@@ -1163,20 +1165,6 @@ export default function App() {
                         }
                       }}
                     >
-                      {/* Leading ✓ mark when this chip is the lastApplied
-                          for the active element. The earlier color-only
-                          version was hard to distinguish from the hover
-                          state (both saturated blue); a glyph prefix
-                          stays visible regardless of hover and reads
-                          unambiguously as "this is the active one". */}
-                      {!editMode && name === activeLastApplied && (
-                        <span
-                          className="chip-applied-mark"
-                          aria-hidden="true"
-                        >
-                          ✓
-                        </span>
-                      )}
                       {name}
                     </button>
                     {editMode && (
@@ -1265,6 +1253,11 @@ export default function App() {
           {editMode && chipEditError && (
             <div className="chip-edit-error" role="alert">
               {chipEditError}
+            </div>
+          )}
+          {!editMode && activePresetMessage && (
+            <div className="field-message is-warning" role="alert">
+              {activePresetMessage.text}
             </div>
           )}
 
