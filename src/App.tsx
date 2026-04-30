@@ -324,7 +324,7 @@ export default function App() {
     setErrorSeverity("warning");
   };
   const clearMessage = () => {
-    clearMessage();
+    setErrorMessage("");
   };
 
   const activeNode = useMemo(
@@ -1034,10 +1034,14 @@ export default function App() {
                   );
                 }
                 return (
-                  <span key={name} className="chip-wrap">
+                  // The pill chrome (background, border, max-width) lives on
+                  // the outer span; both the text and × buttons sit *inside*
+                  // the pill perimeter so the × visually belongs to the
+                  // chip rather than dangling next to it.
+                  <span key={name} className="chip">
                     <button
                       type="button"
-                      className="chip"
+                      className="chip-label"
                       onClick={() => {
                         if (editMode) {
                           startRenameChip(index);

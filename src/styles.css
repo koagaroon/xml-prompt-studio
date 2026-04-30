@@ -745,14 +745,20 @@ select {
   color: var(--text-primary);
 }
 
+/* The chip pill is the OUTER container — a span that holds the text
+   button and (in edit mode) the × delete button side-by-side. The pill's
+   background, border, and max-width live here; the inner buttons are
+   transparent so the × visually sits inside the pill rather than
+   dangling next to it. The editing variant (.chip.chip-editing) is an
+   <input> rather than a span, so it carries its own padding. */
 .chip {
+  display: inline-flex;
+  align-items: center;
   background: var(--chip-bg);
   border: 1px solid var(--chip-border);
   color: var(--chip-text);
   border-radius: 999px;
-  padding: 0.3rem 0.7rem;
   font-size: 0.82rem;
-  cursor: pointer;
   font-family:
     "JetBrains Mono",
     "Cascadia Mono",
@@ -762,16 +768,14 @@ select {
     "PingFang SC",
     "Noto Sans CJK SC",
     monospace;
-  display: inline-block;
 
-  /* Cap to keep individual chips from sprawling. Combined with the 24-
-     char logical cap (MAX_PRESET_NAME_LENGTH in App.tsx) this only kicks
-     in for adversarial input — but it prevents any chip from breaking
-     the row's visual rhythm. */
+  /* Cap so individual chips never sprawl. Combined with the 24-char
+     logical cap (MAX_PRESET_NAME_LENGTH in App.tsx) this only kicks in
+     for adversarial input — but it prevents any chip from breaking the
+     row's visual rhythm. The inner .chip-label handles ellipsis on its
+     own; no overflow:hidden on the pill itself, which would clip the
+     keyboard focus outline (the inner label is what receives focus). */
   max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   flex-shrink: 0;
   transition:
     background 120ms ease,
@@ -779,37 +783,56 @@ select {
     color 200ms ease;
 }
 
-.chip:hover {
-  background: var(--chip-hover-bg);
-  border-color: var(--chip-hover-border);
+/* Inner text button. Carries the pill's padding so the click target fills
+   the visible chip in use mode (no × present), and shrinks to make room
+   for the × in edit mode. flex: 1 + min-width: 0 lets ellipsis kick in
+   when the name is long and the pill hits its max-width. */
+.chip-label {
+  background: transparent;
+  border: none;
+  color: inherit;
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
-/* Chip + delete grouping in edit mode. Wraps both controls into a single
-   "chip" unit so they stay together when the row scrolls horizontally. */
-.chip-wrap {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.chip-wrap .chip-delete {
+/* × delete button. Sits inside the pill (same flex container as the
+   label), tucked to the right. No background by default so it reads as
+   "part of the chip"; on hover, picks up a subtle red wash to telegraph
+   the destructive action. */
+.chip-delete {
   background: transparent;
   border: none;
   color: var(--text-muted);
   font-size: 0.95rem;
   line-height: 1;
-  margin-left: -0.45rem;
-  padding: 0.2rem 0.45rem;
+  padding: 0.3rem 0.55rem 0.3rem 0.2rem;
   cursor: pointer;
-  border-radius: 999px;
+  flex-shrink: 0;
   transition:
     background 120ms ease,
     color 120ms ease;
 }
 
-.chip-wrap .chip-delete:hover {
+.chip-delete:hover {
   color: var(--issue-text);
   background: var(--issue-bg);
+}
+
+/* Hover on either inner control highlights the whole pill — gives the
+   chip a single visual hover state regardless of which child the cursor
+   is over. Uses :has() (Chromium 105+; Tauri 2's WebView2 / WKWebView /
+   WebKitGTK all support it). */
+.chip:has(.chip-label:hover),
+.chip:has(.chip-delete:hover) {
+  background: var(--chip-hover-bg);
+  border-color: var(--chip-hover-border);
 }
 
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
@@ -838,8 +861,11 @@ select {
 
 /* Inline-editable chip — same pill shape as .chip, but as a text input.
    Used both for renaming an existing chip (click chip text in edit mode)
-   and for naming a freshly added chip (click +). */
+   and for naming a freshly added chip (click +). The input is its own
+   element with no inner button to provide padding, so it carries
+   padding here directly. */
 .chip.chip-editing {
+  padding: 0.3rem 0.7rem;
   background: var(--bg-input);
   border: 1px solid var(--border-focus);
   color: var(--text-primary);
@@ -1083,6 +1109,7 @@ select {
 
 .ribbon button:focus-visible,
 .chip:focus-visible,
+.chip-label:focus-visible,
 .chip-delete:focus-visible,
 .chip-add:focus-visible,
 .preset-cog:focus-visible,
