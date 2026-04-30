@@ -176,6 +176,6 @@ const NAME_CHAR =
 // eslint-disable-next-line no-misleading-character-class
 const NAME_REGEX = new RegExp(`^[${NAME_START_CHAR}][${NAME_CHAR}]*$`, "u");
 
-function isValidXmlName(value: string): boolean {
+export function isValidXmlName(value: string): boolean {
   return NAME_REGEX.test(value);
 }

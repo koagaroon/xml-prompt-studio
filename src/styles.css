@@ -649,18 +649,100 @@ select {
   background: var(--issue-input-bg);
 }
 
+/* Preset chip row.
+   Layout: [label] [chip-list (flex:1, scrolls)] [controls (right-pinned)].
+   The chip list scrolls horizontally when squeezed so cog/Reset stay
+   visible regardless of window width. */
 .preset-chips {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.4rem;
   margin: 0.55rem 0 0.4rem;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 
 .preset-label {
   font-size: 0.78rem;
   color: var(--text-muted);
   margin-right: 0.2rem;
+  flex-shrink: 0;
+}
+
+.preset-chip-list {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+
+  /* Vertical padding so chips don't clip against the scroll-area edge. */
+  padding: 2px 0;
+  scrollbar-width: thin;
+}
+
+.preset-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+/* Cog toggles edit mode for the chip row. Active state shows when edit
+   mode is on — same accent color the row itself takes. */
+.preset-cog {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.3rem 0.4rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 200ms ease;
+}
+
+.preset-cog svg {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.preset-cog:hover {
+  color: var(--text-primary);
+  background: var(--btn-secondary-bg);
+}
+
+.preset-cog.is-active {
+  color: var(--text-accent);
+  background: var(--btn-secondary-bg);
+  border-color: var(--btn-secondary-border-hover);
+}
+
+/* Reset button (visible only in edit mode). Smaller than ribbon buttons,
+   sits next to the cog at the right end of the row. */
+.preset-reset {
+  background: transparent;
+  border: 1px solid var(--btn-secondary-border);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  padding: 0.3rem 0.65rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 200ms ease;
+}
+
+.preset-reset:hover {
+  background: var(--btn-secondary-hover);
+  border-color: var(--btn-secondary-border-hover);
+  color: var(--text-primary);
 }
 
 .chip {
@@ -680,6 +762,17 @@ select {
     "PingFang SC",
     "Noto Sans CJK SC",
     monospace;
+  display: inline-block;
+
+  /* Cap to keep individual chips from sprawling. Combined with the 24-
+     char logical cap (MAX_PRESET_NAME_LENGTH in App.tsx) this only kicks
+     in for adversarial input — but it prevents any chip from breaking
+     the row's visual rhythm. */
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition:
     background 120ms ease,
     border-color 120ms ease,
@@ -689,6 +782,85 @@ select {
 .chip:hover {
   background: var(--chip-hover-bg);
   border-color: var(--chip-hover-border);
+}
+
+/* Chip + delete grouping in edit mode. Wraps both controls into a single
+   "chip" unit so they stay together when the row scrolls horizontally. */
+.chip-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.chip-wrap .chip-delete {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  margin-left: -0.45rem;
+  padding: 0.2rem 0.45rem;
+  cursor: pointer;
+  border-radius: 999px;
+  transition:
+    background 120ms ease,
+    color 120ms ease;
+}
+
+.chip-wrap .chip-delete:hover {
+  color: var(--issue-text);
+  background: var(--issue-bg);
+}
+
+/* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
+   border signals "empty slot you can fill" — distinct from solid chips. */
+.chip-add {
+  background: transparent;
+  border: 1px dashed var(--chip-border);
+  color: var(--text-muted);
+  border-radius: 999px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 200ms ease;
+}
+
+.chip-add:hover {
+  color: var(--text-primary);
+  border-color: var(--chip-hover-border);
+  background: var(--chip-hover-bg);
+}
+
+/* Inline-editable chip — same pill shape as .chip, but as a text input.
+   Used both for renaming an existing chip (click chip text in edit mode)
+   and for naming a freshly added chip (click +). */
+.chip.chip-editing {
+  background: var(--bg-input);
+  border: 1px solid var(--border-focus);
+  color: var(--text-primary);
+  outline: none;
+  width: auto;
+  min-width: 6rem;
+  max-width: 12rem;
+}
+
+/* Per-edit validation message. Shown below the chip row when commit is
+   rejected. Cleared on successful commit, on cancel (Escape), and on
+   exiting edit mode. */
+.chip-edit-error {
+  margin-top: 0.4rem;
+  padding: 0.4rem 0.7rem;
+  border-radius: 8px;
+  background: var(--issue-bg);
+  color: var(--issue-text);
+  font-size: 0.78rem;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .text-content-area {
@@ -911,6 +1083,10 @@ select {
 
 .ribbon button:focus-visible,
 .chip:focus-visible,
+.chip-delete:focus-visible,
+.chip-add:focus-visible,
+.preset-cog:focus-visible,
+.preset-reset:focus-visible,
 .element-row:focus-visible,
 .dialog-buttons button:focus-visible {
   outline: 2px solid var(--border-focus);

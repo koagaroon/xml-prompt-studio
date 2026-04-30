@@ -10,10 +10,38 @@ import {
 } from "./document";
 import { copyXmlToClipboard } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
-import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
+import {
+  buildPreview,
+  findDuplicateNodes,
+  isValidXmlName,
+  validateDocument
+} from "./xml";
 
-// Hard-coded preset chip list. User-configurable presets is a v3 question.
-const PRESET_NAMES = ["feedback", "question", "instruction", "extra"] as const;
+// Default preset chip list. Becomes the starting state, and the target of
+// the Reset action. The list is editable at runtime in the UI (cog button
+// → edit mode), persisted to localStorage between sessions.
+const DEFAULT_PRESET_CHIPS = [
+  "feedback",
+  "question",
+  "instruction",
+  "extra"
+] as const;
+
+// Hard cap on chip count. Any code that iterates or counts presets reads
+// off `presetChips.length` / iterates the array — bumping this constant
+// only requires adjusting CSS layout tolerances; nothing else hardcodes 6.
+const MAX_PRESET_CHIPS = 6;
+
+// Hard cap on chip-name length, in code points. Generous for real chip
+// names ("feedback" is 8, "instruction" is 11) but tight enough that no
+// chip can sprawl across the input column or look broken in the row. The
+// rendered chip pill also gets a CSS `max-width` with ellipsis as a
+// belt-and-suspenders against pathological input.
+const MAX_PRESET_NAME_LENGTH = 24;
+
+// localStorage key for the persisted chip list. Same shape as the theme
+// key just above — read on first render, written on every change.
+const PRESET_CHIPS_STORAGE_KEY = "presetChips";
 
 // Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
 // Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
@@ -60,6 +88,27 @@ const TEXT_CONTENT_INPUT_ID = "text-content-area";
 
 type Theme = "dark" | "light";
 
+// Generic confirmation-modal request. Two confirmations exist today (New
+// Blank discard, Reset presets); both go through this same primitive. The
+// `confirmKind` controls the styling of the confirm button — destructive
+// actions get the red `danger-button` treatment, others stay neutral.
+type ConfirmRequest = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirmKind?: "danger" | "primary";
+  onConfirm: () => void;
+};
+
+// State for an in-flight chip edit (rename or add). `index` is the chip's
+// position in presetChips (or `presetChips.length` for a new chip).
+// `isNew` flags add-vs-rename so commit knows which mutation to do.
+type EditingChip = {
+  index: number;
+  draft: string;
+  isNew: boolean;
+};
+
 // Per-element preset state. `lastApplied` is the chip name most recently
 // applied to this element; clicking the same chip again is a no-op while
 // this matches. `history` records, for each chip ever used on this
@@ -77,6 +126,40 @@ type ElementPresetMemory = {
 // Read the initial theme from the same source the inline bootstrap script
 // in index.html uses, so React state and the DOM data-theme attribute agree
 // from the very first render. Falls back to system preference, then dark.
+// Read the persisted preset chip list (if any) and validate it before
+// trusting localStorage. Anything that fails the shape/validity check
+// quietly falls back to the defaults — better than carrying a corrupt
+// list forward across sessions.
+function readInitialPresetChips(): string[] {
+  if (typeof window === "undefined") {
+    return [...DEFAULT_PRESET_CHIPS];
+  }
+  try {
+    const stored = localStorage.getItem(PRESET_CHIPS_STORAGE_KEY);
+    if (stored) {
+      const parsed: unknown = JSON.parse(stored);
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.length <= MAX_PRESET_CHIPS &&
+        parsed.every(
+          (item) =>
+            typeof item === "string" &&
+            item.length > 0 &&
+            item.length <= MAX_PRESET_NAME_LENGTH &&
+            isValidXmlName(item)
+        )
+      ) {
+        return parsed as string[];
+      }
+    }
+  } catch {
+    // localStorage unavailable, JSON parse failed, or the stored shape
+    // is corrupt — fall through to defaults.
+  }
+  return [...DEFAULT_PRESET_CHIPS];
+}
+
 function readInitialTheme(): Theme {
   if (typeof window === "undefined") {
     return "dark";
@@ -113,7 +196,14 @@ export default function App() {
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
-  const [showConfirmNewBlank, setShowConfirmNewBlank] = useState(false);
+  // Generic confirmation modal state. `null` = closed; an object request =
+  // open with the given title/description/buttons. Both New Blank and the
+  // Reset-presets action surface their confirm dialog through this single
+  // primitive rather than each owning a separate showFoo flag — adding a
+  // third confirmation in the future is one new helper, not new state.
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(
+    null
+  );
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
   // Increments each time a preset chip overwrites a non-empty tag name.
   // The Tag Name input wrapper renders a transient overlay keyed on this
@@ -121,6 +211,33 @@ export default function App() {
   // amber-flash animation — letting the user notice "I just overwrote
   // something" without blocking their re-pick flow.
   const [presetOverwriteFlash, setPresetOverwriteFlash] = useState(0);
+
+  // User-customizable preset chip list, persisted to localStorage. The
+  // initial value is read from storage (with shape validation); a useEffect
+  // below writes back on every change.
+  const [presetChips, setPresetChips] = useState<string[]>(
+    readInitialPresetChips
+  );
+
+  // Edit-mode toggle for the preset chip row. When false: the row shows
+  // chips and a cog button; clicking a chip fills the active tag name
+  // (the normal "use" behavior). When true: chips also show × delete
+  // buttons, a + button appears at the end (when count < MAX_PRESET_CHIPS)
+  // for adding new chips, a Reset button appears for restoring defaults,
+  // and clicking a chip's text becomes the rename trigger.
+  const [editMode, setEditMode] = useState(false);
+
+  // The chip currently being renamed or newly added. `null` when no edit
+  // is in flight. `index` is the position in `presetChips` (or one past
+  // the end for a new chip); `draft` holds the in-flight text; `isNew`
+  // distinguishes add (commit creates a new entry) from rename (commit
+  // overwrites the existing one).
+  const [editingChip, setEditingChip] = useState<EditingChip | null>(null);
+
+  // Per-edit validation message shown below the chip row when a commit
+  // is rejected (empty / too long / invalid XML name / case-insensitive
+  // duplicate). Cleared on successful commit or cancel.
+  const [chipEditError, setChipEditError] = useState("");
 
   // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
   // IPC calls and arboard's global Windows clipboard handle races between
@@ -176,6 +293,19 @@ export default function App() {
       /* swallow — storage failure shouldn't break theme toggling */
     }
   }, [theme]);
+
+  // Persist preset chips on every change. readInitialPresetChips picks
+  // them back up on the next session via the same storage key.
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        PRESET_CHIPS_STORAGE_KEY,
+        JSON.stringify(presetChips)
+      );
+    } catch {
+      /* swallow — storage failure shouldn't break chip editing */
+    }
+  }, [presetChips]);
 
   const toggleTheme = () => {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
@@ -271,24 +401,135 @@ export default function App() {
     elementOutline.find((item) => item.id === activeNode.id)?.depth ??
     MAX_DEPTH;
 
+  const closeConfirm = () => {
+    setConfirmRequest(null);
+  };
+
+  const handleConfirm = () => {
+    if (!confirmRequest) {
+      return;
+    }
+    confirmRequest.onConfirm();
+    setConfirmRequest(null);
+  };
+
   const requestNewBlank = () => {
-    setShowConfirmNewBlank(true);
+    setConfirmRequest({
+      title: "Discard current document?",
+      description: "This will replace the document with a fresh blank.",
+      confirmLabel: "Confirm",
+      confirmKind: "danger",
+      onConfirm: () => {
+        const nextRoot = createBlankDocument();
+        setDocumentRoot(nextRoot);
+        setSelectedNodeId(nextRoot.id);
+        clearMessage();
+        // New document means every old node ID is gone — wipe the entire
+        // memory map so it doesn't accumulate orphan entries across many
+        // "new blank" cycles.
+        presetMemoryRef.current.clear();
+      }
+    });
   };
 
-  const confirmNewBlank = () => {
-    const nextRoot = createBlankDocument();
-    setDocumentRoot(nextRoot);
-    setSelectedNodeId(nextRoot.id);
-    clearMessage();
-    // New document means every old node ID is gone — wipe the entire
-    // memory map so it doesn't accumulate orphan entries across many
-    // "new blank" cycles.
-    presetMemoryRef.current.clear();
-    setShowConfirmNewBlank(false);
+  const requestResetPresets = () => {
+    setConfirmRequest({
+      title: "Restore default preset chips?",
+      description:
+        "This will replace your current chips with feedback / question / instruction / extra.",
+      confirmLabel: "Restore",
+      onConfirm: () => {
+        setPresetChips([...DEFAULT_PRESET_CHIPS]);
+        setEditMode(false);
+        setEditingChip(null);
+        setChipEditError("");
+      }
+    });
   };
 
-  const cancelNewBlank = () => {
-    setShowConfirmNewBlank(false);
+  // === Chip edit-mode helpers ===
+  // The cog button toggles edit mode. Exiting edit mode also discards
+  // any in-flight edit (rename or add) — accepting a half-typed name on
+  // toggle would surprise the user.
+  const toggleEditMode = () => {
+    setEditMode((current) => {
+      if (current) {
+        setEditingChip(null);
+        setChipEditError("");
+      }
+      return !current;
+    });
+  };
+
+  const removeChip = (index: number) => {
+    setPresetChips((chips) => chips.filter((_, i) => i !== index));
+    // If the deleted chip was being edited, drop the edit state.
+    if (editingChip && editingChip.index === index) {
+      setEditingChip(null);
+      setChipEditError("");
+    }
+  };
+
+  const startAddChip = () => {
+    // Position is one past the end — the new chip lives there if commit
+    // succeeds. The + button is hidden while an add is in flight, so
+    // there's no risk of two pending adds clashing on the same index.
+    setEditingChip({
+      index: presetChips.length,
+      draft: "",
+      isNew: true
+    });
+    setChipEditError("");
+  };
+
+  const startRenameChip = (index: number) => {
+    setEditingChip({
+      index,
+      draft: presetChips[index],
+      isNew: false
+    });
+    setChipEditError("");
+  };
+
+  const updateEditingChipDraft = (draft: string) => {
+    if (!editingChip) {
+      return;
+    }
+    setEditingChip({ ...editingChip, draft });
+  };
+
+  const cancelChipEdit = () => {
+    setEditingChip(null);
+    setChipEditError("");
+  };
+
+  const commitChipEdit = () => {
+    if (!editingChip) {
+      return;
+    }
+    const trimmed = editingChip.draft.trim();
+    // Validation only at commit per user spec — typing doesn't surface
+    // validation messages. Pre-trim so trailing whitespace doesn't
+    // produce a "looks identical to chip X" duplicate that the user
+    // can't see.
+    const error = validatePresetName(
+      trimmed,
+      presetChips,
+      editingChip.isNew ? -1 : editingChip.index
+    );
+    if (error) {
+      setChipEditError(error);
+      return;
+    }
+    if (editingChip.isNew) {
+      setPresetChips((chips) => [...chips, trimmed]);
+    } else {
+      setPresetChips((chips) =>
+        chips.map((c, i) => (i === editingChip.index ? trimmed : c))
+      );
+    }
+    setEditingChip(null);
+    setChipEditError("");
   };
 
   const addChild = () => {
@@ -579,7 +820,7 @@ export default function App() {
   // overlay, screen readers don't announce the dialog, and on close the
   // keyboard user lands on <body> with no anchor back to where they were.
   useEffect(() => {
-    if (!showConfirmNewBlank) {
+    if (!confirmRequest) {
       return;
     }
     // Capture the element that triggered the modal so focus can return
@@ -596,7 +837,7 @@ export default function App() {
     if (body) body.inert = true;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setShowConfirmNewBlank(false);
+        setConfirmRequest(null);
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -608,7 +849,7 @@ export default function App() {
       // silent no-op, so order matters here.
       previouslyFocused?.focus();
     };
-  }, [showConfirmNewBlank]);
+  }, [confirmRequest]);
 
   return (
     <div className="app-shell">
@@ -759,19 +1000,137 @@ export default function App() {
             )}
           </div>
 
-          <div className="preset-chips">
+          <div className={cx("preset-chips", editMode && "edit-mode")}>
             <span className="preset-label">Preset:</span>
-            {PRESET_NAMES.map((name) => (
+            <div className="preset-chip-list">
+              {presetChips.map((name, index) => {
+                const isEditingThis =
+                  editingChip !== null &&
+                  !editingChip.isNew &&
+                  editingChip.index === index;
+                if (isEditingThis) {
+                  return (
+                    <input
+                      key={`edit-${index}`}
+                      className="chip chip-editing"
+                      value={editingChip.draft}
+                      autoFocus
+                      maxLength={MAX_PRESET_NAME_LENGTH}
+                      aria-label={`Rename preset ${name}`}
+                      onChange={(event) =>
+                        updateEditingChipDraft(event.target.value)
+                      }
+                      onBlur={commitChipEdit}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          commitChipEdit();
+                        } else if (event.key === "Escape") {
+                          event.preventDefault();
+                          cancelChipEdit();
+                        }
+                      }}
+                    />
+                  );
+                }
+                return (
+                  <span key={name} className="chip-wrap">
+                    <button
+                      type="button"
+                      className="chip"
+                      onClick={() => {
+                        if (editMode) {
+                          startRenameChip(index);
+                        } else {
+                          insertPreset(name);
+                        }
+                      }}
+                    >
+                      {name}
+                    </button>
+                    {editMode && (
+                      <button
+                        type="button"
+                        className="chip-delete"
+                        aria-label={`Remove preset ${name}`}
+                        title={`Remove ${name}`}
+                        onClick={() => removeChip(index)}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+              {editMode && editingChip?.isNew && (
+                <input
+                  key="add-new"
+                  className="chip chip-editing chip-new"
+                  value={editingChip.draft}
+                  autoFocus
+                  maxLength={MAX_PRESET_NAME_LENGTH}
+                  placeholder="new chip name"
+                  aria-label="Name the new preset chip"
+                  onChange={(event) =>
+                    updateEditingChipDraft(event.target.value)
+                  }
+                  onBlur={commitChipEdit}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      commitChipEdit();
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelChipEdit();
+                    }
+                  }}
+                />
+              )}
+              {editMode &&
+                !editingChip?.isNew &&
+                presetChips.length < MAX_PRESET_CHIPS && (
+                  <button
+                    type="button"
+                    className="chip-add"
+                    aria-label="Add preset chip"
+                    title="Add preset chip"
+                    onClick={startAddChip}
+                  >
+                    +
+                  </button>
+                )}
+            </div>
+            <div className="preset-controls">
+              {editMode && (
+                <button
+                  type="button"
+                  className="preset-reset"
+                  onClick={requestResetPresets}
+                >
+                  Reset
+                </button>
+              )}
               <button
-                key={name}
                 type="button"
-                className="chip"
-                onClick={() => insertPreset(name)}
+                className={cx("preset-cog", editMode && "is-active")}
+                onClick={toggleEditMode}
+                aria-label={
+                  editMode ? "Exit chip edit mode" : "Edit preset chips"
+                }
+                aria-pressed={editMode}
+                title={
+                  editMode ? "Exit chip edit mode" : "Edit preset chips"
+                }
               >
-                {name}
+                <CogIcon />
               </button>
-            ))}
+            </div>
           </div>
+          {editMode && chipEditError && (
+            <div className="chip-edit-error" role="alert">
+              {chipEditError}
+            </div>
+          )}
 
           <label className="field-label" htmlFor={TEXT_CONTENT_INPUT_ID}>
             Text Content
@@ -839,12 +1198,12 @@ export default function App() {
         </section>
       </main>
 
-      {showConfirmNewBlank && (
+      {confirmRequest && (
         // Overlay has no explicit role — the inner div carries
         // role="dialog" + aria-modal="true". Keeping a click handler on
         // the overlay for click-outside-to-cancel; AT users have Escape
         // and the focused Cancel button (see useEffect for focus mgmt).
-        <div className="modal-overlay" onClick={cancelNewBlank}>
+        <div className="modal-overlay" onClick={closeConfirm}>
           <div
             className="confirm-dialog"
             role="dialog"
@@ -853,24 +1212,24 @@ export default function App() {
             aria-describedby="confirm-desc"
             onClick={(event) => event.stopPropagation()}
           >
-            <h3 id="confirm-title">Discard current document?</h3>
-            <p id="confirm-desc">
-              This will replace the document with a fresh blank.
-            </p>
+            <h3 id="confirm-title">{confirmRequest.title}</h3>
+            <p id="confirm-desc">{confirmRequest.description}</p>
             <div className="dialog-buttons">
               <button
                 type="button"
                 ref={cancelButtonRef}
-                onClick={cancelNewBlank}
+                onClick={closeConfirm}
               >
                 Cancel
               </button>
               <button
                 type="button"
-                className="danger-button"
-                onClick={confirmNewBlank}
+                className={cx(
+                  confirmRequest.confirmKind === "danger" && "danger-button"
+                )}
+                onClick={handleConfirm}
               >
-                Confirm
+                {confirmRequest.confirmLabel}
               </button>
             </div>
           </div>
@@ -1020,6 +1379,60 @@ function escapeForRegex(value: string): string {
   // modern engines accept it as a no-op so ESLint complains.
   // eslint-disable-next-line no-useless-escape
   return value.replace(/[.*+?^${}()|\[\]\\]/g, "\\$&");
+}
+
+// Validates a preset chip name on commit (Enter / blur). Returns null if
+// the name is acceptable, or a user-facing error string. Empty / too-long
+// / invalid-XML-name / case-insensitive duplicate are all rejected. The
+// caller passes `excludeIndex = -1` for adds and the chip's own index
+// for renames so a chip doesn't trip the duplicate check against itself.
+function validatePresetName(
+  name: string,
+  allChips: string[],
+  excludeIndex: number
+): string | null {
+  if (!name) {
+    return "Chip name cannot be empty.";
+  }
+  // Code-point length matches the input's `maxLength` (which counts
+  // UTF-16 code units, but for in-BMP names they're equivalent and
+  // the cap is small enough that supplementary-plane edge cases don't
+  // bite). Array.from gives the code-point count for the rare cases.
+  if (Array.from(name).length > MAX_PRESET_NAME_LENGTH) {
+    return `Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`;
+  }
+  if (!isValidXmlName(name)) {
+    return "Chip name must follow XML element naming rules.";
+  }
+  // Case-insensitive duplicate check. excludeIndex skips the chip being
+  // renamed (so renaming "Feedback" → "feedback" doesn't trip duplicate
+  // against itself).
+  const lower = name.toLowerCase();
+  for (let i = 0; i < allChips.length; i++) {
+    if (i !== excludeIndex && allChips[i].toLowerCase() === lower) {
+      return `"${name}" is already in your preset list.`;
+    }
+  }
+  return null;
+}
+
+function CogIcon() {
+  // Minimal cog: outer 8-tooth gear ring + inner circle. Small enough at
+  // 1.05rem that detail is read as "settings/edit" without heavy ink.
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  );
 }
 
 function SunIcon() {
