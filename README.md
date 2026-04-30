@@ -19,7 +19,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 - Persistent red row highlight + red input border for any element with a validation or duplicate-name issue
 - WYSIWYG text content — `<`, `&`, `>` go to the clipboard verbatim, suitable for LLM prompts (which are pattern-matched, not strictly XML-parsed)
 - Confirmation modal on **New Blank** to prevent accidental wipe
-- Copy XML success feedback via a 1-second green bloom on the preview pane
+- Copy XML success feedback via a 3-second green bloom on the preview pane
 - Dark / light theme toggle with system-preference default and persisted choice
 - DPI-aware startup sizing and centered window placement
 - Bundled fonts (Inter + JetBrains Mono) for consistent look across machines

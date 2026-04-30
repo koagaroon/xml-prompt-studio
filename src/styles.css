@@ -1025,10 +1025,10 @@ select {
   inset: 0;
   border-radius: 12px;
   pointer-events: none;
-  animation: bloom-fade 1s ease-out forwards;
+  animation: copy-bloom-fade 3s ease-out forwards;
 }
 
-@keyframes bloom-fade {
+@keyframes copy-bloom-fade {
   0% {
     box-shadow:
       inset 0 0 0 2px var(--bloom-edge),
@@ -1138,11 +1138,11 @@ select {
 }
 
 /* === REDUCED MOTION ===
-   Respect the OS reduced-motion preference. Bloom (~1s) and amber pulse
-   (~250ms) are visual flourishes — no information is conveyed by the
-   animation itself, so collapsing them to effectively-instant is the
-   right behavior. The transition rule covers all the 120-200ms theme/hover
-   transitions sprinkled through the file. */
+   Respect the OS reduced-motion preference. Most visual flourishes collapse
+   to effectively-instant; the Copy XML bloom is the exception because it is
+   a non-traveling success cue on an explicit user action. The transition
+   rule covers all the 120-200ms theme/hover transitions sprinkled through
+   the file. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1150,5 +1150,9 @@ select {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .bloom-overlay {
+    animation-duration: 3s !important;
   }
 }
