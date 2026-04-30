@@ -835,6 +835,17 @@ select {
   border-color: var(--chip-hover-border);
 }
 
+/* "Already applied" indicator — the chip whose tag name is currently on
+   the active element. Signals that clicking it again is a no-op
+   (lastApplied lock). Borrows the element-row.is-active palette so the
+   "this is the active item" idiom feels consistent across the app.
+   Suppressed in edit mode by the JSX (use mode only). */
+.chip.is-applied {
+  background: var(--row-active);
+  border-color: var(--btn-primary-border);
+  color: var(--row-active-text);
+}
+
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
    border signals "empty slot you can fill" — distinct from solid chips. */
 .chip-add {

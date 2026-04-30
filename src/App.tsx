@@ -392,6 +392,21 @@ export default function App() {
     [documentRoot, duplicateNodeIds]
   );
 
+  // Which preset chip name (if any) is the lastApplied for the current
+  // active element. Used to give that chip a subtle "is-applied"
+  // treatment in the row, signaling that clicking it again is a no-op.
+  //
+  // Reads from the ref during render is intentional: every mutation we
+  // do to memory.lastApplied (in insertPreset, the tag-name onChange,
+  // removeSelectedNode's sweep, confirmNewBlank's clear) is paired with
+  // a setDocumentRoot or setSelectedNodeId call. By the time React
+  // renders, the ref already holds the value the new state implies, so
+  // mirroring lastApplied into useState would just duplicate the same
+  // information. The react-hooks/refs lint rule can't see the pairing
+  // invariant, so the disable below is explicit.
+  // eslint-disable-next-line react-hooks/refs -- intentional: see comment above
+  const activeLastApplied = presetMemoryRef.current.get(activeNode.id)?.lastApplied ?? null;
+
   const isRoot = activeNode.id === documentRoot.id;
   const tagNameInvalid = validationIssues.some(
     (issue) => issue.nodeId === activeNode.id
@@ -1058,7 +1073,17 @@ export default function App() {
                   // the outer span; both the text and × buttons sit *inside*
                   // the pill perimeter so the × visually belongs to the
                   // chip rather than dangling next to it.
-                  <span key={name} className="chip">
+                  // `is-applied` highlights the chip whose tag name is
+                  // currently on the active element. Suppressed in edit
+                  // mode — clicking a chip there means "rename", not
+                  // "apply", so the use-time indicator would mislead.
+                  <span
+                    key={name}
+                    className={cx(
+                      "chip",
+                      !editMode && name === activeLastApplied && "is-applied"
+                    )}
+                  >
                     <button
                       type="button"
                       className="chip-label"
