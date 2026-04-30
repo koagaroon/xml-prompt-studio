@@ -1111,6 +1111,20 @@ export default function App() {
                         }
                       }}
                     >
+                      {/* Leading ✓ mark when this chip is the lastApplied
+                          for the active element. The earlier color-only
+                          version was hard to distinguish from the hover
+                          state (both saturated blue); a glyph prefix
+                          stays visible regardless of hover and reads
+                          unambiguously as "this is the active one". */}
+                      {!editMode && name === activeLastApplied && (
+                        <span
+                          className="chip-applied-mark"
+                          aria-hidden="true"
+                        >
+                          ✓
+                        </span>
+                      )}
                       {name}
                     </button>
                     {editMode && (

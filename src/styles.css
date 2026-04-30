@@ -874,6 +874,15 @@ select {
   font-weight: 600;
 }
 
+/* Leading ✓ mark in an is-applied chip — the unmistakable indicator that
+   stays visible regardless of hover state (the hover bg and the applied
+   bg are similar saturated blues, so color alone can't carry the cue). */
+.chip-applied-mark {
+  display: inline-block;
+  margin-right: 0.3em;
+  font-weight: 700;
+}
+
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
    border signals "empty slot you can fill" — distinct from solid chips. */
 .chip-add {
