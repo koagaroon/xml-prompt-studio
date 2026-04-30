@@ -15,7 +15,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 - Element-only XML editing — nested children, sibling insertion, reorder up/down, delete
 - Validation against the full W3C XML 1.0 §2.3 `Name` production — Unicode letters and ideographs work as tag names
 - Live formatted preview that exactly mirrors what gets copied to the clipboard
-- One-click preset chips (`feedback` / `question` / `instruction` / `extra`) that fill the Tag Name input, auto-suffixing `_1`, `_2`, … to keep siblings unique
+- Customizable preset chips that fill the Tag Name input with auto-suffixed `_1`, `_2`, … to keep siblings unique. Defaults to `feedback` / `question` / `instruction` / `extra`; click the cog at the row's right end to rename, delete, or add chips (up to 6, persisted across sessions via `localStorage`)
 - Persistent red row highlight + red input border for any element with a validation or duplicate-name issue
 - WYSIWYG text content — `<`, `&`, `>` go to the clipboard verbatim, suitable for LLM prompts (which are pattern-matched, not strictly XML-parsed)
 - Confirmation modal on **New Blank** to prevent accidental wipe
@@ -27,7 +27,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 ## Tech stack
 
 - [Tauri 2](https://tauri.app/) (Rust core + WebView2)
-- [React](https://react.dev/) 18 with TypeScript
+- [React](https://react.dev/) 19 with TypeScript
 - [Vite](https://vite.dev/) frontend build
 - [arboard](https://github.com/1Password/arboard) clipboard layer with cross-platform CLI fallbacks (Windows `clip.exe`, macOS `pbcopy`, Linux `wl-copy` / `xclip`) for RDP / locked-clipboard / sandboxed-Wayland cases
 - [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) fonts, bundled under SIL OFL 1.1
@@ -84,7 +84,6 @@ cargo check
 Direction-compatible extensions worth considering:
 
 - Smarter duplicate-name guidance ("merge these into one element with multi-line text content")
-- User-configurable preset list (currently hard-coded to four names)
 - Undo / redo — the data model is already immutable, a history stack is straightforward
 
 ## Non-goals
