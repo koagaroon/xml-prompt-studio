@@ -841,13 +841,20 @@ select {
 
 /* "Already applied" indicator — the chip whose tag name is currently on
    the active element. Signals that clicking it again is a no-op
-   (lastApplied lock). Borrows the element-row.is-active palette so the
-   "this is the active item" idiom feels consistent across the app.
-   Suppressed in edit mode by the JSX (use mode only). */
+   (lastApplied lock). Uses the saturated primary-blue + white text +
+   bold weight, same vocabulary as the Copy XML anchor button — the
+   user reads it as "this is the active/important one" without having
+   to learn a new color cue. Earlier draft used --row-active which sat
+   at almost the same shade as the default chip bg and was effectively
+   invisible. Suppressed in edit mode by the JSX (use mode only). */
 .chip.is-applied {
-  background: var(--row-active);
+  background: var(--btn-primary-bg);
   border-color: var(--btn-primary-border);
-  color: var(--row-active-text);
+  color: #fff;
+}
+
+.chip.is-applied .chip-label {
+  font-weight: 600;
 }
 
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
