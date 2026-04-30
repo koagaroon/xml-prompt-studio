@@ -807,37 +807,54 @@ select {
 }
 
 /* × delete button. Sits inside the pill (same flex container as the
-   label), tucked to the right. No background by default so it reads as
-   "part of the chip"; on hover, picks up a subtle red wash to telegraph
-   the destructive action. */
+   label), tucked to the right. No background of its own at any state —
+   the destructive-hover affordance lives on the OUTER pill (see the
+   :has() rules below) so the user reads "the whole chip turns red,
+   it's about to go" instead of a translucent red veil over the × area.
+   `align-self: stretch` makes this button fill the pill's full height;
+   without it, the difference between chip-label's and chip-delete's
+   intrinsic heights leaves a thin sliver of pill bg at top and bottom
+   when the inner element gets a background. */
 .chip-delete {
   background: transparent;
   border: none;
   color: var(--text-muted);
   font-size: 0.95rem;
   line-height: 1;
-  padding: 0.3rem 0.55rem 0.3rem 0.2rem;
+  padding: 0 0.55rem 0 0.2rem;
   cursor: pointer;
   flex-shrink: 0;
-  transition:
-    background 120ms ease,
-    color 120ms ease;
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 120ms ease;
 }
 
-.chip-delete:hover {
-  color: var(--issue-text);
-  background: var(--issue-bg);
-}
-
-/* Hover on either inner control highlights the whole pill — gives the
-   chip a single visual hover state regardless of which child the cursor
-   is over. Uses :has() (Chromium 105+; Tauri 2's WebView2 / WKWebView /
-   WebKitGTK all support it). */
-.chip:has(.chip-label:hover),
-.chip:has(.chip-delete:hover) {
+/* Hover the text label → pill turns the standard "use" hover blue. */
+.chip:has(.chip-label:hover) {
   background: var(--chip-hover-bg);
   border-color: var(--chip-hover-border);
 }
+
+/* Hover the × → the entire pill turns red. The :has() approach paints
+   the chip's own background opaque-red, so there's no transparent
+   layer over a blue base — the pill itself becomes red. Inner text and
+   × glyph swap to white for legibility. Specificity (0,3,0 from
+   :has(.chip-delete:hover)) outranks .chip.is-applied (0,2,0), so the
+   delete-hover treatment wins on an applied chip too. */
+.chip:has(.chip-delete:hover) {
+  background: var(--btn-danger-bg);
+  border-color: var(--btn-danger-hover);
+}
+
+.chip:has(.chip-delete:hover) .chip-label,
+.chip:has(.chip-delete:hover) .chip-delete {
+  color: #fff;
+}
+
+/* :has() (Chromium 105+; Tauri 2's WebView2 / WKWebView / WebKitGTK
+   all support it). */
 
 /* "Already applied" indicator — the chip whose tag name is currently on
    the active element. Signals that clicking it again is a no-op
