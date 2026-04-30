@@ -680,25 +680,38 @@ export default function App() {
     // byte cap below is the safety floor (memory ceiling); the codepoint
     // cap is the UX ceiling. Array.from counts codepoints so emoji /
     // supplementary-plane chars don't get split.
-    if (Array.from(tagName).length > MAX_TAG_NAME_LENGTH) {
-      showError(
-        `Tag name too long (limit ${MAX_TAG_NAME_LENGTH} characters).`
-      );
-      return;
+    //
+    // On overflow we truncate AND fire an amber warning rather than
+    // rejecting silently. With `maxLength` on the input the browser
+    // would block past-cap typing without telling the user; explicit
+    // truncate-and-warn surfaces the limit. The warning persists past
+    // the apply (we don't clearMessage in this branch).
+    let limitWarning: string | null = null;
+    const codepoints = Array.from(tagName);
+    if (codepoints.length > MAX_TAG_NAME_LENGTH) {
+      limitWarning = `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`;
+      tagName = codepoints.slice(0, MAX_TAG_NAME_LENGTH).join("");
     }
     if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
+      // After codepoint truncation, still over byte cap — would only
+      // happen with many supplementary-plane chars within 24 codepoints.
+      // Reject (the user's last-good value is preserved).
       showError(`Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`);
       return;
     }
     setDocumentRoot((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
-    // Clear stale error strip on edit. After "Fix validation issues..." or
-    // "Sibling count limit reached..." appears, the user typing to fix it
-    // should make the strip go away — without this, it lingers until the
-    // next button-driven action. insertPreset reaches this through
+    // Clear stale error strip on edit, OR show the limit warning if we
+    // just truncated. Without this, "Fix validation issues..." /
+    // "Sibling count limit reached..." would linger until the next
+    // button-driven action. insertPreset reaches this through
     // setActiveTagName so it's covered transitively.
-    clearMessage();
+    if (limitWarning) {
+      showWarning(limitWarning);
+    } else {
+      clearMessage();
+    }
   };
 
   const setActiveTextContent = (textContent: string) => {
@@ -1009,7 +1022,10 @@ export default function App() {
               name="tagName"
               value={activeNode.tagName}
               className={cx("tag-name-input", tagNameInvalid && "input-error")}
-              maxLength={MAX_TAG_NAME_LENGTH}
+              // No `maxLength` here on purpose — letting the browser
+              // silently truncate would hide the cap from the user.
+              // setActiveTagName below truncates AND fires an amber
+              // warning so the user knows the cap was hit.
               onChange={(event) => {
                 setActiveTagName(event.target.value);
                 // Manual typing clears `lastApplied` so the next chip
