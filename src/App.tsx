@@ -1114,6 +1114,11 @@ export default function App() {
                       autoFocus
                       maxLength={MAX_PRESET_NAME_LENGTH}
                       aria-label={`Rename preset ${name}`}
+                      // Skip Tab navigation: chip controls aren't part
+                      // of the Tag Name ↔ Text Content flow. autoFocus
+                      // still puts the cursor here; Tab from inside
+                      // moves out to the next tab-able field.
+                      tabIndex={-1}
                       onChange={(event) =>
                         updateEditingChipDraft(event.target.value)
                       }
@@ -1149,6 +1154,7 @@ export default function App() {
                     <button
                       type="button"
                       className="chip-label"
+                      tabIndex={-1}
                       onClick={() => {
                         if (editMode) {
                           startRenameChip(index);
@@ -1179,6 +1185,7 @@ export default function App() {
                         className="chip-delete"
                         aria-label={`Remove preset ${name}`}
                         title={`Remove ${name}`}
+                        tabIndex={-1}
                         onClick={() => removeChip(index)}
                       >
                         ×
@@ -1196,6 +1203,7 @@ export default function App() {
                   maxLength={MAX_PRESET_NAME_LENGTH}
                   placeholder="new chip name"
                   aria-label="Name the new preset chip"
+                  tabIndex={-1}
                   onChange={(event) =>
                     updateEditingChipDraft(event.target.value)
                   }
@@ -1219,6 +1227,7 @@ export default function App() {
                     className="chip-add"
                     aria-label="Add preset chip"
                     title="Add preset chip"
+                    tabIndex={-1}
                     onClick={startAddChip}
                   >
                     +
@@ -1230,6 +1239,7 @@ export default function App() {
                 <button
                   type="button"
                   className="preset-reset"
+                  tabIndex={-1}
                   onClick={requestResetPresets}
                 >
                   Reset
@@ -1246,6 +1256,7 @@ export default function App() {
                 title={
                   editMode ? "Exit chip edit mode" : "Edit preset chips"
                 }
+                tabIndex={-1}
               >
                 <CogIcon />
               </button>

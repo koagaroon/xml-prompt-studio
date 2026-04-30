@@ -653,6 +653,7 @@ select {
    Layout: [label] [chip-list (flex:1, scrolls)] [controls (right-pinned)].
    The chip list scrolls horizontally when squeezed so cog/Reset stay
    visible regardless of window width. */
+
 /* Field-level message rendered just below an input it relates to (the
    Tag Name input today; can be applied to other fields later). Pads
    into a small chip-like strip; severity controls the color. Lives
@@ -1083,7 +1084,7 @@ select {
   inset: 0;
   border-radius: 12px;
   pointer-events: none;
-  animation: bloom-fade 1s ease-out forwards;
+  animation: bloom-fade 3s ease-out forwards;
 }
 
 @keyframes bloom-fade {
@@ -1196,7 +1197,7 @@ select {
 }
 
 /* === REDUCED MOTION ===
-   Respect the OS reduced-motion preference. Bloom (~1s) and amber pulse
+   Respect the OS reduced-motion preference. Bloom (~3s) and amber pulse
    (~250ms) are visual flourishes — no information is conveyed by the
    animation itself, so collapsing them to effectively-instant is the
    right behavior. The transition rule covers all the 120-200ms theme/hover
