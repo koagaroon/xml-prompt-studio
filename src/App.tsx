@@ -80,6 +80,15 @@ const MAX_SIBLINGS = 1000;
 const MAX_TAG_NAME_BYTES = 1024;
 const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 
+// Soft cap on tag-name codepoint length, separate from MAX_TAG_NAME_BYTES
+// (the hard memory ceiling). Aligns with MAX_PRESET_NAME_LENGTH so chip-
+// picked names and typed names feel equally bounded — typed input gets
+// the same safety/integrity treatment chip editing already had. Existing
+// tag names that exceed this aren't truncated; new typing past it is
+// rejected by setActiveTagName (and prevented by the input's maxLength
+// for typical input flows).
+const MAX_TAG_NAME_LENGTH = 24;
+
 // Stable element IDs for the form fields in the Input column. Earlier these
 // were per-active-node and churned on every selection, confusing autofill
 // and a11y caches even though there's only one of each on screen.
@@ -652,6 +661,16 @@ export default function App() {
   };
 
   const setActiveTagName = (tagName: string) => {
+    // Codepoint check first — gives the tighter, user-intuitive cap. The
+    // byte cap below is the safety floor (memory ceiling); the codepoint
+    // cap is the UX ceiling. Array.from counts codepoints so emoji /
+    // supplementary-plane chars don't get split.
+    if (Array.from(tagName).length > MAX_TAG_NAME_LENGTH) {
+      showError(
+        `Tag name too long (limit ${MAX_TAG_NAME_LENGTH} characters).`
+      );
+      return;
+    }
     if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
       showError(`Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`);
       return;
@@ -975,6 +994,7 @@ export default function App() {
               name="tagName"
               value={activeNode.tagName}
               className={cx("tag-name-input", tagNameInvalid && "input-error")}
+              maxLength={MAX_TAG_NAME_LENGTH}
               onChange={(event) => {
                 setActiveTagName(event.target.value);
                 // Manual typing clears `lastApplied` so the next chip
