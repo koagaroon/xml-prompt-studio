@@ -1106,7 +1106,7 @@ export default function App() {
             </div>
           )}
 
-          <div className={cx("preset-chips", editMode && "edit-mode")}>
+          <div className="preset-chips">
             <span className="preset-label">Preset:</span>
             <div className="preset-chip-list">
               {presetChips.map((name, index) => {
