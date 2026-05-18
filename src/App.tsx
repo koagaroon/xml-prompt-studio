@@ -1442,15 +1442,23 @@ function buildElementLabel(node: XmlNode): string {
 
 // `maxLength` is the cap on output length (in code points), not on input.
 // The ellipsis counts toward the cap — one code point is reserved for "…".
-// Iterates by code point via Array.from instead of slicing UTF-16 code
-// units, so supplementary-plane characters (CJK Extension B like 𠮷, emoji
-// like 🦀) at the boundary aren't split into orphan surrogates.
+// for-of yields code points, so supplementary-plane characters (CJK Ext B
+// like 𠮷, emoji like 🦀) at the boundary aren't split into orphan
+// surrogates. Don't refactor to `Array.from(value)` — that materializes a
+// code-point array proportional to the *entire* string, which is up to
+// MAX_TEXT_CONTENT_BYTES (10 MB). This helper runs per node on every
+// documentRoot edit via the live (non-deferred) outline rebuild, so eager
+// materialization reaches tens-of-MB per keystroke before the truncation
+// even happens. Short-circuit at maxLength+1 keeps work O(maxLength).
 function truncate(value: string, maxLength: number): string {
-  const codePoints = Array.from(value);
-  if (codePoints.length <= maxLength) {
-    return value;
+  const codePoints: string[] = [];
+  for (const cp of value) {
+    codePoints.push(cp);
+    if (codePoints.length > maxLength) {
+      return `${codePoints.slice(0, maxLength - 1).join("")}…`;
+    }
   }
-  return `${codePoints.slice(0, maxLength - 1).join("")}…`;
+  return value;
 }
 
 // Cheap UTF-8 byte-count check using the upper-bound trick from copyPreview:
