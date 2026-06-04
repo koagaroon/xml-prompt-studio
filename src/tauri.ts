@@ -15,6 +15,58 @@ function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && window.isTauri === true;
 }
 
+let mainWindowShowRequested = false;
+
+function logStartup(message: string): void {
+  if (import.meta.env.DEV) {
+    console.debug(`[startup] ${message}`);
+  }
+}
+
+function afterNextPaint(callback: () => void): void {
+  let called = false;
+  const runOnce = () => {
+    if (called) {
+      return;
+    }
+    called = true;
+    callback();
+  };
+
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(runOnce);
+    });
+    window.setTimeout(runOnce, 100);
+    return;
+  }
+
+  window.setTimeout(runOnce, 0);
+}
+
+export function requestMainWindowShowAfterFirstPaint(): void {
+  if (!isTauriEnvironment() || mainWindowShowRequested) {
+    return;
+  }
+
+  mainWindowShowRequested = true;
+  logStartup("main-window show scheduled");
+  afterNextPaint(() => {
+    logStartup("first paint passed; sending show command");
+    void invoke("show_main_window")
+      .then(() => {
+        logStartup("show command completed");
+      })
+      .catch((error: unknown) => {
+        logStartup(
+          `show command failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      });
+  });
+}
+
 export async function copyXmlToClipboard(xml: string): Promise<void> {
   if (isTauriEnvironment()) {
     await invoke("copy_xml_to_clipboard", { xml });

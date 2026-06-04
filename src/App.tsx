@@ -8,7 +8,10 @@ import {
   moveNode,
   updateNode
 } from "./document";
-import { copyXmlToClipboard } from "./tauri";
+import {
+  copyXmlToClipboard,
+  requestMainWindowShowAfterFirstPaint
+} from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
 import {
   buildPreview,
@@ -221,6 +224,10 @@ export default function App() {
   const [presetChips, setPresetChips] = useState<string[]>(
     readInitialPresetChips
   );
+
+  useEffect(() => {
+    requestMainWindowShowAfterFirstPaint();
+  }, []);
 
   // Edit-mode toggle for the preset chip row. When false: the row shows
   // chips and a cog button; clicking a chip fills the active tag name

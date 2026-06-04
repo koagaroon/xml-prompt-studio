@@ -1,6 +1,11 @@
 use arboard::Clipboard;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
+use std::time::Duration;
+#[cfg(debug_assertions)]
+use std::time::Instant;
 use tauri::{LogicalSize, Manager, Size};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
@@ -9,6 +14,43 @@ use tauri::{LogicalSize, Manager, Size};
 // allocate gigabytes. 50_000_000 bytes ≈ 47.7 MiB of UTF-8, which is far
 // beyond any realistic prompt-engineering payload.
 const MAX_XML_BYTES: usize = 50_000_000;
+
+struct StartupTiming {
+    #[cfg(debug_assertions)]
+    started_at: Instant,
+    main_window_shown: AtomicBool,
+}
+
+impl StartupTiming {
+    fn new() -> Self {
+        Self {
+            #[cfg(debug_assertions)]
+            started_at: Instant::now(),
+            main_window_shown: AtomicBool::new(false),
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn elapsed_ms(&self) -> u128 {
+        self.started_at.elapsed().as_millis()
+    }
+
+    fn is_main_window_shown(&self) -> bool {
+        self.main_window_shown.load(Ordering::SeqCst)
+    }
+
+    fn mark_main_window_shown(&self) {
+        self.main_window_shown.store(true, Ordering::SeqCst);
+    }
+}
+
+#[cfg(debug_assertions)]
+fn log_startup(timing: &StartupTiming, message: &str) {
+    eprintln!("[startup +{}ms] {}", timing.elapsed_ms(), message);
+}
+
+#[cfg(not(debug_assertions))]
+fn log_startup(_timing: &StartupTiming, _message: &str) {}
 
 #[tauri::command]
 fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
@@ -39,6 +81,25 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
         Err(arb_err) => fallback_copy_native(&xml)
             .map_err(|fb_err| format!("arboard: {arb_err}; fallback: {fb_err}")),
     }
+}
+
+#[tauri::command]
+fn show_main_window(
+    window: tauri::Window,
+    timing: tauri::State<'_, StartupTiming>,
+) -> Result<(), String> {
+    log_startup(timing.inner(), "frontend show command received");
+    if timing.is_main_window_shown() {
+        log_startup(timing.inner(), "main window already visible");
+        return Ok(());
+    }
+
+    window
+        .show()
+        .map_err(|error| format!("failed to show main window: {error}"))?;
+    timing.mark_main_window_shown();
+    log_startup(timing.inner(), "frontend show command completed");
+    Ok(())
 }
 
 // Cross-platform fallback when arboard fails. Each OS has a built-in
@@ -147,11 +208,17 @@ fn utf16le_with_bom(value: &str) -> Vec<u8> {
 
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![copy_xml_to_clipboard])
+        .manage(StartupTiming::new())
+        .invoke_handler(tauri::generate_handler![
+            copy_xml_to_clipboard,
+            show_main_window
+        ])
         .setup(|app| {
+            let timing = app.state::<StartupTiming>();
+            log_startup(timing.inner(), "setup entered");
+
             // The window's `width` / `height` in tauri.conf.json (currently
-            // 1080×720) are the pre-setup-render initial size — what users
-            // see for the first frame before this closure runs. Once setup
+            // 1080×720) are the hidden pre-setup initial size. Once setup
             // executes we override with monitor-derived dimensions clamped
             // to [820, 1600] × [560, 1100]. The JSON values fall inside
             // that clamp range so they remain a coherent fallback if
@@ -172,10 +239,38 @@ pub fn run() {
                     let width = (monitor_size.width * area_ratio).clamp(820.0, 1600.0);
                     let height = (monitor_size.height * area_ratio).clamp(560.0, 1100.0);
                     window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
+                    log_startup(timing.inner(), "monitor-derived size applied");
+                } else {
+                    log_startup(timing.inner(), "monitor unavailable; using config size");
                 }
 
                 window.center()?;
+                log_startup(timing.inner(), "window centered");
             }
+
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(5));
+                let timing = app_handle.state::<StartupTiming>();
+                if timing.is_main_window_shown() {
+                    return;
+                }
+
+                log_startup(timing.inner(), "fallback show fired");
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    match window.show() {
+                        Ok(()) => {
+                            timing.mark_main_window_shown();
+                            log_startup(timing.inner(), "fallback show completed");
+                        }
+                        Err(error) => {
+                            log_startup(timing.inner(), &format!("fallback show failed: {error}"));
+                        }
+                    }
+                } else {
+                    log_startup(timing.inner(), "fallback show skipped; main window missing");
+                }
+            });
 
             Ok(())
         })
