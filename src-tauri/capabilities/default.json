@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Empty permission set. The frontend imports `invoke` from @tauri-apps/api/core but uses ZERO Tauri core APIs (no window, event, path, app, image, menu, tray, webview, resources). The only IPC is the custom `copy_xml_to_clipboard` command, which is granted via the `invoke_handler!` macro in src/lib.rs and bypasses the ACL system. Granting `core:default` would expose 9 plugin permission sets the app never touches.",
+  "description": "Empty permission set. The frontend imports `invoke` from @tauri-apps/api/core but uses ZERO Tauri core APIs (no window, event, path, app, image, menu, tray, webview, resources). The only IPC surface is custom commands (`copy_xml_to_clipboard` and `show_main_window`) registered via the `invoke_handler!` macro in src/lib.rs. Granting `core:default` would expose 9 plugin permission sets the app never touches.",
   "windows": ["main"],
   "permissions": []
 }

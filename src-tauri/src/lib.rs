@@ -14,6 +14,11 @@ use tauri::{LogicalSize, Manager, Size};
 // allocate gigabytes. 50_000_000 bytes ≈ 47.7 MiB of UTF-8, which is far
 // beyond any realistic prompt-engineering payload.
 const MAX_XML_BYTES: usize = 50_000_000;
+const CONFIG_MIN_WINDOW_WIDTH: f64 = 720.0;
+const CONFIG_MIN_WINDOW_HEIGHT: f64 = 520.0;
+const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
+const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
+const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 
 struct StartupTiming {
     #[cfg(debug_assertions)]
@@ -111,6 +116,18 @@ fn show_main_window_with_handle(
     timing.mark_main_window_shown();
     log_startup(timing, &format!("{source}: main window shown"));
     Ok(())
+}
+
+fn launch_window_size_for_work_area(work_area_size: LogicalSize<f64>) -> LogicalSize<f64> {
+    let available_width = work_area_size.width.max(1.0);
+    let available_height = work_area_size.height.max(1.0);
+    let max_width = MAX_LAUNCH_WINDOW_WIDTH.min(available_width.max(CONFIG_MIN_WINDOW_WIDTH));
+    let max_height = MAX_LAUNCH_WINDOW_HEIGHT.min(available_height.max(CONFIG_MIN_WINDOW_HEIGHT));
+    let area_ratio = LAUNCH_AREA_FRACTION.sqrt();
+    let width = (available_width * area_ratio).clamp(CONFIG_MIN_WINDOW_WIDTH, max_width);
+    let height = (available_height * area_ratio).clamp(CONFIG_MIN_WINDOW_HEIGHT, max_height);
+
+    LogicalSize::new(width, height)
 }
 
 // Cross-platform fallback when arboard fails. Each OS has a built-in
@@ -228,14 +245,9 @@ pub fn run() {
             let timing = app.state::<StartupTiming>();
             log_startup(timing.inner(), "setup entered");
 
-            // The window's `width` / `height` in tauri.conf.json (currently
-            // 1080×720) are the hidden pre-setup initial size. Once setup
-            // executes we override with monitor-derived dimensions clamped
-            // to [820, 1600] × [560, 1100]. The JSON values fall inside
-            // that clamp range so they remain a coherent fallback if
-            // monitor probing fails (e.g., headless environments), but
-            // they aren't algorithmically derived from the clamp; treat
-            // them as a sane default, not a designed midpoint.
+            // The JSON size is the hidden pre-setup fallback. When monitor
+            // probing succeeds, launch from two-thirds of the work-area
+            // area, bounded by the configured minimums and the desktop cap.
             if let Some(window) = app.get_webview_window("main") {
                 let monitor = window
                     .current_monitor()
@@ -245,15 +257,13 @@ pub fn run() {
 
                 if let Some(monitor) = monitor {
                     let scale_factor = monitor.scale_factor();
-                    let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
-                    let area_ratio = (2.0_f64 / 3.0_f64).sqrt();
-                    let width = (monitor_size.width * area_ratio).clamp(820.0, 1600.0);
-                    let height = (monitor_size.height * area_ratio).clamp(560.0, 1100.0);
-                    match window.set_size(Size::Logical(LogicalSize::new(width, height))) {
-                        Ok(()) => log_startup(timing.inner(), "monitor-derived size applied"),
+                    let work_area_size = monitor.work_area().size.to_logical::<f64>(scale_factor);
+                    let launch_size = launch_window_size_for_work_area(work_area_size);
+                    match window.set_size(Size::Logical(launch_size)) {
+                        Ok(()) => log_startup(timing.inner(), "work-area-derived size applied"),
                         Err(error) => log_startup(
                             timing.inner(),
-                            &format!("monitor-derived size failed; using config size: {error}"),
+                            &format!("work-area-derived size failed; using config size: {error}"),
                         ),
                     }
                 } else {
@@ -291,4 +301,57 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_size_close(actual: LogicalSize<f64>, expected_width: f64, expected_height: f64) {
+        assert!(
+            (actual.width - expected_width).abs() < 0.001,
+            "expected width {expected_width}, got {}",
+            actual.width
+        );
+        assert!(
+            (actual.height - expected_height).abs() < 0.001,
+            "expected height {expected_height}, got {}",
+            actual.height
+        );
+    }
+
+    #[test]
+    fn launch_size_uses_two_thirds_area_on_common_desktop() {
+        let size = launch_window_size_for_work_area(LogicalSize::new(1920.0, 1080.0));
+
+        assert_size_close(size, 1567.674, 881.817);
+    }
+
+    #[test]
+    fn launch_size_caps_large_desktop() {
+        let size = launch_window_size_for_work_area(LogicalSize::new(3840.0, 2160.0));
+
+        assert_size_close(size, MAX_LAUNCH_WINDOW_WIDTH, MAX_LAUNCH_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn launch_size_uses_config_minimums_on_small_desktop() {
+        let size = launch_window_size_for_work_area(LogicalSize::new(800.0, 600.0));
+
+        assert_size_close(size, CONFIG_MIN_WINDOW_WIDTH, CONFIG_MIN_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn launch_size_never_reintroduces_old_oversized_small_desktop_floor() {
+        let size = launch_window_size_for_work_area(LogicalSize::new(800.0, 600.0));
+
+        assert!(
+            size.width <= 800.0,
+            "launch width should fit available work area when config minimum allows it"
+        );
+        assert!(
+            size.height <= 600.0,
+            "launch height should fit available work area when config minimum allows it"
+        );
+    }
 }
