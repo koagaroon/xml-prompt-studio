@@ -85,20 +85,31 @@ fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
 
 #[tauri::command]
 fn show_main_window(
-    window: tauri::Window,
+    app_handle: tauri::AppHandle,
     timing: tauri::State<'_, StartupTiming>,
 ) -> Result<(), String> {
     log_startup(timing.inner(), "frontend show command received");
+    show_main_window_with_handle(&app_handle, timing.inner(), "frontend show command")
+}
+
+fn show_main_window_with_handle(
+    app_handle: &tauri::AppHandle,
+    timing: &StartupTiming,
+    source: &str,
+) -> Result<(), String> {
     if timing.is_main_window_shown() {
-        log_startup(timing.inner(), "main window already visible");
+        log_startup(timing, &format!("{source}: main window already visible"));
         return Ok(());
     }
 
+    let window = app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
     window
         .show()
         .map_err(|error| format!("failed to show main window: {error}"))?;
     timing.mark_main_window_shown();
-    log_startup(timing.inner(), "frontend show command completed");
+    log_startup(timing, &format!("{source}: main window shown"));
     Ok(())
 }
 
@@ -238,14 +249,26 @@ pub fn run() {
                     let area_ratio = (2.0_f64 / 3.0_f64).sqrt();
                     let width = (monitor_size.width * area_ratio).clamp(820.0, 1600.0);
                     let height = (monitor_size.height * area_ratio).clamp(560.0, 1100.0);
-                    window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
-                    log_startup(timing.inner(), "monitor-derived size applied");
+                    match window.set_size(Size::Logical(LogicalSize::new(width, height))) {
+                        Ok(()) => log_startup(timing.inner(), "monitor-derived size applied"),
+                        Err(error) => log_startup(
+                            timing.inner(),
+                            &format!("monitor-derived size failed; using config size: {error}"),
+                        ),
+                    }
                 } else {
                     log_startup(timing.inner(), "monitor unavailable; using config size");
                 }
 
-                window.center()?;
-                log_startup(timing.inner(), "window centered");
+                match window.center() {
+                    Ok(()) => log_startup(timing.inner(), "window centered"),
+                    Err(error) => log_startup(
+                        timing.inner(),
+                        &format!("window center failed; continuing uncentered: {error}"),
+                    ),
+                }
+            } else {
+                log_startup(timing.inner(), "main window missing during setup");
             }
 
             let app_handle = app.handle().clone();
@@ -257,18 +280,10 @@ pub fn run() {
                 }
 
                 log_startup(timing.inner(), "fallback show fired");
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    match window.show() {
-                        Ok(()) => {
-                            timing.mark_main_window_shown();
-                            log_startup(timing.inner(), "fallback show completed");
-                        }
-                        Err(error) => {
-                            log_startup(timing.inner(), &format!("fallback show failed: {error}"));
-                        }
-                    }
-                } else {
-                    log_startup(timing.inner(), "fallback show skipped; main window missing");
+                if let Err(error) =
+                    show_main_window_with_handle(&app_handle, timing.inner(), "fallback show")
+                {
+                    log_startup(timing.inner(), &format!("fallback show failed: {error}"));
                 }
             });
 
