@@ -56,7 +56,7 @@ If you see `'tauri' is not recognized`, `npm install` was skipped.
 npm run tauri build
 ```
 
-The portable single-exe lands at `target/release/xml-prompt-studio.exe` — installer bundling is off by default (`bundle.active: false` in `tauri.conf.json`); flip it to `true` for a one-off MSI / NSIS bundle.
+The portable single-exe lands at `src-tauri/target/release/xml-prompt-studio.exe` — installer bundling is off by default (`bundle.active: false` in `tauri.conf.json`); flip it to `true` for a one-off MSI / NSIS bundle.
 
 ### Type check
 
