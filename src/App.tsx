@@ -205,6 +205,7 @@ export default function App() {
   const [errorSeverity, setErrorSeverity] = useState<"error" | "warning">(
     "error"
   );
+  const [errorForNodeId, setErrorForNodeId] = useState<string | null>(null);
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
@@ -293,8 +294,9 @@ export default function App() {
   // — the visible tag name comes from documentRoot, which the chip
   // handlers update via setDocumentRoot. Storage cost is tiny: a 100-
   // element doc fully cycled is ~10 KB. Lifecycle: entries are added on
-  // first chip use against an element, swept on element delete, and
-  // wiped wholesale on New Blank.
+  // first chip use against an element, swept on element delete, scrubbed
+  // when visible chips are renamed/deleted/reset, and wiped wholesale on
+  // New Blank.
   const presetMemoryRef = useRef<Map<string, ElementPresetMemory>>(new Map());
 
   const getPresetMemory = (nodeId: string): ElementPresetMemory => {
@@ -304,6 +306,15 @@ export default function App() {
       presetMemoryRef.current.set(nodeId, memory);
     }
     return memory;
+  };
+
+  const forgetPresetMemoryForChip = (chipName: string) => {
+    for (const memory of presetMemoryRef.current.values()) {
+      memory.history.delete(chipName);
+      if (memory.lastApplied === chipName) {
+        memory.lastApplied = null;
+      }
+    }
   };
 
   // Preview is the slow recompute (string join over textContent that may be
@@ -347,16 +358,19 @@ export default function App() {
   // user-facing message also sets the right severity, instead of every
   // call having to remember to set both pieces of state. Errors stop or
   // refuse an action; warnings let it proceed but flag a side effect.
-  const showError = (text: string) => {
+  const showError = (text: string, forNodeId: string | null = null) => {
     setErrorMessage(text);
     setErrorSeverity("error");
+    setErrorForNodeId(forNodeId);
   };
-  const showWarning = (text: string) => {
+  const showWarning = (text: string, forNodeId: string | null = null) => {
     setErrorMessage(text);
     setErrorSeverity("warning");
+    setErrorForNodeId(forNodeId);
   };
   const clearMessage = () => {
     setErrorMessage("");
+    setErrorForNodeId(null);
   };
 
   const activeNode = useMemo(
@@ -428,8 +442,25 @@ export default function App() {
     presetMessage && presetMessage.forNodeId === activeNode.id
       ? presetMessage
       : null;
+  const activeErrorMessage =
+    errorMessage &&
+    (errorForNodeId === null || errorForNodeId === activeNode.id)
+      ? errorMessage
+      : "";
 
   const isRoot = activeNode.id === documentRoot.id;
+  const activeParent = useMemo(
+    () => (isRoot ? null : findParent(documentRoot, activeNode.id)),
+    [activeNode.id, documentRoot, isRoot]
+  );
+  const activeSiblingIndex =
+    activeParent?.children.findIndex((child) => child.id === activeNode.id) ??
+    -1;
+  const canMoveUp = activeSiblingIndex > 0;
+  const canMoveDown =
+    activeParent !== null &&
+    activeSiblingIndex >= 0 &&
+    activeSiblingIndex < activeParent.children.length - 1;
   const tagNameInvalid = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
@@ -487,6 +518,7 @@ export default function App() {
         setEditMode(false);
         setEditingChip(null);
         setChipEditError("");
+        presetMemoryRef.current.clear();
       }
     });
   };
@@ -506,10 +538,24 @@ export default function App() {
   };
 
   const removeChip = (index: number) => {
+    const removedName = presetChips[index];
+    if (removedName) {
+      forgetPresetMemoryForChip(removedName);
+    }
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
-    // If the deleted chip was being edited, drop the edit state.
-    if (editingChip && editingChip.index === index) {
-      setEditingChip(null);
+    setEditingChip((current) => {
+      if (!current || current.isNew) {
+        return current;
+      }
+      if (current.index === index) {
+        return null;
+      }
+      if (current.index > index) {
+        return { ...current, index: current.index - 1 };
+      }
+      return current;
+    });
+    if (editingChip && !editingChip.isNew && editingChip.index === index) {
       setChipEditError("");
     }
   };
@@ -566,8 +612,14 @@ export default function App() {
       return;
     }
     if (editingChip.isNew) {
+      forgetPresetMemoryForChip(trimmed);
       setPresetChips((chips) => [...chips, trimmed]);
     } else {
+      const previousName = presetChips[editingChip.index];
+      if (previousName && previousName !== trimmed) {
+        forgetPresetMemoryForChip(previousName);
+        forgetPresetMemoryForChip(trimmed);
+      }
       setPresetChips((chips) =>
         chips.map((c, i) => (i === editingChip.index ? trimmed : c))
       );
@@ -579,7 +631,10 @@ export default function App() {
   const addChild = () => {
     // Soft depth guard — refuse rather than risk stack overflow on render.
     if (activeDepth >= MAX_DEPTH) {
-      showError(`Element nesting depth limit reached (${MAX_DEPTH}).`);
+      showError(
+        `Element nesting depth limit reached (${MAX_DEPTH}).`,
+        activeNode.id
+      );
       return;
     }
     // Sibling-count guard, symmetric with addSibling. Add Child grows
@@ -587,7 +642,7 @@ export default function App() {
     // guard, holding Add Child reproduces the same O(N²) UI freeze the
     // breadth cap was added to prevent.
     if (activeNode.children.length >= MAX_SIBLINGS) {
-      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`, activeNode.id);
       return;
     }
     const child = createNode();
@@ -606,7 +661,7 @@ export default function App() {
     // create a second root, violating well-formedness. The button is also
     // disabled at root level in the UI; this guard is defensive.
     if (isRoot) {
-      showError("The root element cannot have a sibling.");
+      showError("The root element cannot have a sibling.", activeNode.id);
       return;
     }
     const parent = findParent(documentRoot, activeNode.id);
@@ -619,7 +674,7 @@ export default function App() {
       return;
     }
     if (parent.children.length >= MAX_SIBLINGS) {
-      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`);
+      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`, activeNode.id);
       return;
     }
 
@@ -684,11 +739,10 @@ export default function App() {
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
-    // Root has no siblings to swap with; skip the work to avoid producing a
-    // freshly cloned tree that triggers all four useMemo walkers + a render
-    // for what is semantically a no-op. Matches the addSibling /
-    // removeSelectedNode pattern.
-    if (isRoot) {
+    const canMove = direction === -1 ? canMoveUp : canMoveDown;
+    // Root and boundary siblings have no swap target; skip the work so the
+    // visible disabled-state contract matches the mutation path.
+    if (!canMove) {
       return;
     }
     setDocumentRoot((current) => moveNode(current, activeNode.id, direction));
@@ -741,7 +795,8 @@ export default function App() {
   const setActiveTextContent = (textContent: string) => {
     if (exceedsByteCap(textContent, MAX_TEXT_CONTENT_BYTES)) {
       showError(
-        `Text content too long (limit ${MAX_TEXT_CONTENT_BYTES} bytes).`
+        `Text content too long (limit ${MAX_TEXT_CONTENT_BYTES} bytes).`,
+        activeNode.id
       );
       return;
     }
@@ -820,7 +875,8 @@ export default function App() {
 
     if (collisionWarning) {
       showWarning(
-        `Restored "${nameToApply}" — a sibling already uses that name, so it now shows as a duplicate.`
+        `Restored "${nameToApply}" — a sibling already uses that name, so it now shows as a duplicate.`,
+        activeNode.id
       );
     } else {
       clearMessage();
@@ -931,7 +987,11 @@ export default function App() {
       if (body) body.inert = false;
       // Restore focus AFTER un-inerting — focusing an inert element is a
       // silent no-op, so order matters here.
-      previouslyFocused?.focus();
+      if (previouslyFocused?.isConnected) {
+        previouslyFocused.focus();
+      } else {
+        document.getElementById(TAG_NAME_INPUT_ID)?.focus();
+      }
     };
   }, [confirmRequest]);
 
@@ -971,6 +1031,7 @@ export default function App() {
             type="button"
             tabIndex={-1}
             onClick={() => moveSelectedNode(-1)}
+            disabled={!canMoveUp}
           >
             Move Up
           </button>
@@ -978,6 +1039,7 @@ export default function App() {
             type="button"
             tabIndex={-1}
             onClick={() => moveSelectedNode(1)}
+            disabled={!canMoveDown}
           >
             Move Down
           </button>
@@ -1139,11 +1201,9 @@ export default function App() {
                       autoFocus
                       maxLength={MAX_PRESET_NAME_LENGTH}
                       aria-label={`Rename preset ${name}`}
-                      // Skip Tab navigation: chip controls aren't part
-                      // of the Tag Name ↔ Text Content flow. autoFocus
-                      // still puts the cursor here; Tab from inside
-                      // moves out to the next tab-able field.
-                      tabIndex={-1}
+                      // Active edits stay tabbable so a failed blur commit
+                      // never leaves the keyboard user unable to return.
+                      tabIndex={0}
                       onChange={(event) =>
                         updateEditingChipDraft(event.target.value)
                       }
@@ -1207,7 +1267,7 @@ export default function App() {
                   maxLength={MAX_PRESET_NAME_LENGTH}
                   placeholder="new chip name"
                   aria-label="Name the new preset chip"
-                  tabIndex={-1}
+                  tabIndex={0}
                   onChange={(event) =>
                     updateEditingChipDraft(event.target.value)
                   }
@@ -1288,7 +1348,7 @@ export default function App() {
             onChange={(event) => setActiveTextContent(event.target.value)}
           />
 
-          {errorMessage && (
+          {activeErrorMessage && (
             <div
               className={cx(
                 "error-strip",
@@ -1296,7 +1356,7 @@ export default function App() {
               )}
               role="alert"
             >
-              {errorMessage}
+              {activeErrorMessage}
             </div>
           )}
         </section>

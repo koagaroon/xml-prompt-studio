@@ -382,6 +382,7 @@ select {
 
 .body {
   display: grid;
+  grid-template-areas: "elements input preview";
 
   /* Elements column gets a wider minimum (260px) and slightly more max
      (22%) so depth-based indentation has room to be visible without
@@ -413,6 +414,19 @@ select {
   transition:
     background 200ms ease,
     border-color 200ms ease;
+}
+
+.column.elements {
+  grid-area: elements;
+}
+
+.column.input {
+  grid-area: input;
+  overflow: auto;
+}
+
+.column.preview {
+  grid-area: preview;
 }
 
 .column-title {
@@ -615,6 +629,10 @@ select {
 .tag-name-input.input-error {
   border-color: var(--issue-input-border);
   background: var(--issue-input-bg);
+}
+
+.tag-name-input.input-error:focus {
+  box-shadow: 0 0 0 2px var(--border-focus);
 }
 
 /* Preset chip row.
@@ -1056,6 +1074,15 @@ select {
   }
 }
 
+@media (width <= 920px) {
+  .body {
+    grid-template:
+      "elements input" minmax(0, 1fr)
+      "preview preview" minmax(180px, 0.75fr)
+      / minmax(220px, 0.9fr) minmax(320px, 1.1fr);
+  }
+}
+
 /* === CONFIRMATION MODAL (New Blank only) === */
 
 .modal-overlay {
@@ -1162,5 +1189,9 @@ select {
 
   .bloom-overlay {
     animation-duration: 3s !important;
+  }
+
+  .ribbon button:hover:not(:disabled) {
+    transform: none;
   }
 }
