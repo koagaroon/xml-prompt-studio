@@ -407,6 +407,7 @@ export default function App() {
     }
     return buildPreview(deferredRoot);
   }, [deferredRoot, deferredValidationIssues]);
+  const previewPending = deferredRoot !== documentRoot;
   const xmlPreview = previewBuild.xml;
   const previewLines = previewBuild.lines;
 
@@ -429,9 +430,7 @@ export default function App() {
       : null;
 
   const isRoot = activeNode.id === documentRoot.id;
-  const tagNameInvalid = validationIssues.some(
-    (issue) => issue.nodeId === activeNode.id
-  );
+  const tagNameInvalid = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   // Depth of the currently active element. Read from the already-computed
@@ -841,6 +840,13 @@ export default function App() {
       return;
     }
 
+    if (previewPending) {
+      showWarning(
+        "Preview is still updating. Copy XML will be available once it matches the document."
+      );
+      return;
+    }
+
     // Build from the LIVE documentRoot, not the deferred one. Copy XML is
     // an explicit user action that must capture the latest state — the
     // useDeferredValue trick is only for keystroke-smoothness on the
@@ -1012,8 +1018,11 @@ export default function App() {
             className="copy-button"
             tabIndex={-1}
             onClick={copyPreview}
+            disabled={previewPending}
+            aria-busy={previewPending}
+            title={previewPending ? "Preview is updating" : "Copy XML"}
           >
-            Copy XML
+            {previewPending ? "Updating..." : "Copy XML"}
           </button>
         </div>
       </header>
@@ -1294,32 +1303,34 @@ export default function App() {
 
         <section className="column preview">
           <h2 className="column-title">Preview</h2>
-          <div className="preview-pane">
-            {xmlPreview ? (
-              previewLines.map((line) => {
-                const isActive = line.nodeId === activeNode.id;
-                // Stable per-(node, kind) key — each node produces at most
-                // three lines (open / text / close) or a single self-closing
-                // / single-line, all with distinct kinds. So nodeId+kind is
-                // unique and survives sibling reordering / inserts without
-                // forcing React to rebuild every preview row.
-                return (
-                  <div
-                    key={`${line.nodeId}-${line.kind}`}
-                    className={cx("preview-line", isActive && "is-active")}
-                  >
-                    <span className="preview-indicator" aria-hidden="true">
-                      {isActive && line.primary ? ">" : ""}
-                    </span>
-                    <span className="preview-text">{line.text}</span>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="preview-empty">
-                Fix validation issues to see the preview.
-              </div>
-            )}
+          <div className="preview-pane" aria-busy={previewPending}>
+            <div className="preview-scroll">
+              {xmlPreview ? (
+                previewLines.map((line) => {
+                  const isActive = line.nodeId === activeNode.id;
+                  // Stable per-(node, kind) key — each node produces at most
+                  // three lines (open / text / close) or a single self-closing
+                  // / single-line, all with distinct kinds. So nodeId+kind is
+                  // unique and survives sibling reordering / inserts without
+                  // forcing React to rebuild every preview row.
+                  return (
+                    <div
+                      key={`${line.nodeId}-${line.kind}`}
+                      className={cx("preview-line", isActive && "is-active")}
+                    >
+                      <span className="preview-indicator" aria-hidden="true">
+                        {isActive && line.primary ? ">" : ""}
+                      </span>
+                      <span className="preview-text">{line.text}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="preview-empty">
+                  Fix validation issues to see the preview.
+                </div>
+              )}
+            </div>
             {/* Key on copyToken forces this overlay to remount on each copy,
                 replaying the bloom animation. Pointer-events: none ensures it
                 doesn't intercept clicks. */}

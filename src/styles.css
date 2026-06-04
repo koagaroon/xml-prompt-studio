@@ -370,6 +370,7 @@ select {
   letter-spacing: 0.02em;
   padding: 0.5rem 1.15rem;
   color: #fff;
+  min-width: 7.4rem;
 }
 
 .ribbon button.copy-button:hover:not(:disabled) {
@@ -959,10 +960,10 @@ select {
 .preview-pane {
   position: relative;
   flex: 1;
-  overflow: auto;
+  display: flex;
+  overflow: hidden;
   background: var(--bg-preview);
   border-radius: 12px;
-  padding: 1rem 1.1rem;
   font-family:
     "JetBrains Mono",
     "Cascadia Mono",
@@ -979,6 +980,13 @@ select {
   transition:
     background 200ms ease,
     color 200ms ease;
+}
+
+.preview-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.1rem;
 }
 
 .preview-line {
