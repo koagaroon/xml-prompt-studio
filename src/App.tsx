@@ -518,6 +518,7 @@ export default function App() {
         setEditMode(false);
         setEditingChip(null);
         setChipEditError("");
+        setPresetMessage(null);
         presetMemoryRef.current.clear();
       }
     });
@@ -528,6 +529,7 @@ export default function App() {
   // any in-flight edit (rename or add) — accepting a half-typed name on
   // toggle would surprise the user.
   const toggleEditMode = () => {
+    setPresetMessage(null);
     setEditMode((current) => {
       if (current) {
         setEditingChip(null);
@@ -542,6 +544,7 @@ export default function App() {
     if (removedName) {
       forgetPresetMemoryForChip(removedName);
     }
+    setPresetMessage(null);
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
     setEditingChip((current) => {
       if (!current || current.isNew) {
@@ -626,6 +629,7 @@ export default function App() {
     }
     setEditingChip(null);
     setChipEditError("");
+    setPresetMessage(null);
   };
 
   const addChild = () => {
