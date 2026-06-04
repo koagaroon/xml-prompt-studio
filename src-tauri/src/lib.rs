@@ -235,7 +235,7 @@ pub fn run() {
                 if let Some(monitor) = monitor {
                     let scale_factor = monitor.scale_factor();
                     let monitor_size = monitor.size().to_logical::<f64>(scale_factor);
-                    let area_ratio = (1.0_f64 / 3.0_f64).sqrt();
+                    let area_ratio = (2.0_f64 / 3.0_f64).sqrt();
                     let width = (monitor_size.width * area_ratio).clamp(820.0, 1600.0);
                     let height = (monitor_size.height * area_ratio).clamp(560.0, 1100.0);
                     window.set_size(Size::Logical(LogicalSize::new(width, height)))?;
