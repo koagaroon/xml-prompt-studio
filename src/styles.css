@@ -1042,6 +1042,37 @@ select {
   font-style: italic;
 }
 
+.preview-updating-note {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 1;
+  pointer-events: none;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-panel);
+  color: var(--text-secondary);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  animation: preview-updating-note-reveal 1ms 350ms both;
+}
+
+@keyframes preview-updating-note-reveal {
+  from {
+    visibility: hidden;
+    opacity: 0;
+  }
+
+  to {
+    visibility: visible;
+    opacity: 1;
+  }
+}
+
 /* Bloom overlay: triggered by Copy XML success. The element is mounted with
    key={copyToken} in App.tsx, so each successful copy remounts it and the
    animation runs from the start. Pointer-events none = doesn't block clicks

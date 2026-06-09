@@ -1084,11 +1084,9 @@ export default function App() {
             className="copy-button"
             tabIndex={-1}
             onClick={copyPreview}
-            disabled={previewPending}
-            aria-busy={previewPending}
-            title={previewPending ? "Preview is updating" : "Copy XML"}
+            title="Copy XML"
           >
-            {previewPending ? "Updating..." : "Copy XML"}
+            Copy XML
           </button>
         </div>
       </header>
@@ -1395,6 +1393,11 @@ export default function App() {
                 </div>
               )}
             </div>
+            {previewPending && (
+              <div className="preview-updating-note" role="status">
+                Preview updating...
+              </div>
+            )}
             {/* Key on copyToken forces this overlay to remount on each copy,
                 replaying the bloom animation. Pointer-events: none ensures it
                 doesn't intercept clicks. */}
