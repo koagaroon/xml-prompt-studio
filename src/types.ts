@@ -26,12 +26,18 @@ export type NodeOutlineItem = {
 // from kind ("self-closing" | "single-line" | "open" are primary) but kept
 // as a precomputed flag for hot-path checks in App.tsx.
 //
-// `nodeId` is non-nullable: every line renderNode emits is tied to a
-// concrete XmlNode. The earlier `string | null` type was defensive for
-// a code path that doesn't exist.
+// "separator" is the blank line between top-level sections, emitted by
+// buildPreview (not renderNode) and keyed to the PRECEDING section's id —
+// each section emits at most one trailing separator, preserving the
+// (nodeId, kind) key uniqueness. The id is for key stability only; the
+// line doesn't belong to that section visually and never paints active.
+//
+// `nodeId` is non-nullable: every line is tied to a concrete XmlNode
+// (separators to the preceding top-level section). The earlier
+// `string | null` type was defensive for a code path that doesn't exist.
 export type PreviewLine = {
   text: string;
   nodeId: string;
   primary: boolean;
-  kind: "self-closing" | "single-line" | "open" | "text" | "close";
+  kind: "self-closing" | "single-line" | "open" | "text" | "close" | "separator";
 };

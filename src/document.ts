@@ -35,75 +35,134 @@ export function createNode(tagName = ""): XmlNode {
   };
 }
 
-// Blank document starts with `<feedback>` as the root tag — matches the most
-// common usage of this tool (composing feedback / prompts to send to LLMs).
-// Spec §2.1: exactly one root element. Don't seed with multiple roots.
-export function createBlankDocument(): XmlNode {
-  return createNode("feedback");
+// The document is a forest (XmlNode[]): top-level sections are siblings
+// with no wrapper element, matching the standard multi-section prompt
+// shape (<instructions> / <context> / <input> side by side). A blank
+// document starts as a single `<feedback>` section — the familiar starting
+// point — and the user adds top-level siblings from there.
+export function createBlankDocument(): XmlNode[] {
+  return [createNode("feedback")];
 }
 
 export function updateNode(
-  root: XmlNode,
+  roots: XmlNode[],
+  targetId: string,
+  updater: (node: XmlNode) => XmlNode
+): XmlNode[] {
+  return roots.map((root) => updateNodeInTree(root, targetId, updater));
+}
+
+function updateNodeInTree(
+  node: XmlNode,
   targetId: string,
   updater: (node: XmlNode) => XmlNode
 ): XmlNode {
-  if (root.id === targetId) {
-    return updater(root);
+  if (node.id === targetId) {
+    return updater(node);
   }
 
   return {
-    ...root,
-    children: root.children.map((child) => updateNode(child, targetId, updater))
+    ...node,
+    children: node.children.map((child) =>
+      updateNodeInTree(child, targetId, updater)
+    )
   };
 }
 
-// Deletes the node with `targetId` from `root`'s subtree. Caller must
-// ensure targetId ≠ root.id — root cannot delete itself, and calling with
-// the root id returns a clone of root with no deletion. Spec §2.1 (exactly
-// one root element) is the reason; "wipe to blank" routes through New
-// Blank, not Delete.
-export function deleteNode(root: XmlNode, targetId: string): XmlNode {
+// Deletes the node with `targetId` anywhere in the forest; top-level
+// sections are legal targets. The min-one-section invariant lives in the
+// caller — deleting the LAST remaining top-level section routes through
+// App's reset-to-blank path and never reaches this function.
+export function deleteNode(roots: XmlNode[], targetId: string): XmlNode[] {
+  return roots
+    .filter((root) => root.id !== targetId)
+    .map((root) => deleteNodeInTree(root, targetId));
+}
+
+function deleteNodeInTree(node: XmlNode, targetId: string): XmlNode {
   return {
-    ...root,
-    children: root.children
+    ...node,
+    children: node.children
       .filter((child) => child.id !== targetId)
-      .map((child) => deleteNode(child, targetId))
+      .map((child) => deleteNodeInTree(child, targetId))
   };
 }
 
-export function moveNode(root: XmlNode, targetId: string, direction: -1 | 1): XmlNode {
-  // First check if the target is a direct child of root — common case for
-  // top-level moves. If so, swap locally and return without recursing into
-  // grandchildren, saving a tree walk per move.
-  const localIndex = root.children.findIndex((child) => child.id === targetId);
+export function moveNode(
+  roots: XmlNode[],
+  targetId: string,
+  direction: -1 | 1
+): XmlNode[] {
+  // Target is a top-level section — reorder the forest itself.
+  const topIndex = roots.findIndex((root) => root.id === targetId);
+  if (topIndex !== -1) {
+    return reorder(roots, topIndex, direction);
+  }
+
+  return roots.map((root) => moveNodeInTree(root, targetId, direction));
+}
+
+function moveNodeInTree(
+  node: XmlNode,
+  targetId: string,
+  direction: -1 | 1
+): XmlNode {
+  // First check if the target is a direct child — common case. If so, swap
+  // locally and return without recursing into grandchildren, saving a tree
+  // walk per move.
+  const localIndex = node.children.findIndex((child) => child.id === targetId);
   if (localIndex !== -1) {
-    const nextIndex = localIndex + direction;
-    if (nextIndex < 0 || nextIndex >= root.children.length) {
-      return root;
+    const reordered = reorder(node.children, localIndex, direction);
+    if (reordered === node.children) {
+      return node;
     }
-    const reordered = [...root.children];
-    const [item] = reordered.splice(localIndex, 1);
-    reordered.splice(nextIndex, 0, item);
     return {
-      ...root,
+      ...node,
       children: reordered
     };
   }
 
   // Target is not a direct child — recurse into descendants.
   return {
-    ...root,
-    children: root.children.map((child) => moveNode(child, targetId, direction))
+    ...node,
+    children: node.children.map((child) =>
+      moveNodeInTree(child, targetId, direction)
+    )
   };
 }
 
-export function findNode(root: XmlNode, targetId: string): XmlNode | null {
-  if (root.id === targetId) {
-    return root;
+// Shifts the item at `index` by one position. Returns the SAME array
+// reference when the move would fall off either end — callers use that
+// reference equality to skip cloning on no-op moves.
+function reorder<T>(items: T[], index: number, direction: -1 | 1): T[] {
+  const nextIndex = index + direction;
+  if (nextIndex < 0 || nextIndex >= items.length) {
+    return items;
+  }
+  const next = [...items];
+  const [item] = next.splice(index, 1);
+  next.splice(nextIndex, 0, item);
+  return next;
+}
+
+export function findNode(roots: XmlNode[], targetId: string): XmlNode | null {
+  for (const root of roots) {
+    const result = findNodeInTree(root, targetId);
+    if (result) {
+      return result;
+    }
   }
 
-  for (const child of root.children) {
-    const result = findNode(child, targetId);
+  return null;
+}
+
+function findNodeInTree(node: XmlNode, targetId: string): XmlNode | null {
+  if (node.id === targetId) {
+    return node;
+  }
+
+  for (const child of node.children) {
+    const result = findNodeInTree(child, targetId);
     if (result) {
       return result;
     }
@@ -114,15 +173,27 @@ export function findNode(root: XmlNode, targetId: string): XmlNode | null {
 
 // Returns the parent NODE (not just the id), so callers don't need a
 // follow-up findNode lookup to read fields off the parent. Returns null
-// if `targetId` is the root (root has no parent in the tree) or if no
-// node with `targetId` exists.
-export function findParent(root: XmlNode, targetId: string): XmlNode | null {
-  for (const child of root.children) {
+// if `targetId` is a top-level section (no parent in the forest) or if
+// no node with `targetId` exists — callers treat null as "top-level"
+// and use the roots array as the sibling list.
+export function findParent(roots: XmlNode[], targetId: string): XmlNode | null {
+  for (const root of roots) {
+    const result = findParentInTree(root, targetId);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+}
+
+function findParentInTree(node: XmlNode, targetId: string): XmlNode | null {
+  for (const child of node.children) {
     if (child.id === targetId) {
-      return root;
+      return node;
     }
 
-    const result = findParent(child, targetId);
+    const result = findParentInTree(child, targetId);
     if (result) {
       return result;
     }

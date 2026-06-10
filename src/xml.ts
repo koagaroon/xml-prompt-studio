@@ -1,6 +1,6 @@
 import type { PreviewLine, ValidationIssue, XmlNode } from "./types";
 
-export function validateDocument(root: XmlNode): ValidationIssue[] {
+export function validateDocument(roots: XmlNode[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
   const walk = (node: XmlNode) => {
@@ -12,35 +12,59 @@ export function validateDocument(root: XmlNode): ValidationIssue[] {
     node.children.forEach(walk);
   };
 
-  walk(root);
+  roots.forEach(walk);
   return issues;
 }
 
-export function buildPreview(root: XmlNode): {
+// Renders the forest: each top-level section at depth 0, with a blank
+// separator line between consecutive sections (the standard multi-section
+// prompt shape). The separator participates in `lines`, so the copied XML
+// (join of line texts) and the on-screen preview remain projections of the
+// same array — the same-source invariant survives the forest model.
+export function buildPreview(roots: XmlNode[]): {
   xml: string;
   lines: PreviewLine[];
 } {
-  const lines = renderNode(root, 0);
+  const lines: PreviewLine[] = [];
+
+  roots.forEach((root, index) => {
+    if (index > 0) {
+      // Keyed to the PRECEDING section's id: each section emits at most
+      // one trailing separator, so the (nodeId, kind) uniqueness that
+      // App.tsx's React keys rely on holds. See PreviewLine in types.ts.
+      lines.push({
+        text: "",
+        nodeId: roots[index - 1].id,
+        primary: false,
+        kind: "separator"
+      });
+    }
+    lines.push(...renderNode(root, 0));
+  });
+
   return {
     xml: lines.map((line) => line.text).join("\n"),
     lines
   };
 }
 
-export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
+// Checks every sibling group for duplicate tag names. The top-level
+// sections (the roots array itself) are a sibling group like any other —
+// same-name top-level sections get the same amber badge, never a blocker.
+export function findDuplicateNodes(roots: XmlNode[]): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
 
-  const walk = (node: XmlNode) => {
+  const checkSiblings = (siblings: XmlNode[]) => {
     const byTagName = new Map<string, XmlNode[]>();
 
-    node.children.forEach((child) => {
-      const tagName = child.tagName.trim();
+    siblings.forEach((node) => {
+      const tagName = node.tagName.trim();
       if (!tagName) {
         return;
       }
 
       const group = byTagName.get(tagName) ?? [];
-      group.push(child);
+      group.push(node);
       byTagName.set(tagName, group);
     });
 
@@ -54,10 +78,10 @@ export function findDuplicateNodes(root: XmlNode): ValidationIssue[] {
       });
     });
 
-    node.children.forEach(walk);
+    siblings.forEach((node) => checkSiblings(node.children));
   };
 
-  walk(root);
+  checkSiblings(roots);
   return issues;
 }
 

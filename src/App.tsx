@@ -191,11 +191,14 @@ function readInitialTheme(): Theme {
 }
 
 export default function App() {
-  const [documentRoot, setDocumentRoot] = useState<XmlNode>(createBlankDocument);
-  // Lazy initializer reads documentRoot.id only on first render. Without
+  // The document is a forest: top-level sections are siblings with no
+  // wrapper element. The invariant "roots is never empty" is maintained
+  // by the delete handler (deleting the last section resets to blank).
+  const [roots, setRoots] = useState<XmlNode[]>(createBlankDocument);
+  // Lazy initializer reads roots[0].id only on first render. Without
   // the wrapper, the property access fires on every render even though
   // React ignores the value after mount.
-  const [selectedNodeId, setSelectedNodeId] = useState(() => documentRoot.id);
+  const [selectedNodeId, setSelectedNodeId] = useState(() => roots[0].id);
   const [errorMessage, setErrorMessage] = useState("");
   // Severity controls the visual treatment of the message strip — red for
   // errors (something failed or is blocked), amber for warnings (the action
@@ -291,8 +294,8 @@ export default function App() {
   // name each chip last produced on this element (so switching to another
   // chip and back restores the original suffix instead of recomputing a
   // fresh one). Lives in a ref because none of this state drives rendering
-  // — the visible tag name comes from documentRoot, which the chip
-  // handlers update via setDocumentRoot. Storage cost is tiny: a 100-
+  // — the visible tag name comes from `roots`, which the chip
+  // handlers update via setRoots. Storage cost is tiny: a 100-
   // element doc fully cycled is ~10 KB. Lifecycle: entries are added on
   // first chip use against an element, swept on element delete, scrubbed
   // when visible chips are renamed/deleted/reset, and wiped wholesale on
@@ -321,8 +324,8 @@ export default function App() {
   // large). Deferring its input lets typing in the Tag Name / Text Content
   // inputs stay responsive — React keeps the previous preview frame visible
   // until the new one is ready. Validation, outline, and the input column
-  // continue to use the latest documentRoot for immediate feedback.
-  const deferredRoot = useDeferredValue(documentRoot);
+  // continue to use the latest roots for immediate feedback.
+  const deferredRoots = useDeferredValue(roots);
 
   // Keep DOM and storage in sync with state. The inline script in
   // index.html sets the initial attribute pre-render; this effect handles
@@ -374,18 +377,18 @@ export default function App() {
   };
 
   const activeNode = useMemo(
-    () => findNode(documentRoot, selectedNodeId) ?? documentRoot,
-    [documentRoot, selectedNodeId]
+    () => findNode(roots, selectedNodeId) ?? roots[0],
+    [roots, selectedNodeId]
   );
 
   const duplicateIssues = useMemo(
-    () => findDuplicateNodes(documentRoot),
-    [documentRoot]
+    () => findDuplicateNodes(roots),
+    [roots]
   );
 
   const validationIssues = useMemo(
-    () => validateDocument(documentRoot),
-    [documentRoot]
+    () => validateDocument(roots),
+    [roots]
   );
 
   // Single-pass union: duplicateNodeIds is a subset of issueNodeIds, so
@@ -402,32 +405,32 @@ export default function App() {
     return { issueNodeIds: all, duplicateNodeIds: dup };
   }, [validationIssues, duplicateIssues]);
 
-  // Validation against the deferred root, used to gate the on-screen
-  // preview. The build runs against deferredRoot, so the gate must too —
-  // otherwise the live-root validation could pass while deferredRoot is
+  // Validation against the deferred roots, used to gate the on-screen
+  // preview. The build runs against deferredRoots, so the gate must too —
+  // otherwise the live-roots validation could pass while deferredRoots is
   // briefly invalid in a transient frame, and renderNode would emit
   // malformed lines like `<>...</>`.
   const deferredValidationIssues = useMemo(
-    () => validateDocument(deferredRoot),
-    [deferredRoot]
+    () => validateDocument(deferredRoots),
+    [deferredRoots]
   );
 
   // Single buildPreview call serves the on-screen preview lines. Uses
-  // deferredRoot so heavy text content doesn't block typing — the input
+  // deferredRoots so heavy text content doesn't block typing — the input
   // column shows the latest state immediately, the preview catches up.
   const previewBuild = useMemo(() => {
     if (deferredValidationIssues.length > 0) {
       return { xml: "", lines: [] };
     }
-    return buildPreview(deferredRoot);
-  }, [deferredRoot, deferredValidationIssues]);
-  const previewPending = deferredRoot !== documentRoot;
+    return buildPreview(deferredRoots);
+  }, [deferredRoots, deferredValidationIssues]);
+  const previewPending = deferredRoots !== roots;
   const xmlPreview = previewBuild.xml;
   const previewLines = previewBuild.lines;
 
   const elementOutline = useMemo(
-    () => createElementOutline(documentRoot, duplicateNodeIds),
-    [documentRoot, duplicateNodeIds]
+    () => createElementOutline(roots, duplicateNodeIds),
+    [roots, duplicateNodeIds]
   );
 
   // The tag-name field-level message, gated on the element it was
@@ -448,25 +451,26 @@ export default function App() {
       ? errorMessage
       : "";
 
-  const isRoot = activeNode.id === documentRoot.id;
+  // null parent = top-level section; its sibling list is the forest
+  // itself, so Move / Add Sibling / Delete work uniformly at every level.
   const activeParent = useMemo(
-    () => (isRoot ? null : findParent(documentRoot, activeNode.id)),
-    [activeNode.id, documentRoot, isRoot]
+    () => findParent(roots, activeNode.id),
+    [activeNode.id, roots]
   );
-  const activeSiblingIndex =
-    activeParent?.children.findIndex((child) => child.id === activeNode.id) ??
-    -1;
+  const activeSiblings = activeParent ? activeParent.children : roots;
+  const activeSiblingIndex = activeSiblings.findIndex(
+    (child) => child.id === activeNode.id
+  );
   const canMoveUp = activeSiblingIndex > 0;
   const canMoveDown =
-    activeParent !== null &&
     activeSiblingIndex >= 0 &&
-    activeSiblingIndex < activeParent.children.length - 1;
+    activeSiblingIndex < activeSiblings.length - 1;
   const tagNameInvalid = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   // Depth of the currently active element. Read from the already-computed
   // outline rather than walking the tree again. The find() should never
-  // miss — activeNode falls back to documentRoot, which is always at
+  // miss — activeNode falls back to roots[0], which is always at
   // outline[0]. Fail closed (?? MAX_DEPTH) rather than open (?? 0) so
   // a missed lookup refuses Add Child instead of silently bypassing the
   // depth guard. The "Element nesting depth limit reached" message in
@@ -495,9 +499,9 @@ export default function App() {
       confirmLabel: "Confirm",
       confirmKind: "danger",
       onConfirm: () => {
-        const nextRoot = createBlankDocument();
-        setDocumentRoot(nextRoot);
-        setSelectedNodeId(nextRoot.id);
+        const nextRoots = createBlankDocument();
+        setRoots(nextRoots);
+        setSelectedNodeId(nextRoots[0].id);
         clearMessage();
         // New document means every old node ID is gone — wipe the entire
         // memory map so it doesn't accumulate orphan entries across many
@@ -650,7 +654,7 @@ export default function App() {
       return;
     }
     const child = createNode();
-    setDocumentRoot((current) =>
+    setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({
         ...node,
         children: [...node.children, child]
@@ -661,73 +665,66 @@ export default function App() {
   };
 
   const addSibling = () => {
-    // Spec §2.1: exactly one root element. Add Sibling on the root would
-    // create a second root, violating well-formedness. The button is also
-    // disabled at root level in the UI; this guard is defensive.
-    if (isRoot) {
-      showError("The root element cannot have a sibling.", activeNode.id);
-      return;
-    }
-    const parent = findParent(documentRoot, activeNode.id);
-    if (!parent) {
-      // Active node is non-root but has no parent in the tree — should be
-      // unreachable by construction. Log so a future regression surfaces
-      // instead of "Add Sibling does nothing." Same shape as createId's
-      // crypto.randomUUID fallback (per principle 3 in the design doc).
-      console.warn("addSibling: parent of active node not found");
-      return;
-    }
-    if (parent.children.length >= MAX_SIBLINGS) {
+    // Top-level sections are siblings in the forest, so Add Sibling is
+    // legal at every level — a null parent means "insert a new top-level
+    // section after the active one". The MAX_SIBLINGS breadth cap applies
+    // to the forest the same as to any children array.
+    if (activeSiblings.length >= MAX_SIBLINGS) {
       showError(`Sibling count limit reached (${MAX_SIBLINGS}).`, activeNode.id);
       return;
     }
 
     const sibling = createNode();
-    setDocumentRoot((current) =>
-      updateNode(current, parent.id, (node) => {
-        const index = node.children.findIndex((c) => c.id === activeNode.id);
-        const insertAt = index === -1 ? node.children.length : index + 1;
-        return {
+    if (activeParent) {
+      const parentId = activeParent.id;
+      setRoots((current) =>
+        updateNode(current, parentId, (node) => ({
           ...node,
-          children: [
-            ...node.children.slice(0, insertAt),
-            sibling,
-            ...node.children.slice(insertAt)
-          ]
-        };
-      })
-    );
+          children: insertAfter(node.children, activeNode.id, sibling)
+        }))
+      );
+    } else {
+      setRoots((current) => insertAfter(current, activeNode.id, sibling));
+    }
     setSelectedNodeId(sibling.id);
     clearMessage();
   };
 
   const removeSelectedNode = () => {
-    // Root cannot be deleted (spec §2.1: root element is mandatory). The
-    // Delete button is disabled at root level; this guard is defensive.
-    // Path to "wipe to blank": New Blank, not Delete.
-    if (isRoot) {
+    // Min-one-section invariant: deleting the LAST remaining top-level
+    // section would empty the forest, so this path resets to the blank
+    // starter instead. No confirm — Delete on the sole section IS the
+    // explicit wipe gesture, same outcome as a confirmed New Blank.
+    if (!activeParent && roots.length === 1) {
+      const nextRoots = createBlankDocument();
+      setRoots(nextRoots);
+      setSelectedNodeId(nextRoots[0].id);
+      clearMessage();
+      // Every old node ID is gone — wipe the whole memory map, same as
+      // the New Blank path.
+      presetMemoryRef.current.clear();
       return;
     }
 
-    // Mixed pattern: closure read for findParent + documentRoot.id
-    // fallback, functional updater for the tree mutation. Safe because
-    // the root's identity is stable — only confirmNewBlank replaces the
-    // root, and that path doesn't reach this function. Other handlers in
-    // this file commit to functional updaters; the closure reads here
-    // are intentional, not an oversight.
-    const parent = findParent(documentRoot, activeNode.id);
-    // Pick the next selection BEFORE deletion so child indices are stable.
-    // Preference: previous sibling > next sibling > parent. Matches list-
-    // editor convention (file managers, table row deletes) where focus
-    // collapses toward the nearest neighbor, not jumps up a level.
+    // Mixed pattern: closure reads for activeParent / activeSiblings /
+    // roots[0].id, functional updater for the tree mutation. Safe because
+    // nothing else replaces the forest between this render's closure and
+    // the updater run. Other handlers in this file commit to functional
+    // updaters; the closure reads here are intentional, not an oversight.
+    //
+    // Pick the next selection BEFORE deletion so sibling indices are
+    // stable. Preference: previous sibling > next sibling > parent.
+    // Matches list-editor convention (file managers, table row deletes)
+    // where focus collapses toward the nearest neighbor, not up a level.
     const target = nextSelectionAfterDelete(
-      parent,
+      activeSiblings,
       activeNode.id,
-      documentRoot.id
+      activeParent?.id ?? null,
+      roots[0].id
     );
 
     // Sweep presetMemory for the deleted node and all its descendants —
-    // those IDs no longer exist anywhere in the tree, so leaving entries
+    // those IDs no longer exist anywhere in the forest, so leaving entries
     // keyed by them is a small per-delete leak. Only the deleted subtree
     // is swept; siblings' memories are untouched. The "freed-suffix slot
     // flows into sibling chip behavior" extension was discussed and
@@ -737,19 +734,19 @@ export default function App() {
       presetMemoryRef.current.delete(id);
     }
 
-    setDocumentRoot((current) => deleteNode(current, activeNode.id));
+    setRoots((current) => deleteNode(current, activeNode.id));
     setSelectedNodeId(target);
     clearMessage();
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
     const canMove = direction === -1 ? canMoveUp : canMoveDown;
-    // Root and boundary siblings have no swap target; skip the work so the
+    // Boundary siblings have no swap target; skip the work so the
     // visible disabled-state contract matches the mutation path.
     if (!canMove) {
       return;
     }
-    setDocumentRoot((current) => moveNode(current, activeNode.id, direction));
+    setRoots((current) => moveNode(current, activeNode.id, direction));
     clearMessage();
   };
 
@@ -779,7 +776,7 @@ export default function App() {
       });
       return;
     }
-    setDocumentRoot((current) =>
+    setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
     if (limitWarning) {
@@ -804,7 +801,7 @@ export default function App() {
       );
       return;
     }
-    setDocumentRoot((current) =>
+    setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, textContent }))
     );
     clearMessage();
@@ -826,9 +823,9 @@ export default function App() {
       return;
     }
 
-    const parent = findParent(documentRoot, activeNode.id);
-
-    // Decide which name to apply.
+    // Decide which name to apply. activeSiblings covers top-level
+    // sections too (their sibling list is the forest itself), so chip
+    // suffixes and collision checks work the same at every level.
     //   - If this chip has been used on this element before, restore the
     //     exact name we wrote last time. Lets the user switch between
     //     chips without losing the original suffix on either side.
@@ -845,18 +842,12 @@ export default function App() {
       // promise that this chip → this name on this element), but flag
       // the collision so the user knows why a duplicate badge just
       // appeared on the row.
-      if (parent) {
-        const collidingSibling = parent.children.find(
-          (c) => c.id !== activeNode.id && c.tagName.trim() === nameToApply
-        );
-        collisionWarning = collidingSibling !== undefined;
-      }
-    } else if (!parent) {
-      // Active element is root (no siblings under spec §2.1's single-root
-      // invariant). Just use _1.
-      nameToApply = `${chipName}_1`;
+      const collidingSibling = activeSiblings.find(
+        (c) => c.id !== activeNode.id && c.tagName.trim() === nameToApply
+      );
+      collisionWarning = collidingSibling !== undefined;
     } else {
-      const suffix = nextAvailableSuffix(parent, chipName);
+      const suffix = nextAvailableSuffix(activeSiblings, chipName);
       nameToApply = `${chipName}_${suffix}`;
     }
 
@@ -865,7 +856,7 @@ export default function App() {
     // extra render). Byte-cap check is unnecessary here: chip names are
     // bounded short by construction, and history values came from a
     // prior valid apply.
-    setDocumentRoot((current) =>
+    setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({
         ...node,
         tagName: nameToApply
@@ -907,17 +898,17 @@ export default function App() {
       return;
     }
 
-    // Build from the LIVE documentRoot, not the deferred one. Copy XML is
+    // Build from the LIVE roots, not the deferred ones. Copy XML is
     // an explicit user action that must capture the latest state — the
     // useDeferredValue trick is only for keystroke-smoothness on the
-    // on-screen preview. Using deferredRoot here would silently copy stale
-    // text after rapid type-then-click.
-    const liveIssues = validateDocument(documentRoot);
+    // on-screen preview. Using deferredRoots here would silently copy
+    // stale text after rapid type-then-click.
+    const liveIssues = validateDocument(roots);
     if (liveIssues.length > 0) {
       showError("Fix validation issues before copying XML.");
       return;
     }
-    const liveXml = buildPreview(documentRoot).xml;
+    const liveXml = buildPreview(roots).xml;
 
     // Reuse the same length × 3 short-circuit + TextEncoder fallback as the
     // per-field caps via exceedsByteCap. The actual byte count is only
@@ -1023,12 +1014,7 @@ export default function App() {
           <button type="button" tabIndex={-1} onClick={addChild}>
             Add Child
           </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            onClick={addSibling}
-            disabled={isRoot}
-          >
+          <button type="button" tabIndex={-1} onClick={addSibling}>
             Add Sibling
           </button>
           <button
@@ -1047,12 +1033,13 @@ export default function App() {
           >
             Move Down
           </button>
+          {/* Always enabled — deleting the last remaining top-level
+              section resets to the blank starter (min-one invariant). */}
           <button
             type="button"
             className="danger-button"
             tabIndex={-1}
             onClick={removeSelectedNode}
-            disabled={isRoot}
           >
             Delete
           </button>
@@ -1369,7 +1356,11 @@ export default function App() {
             <div className="preview-scroll">
               {xmlPreview ? (
                 previewLines.map((line) => {
-                  const isActive = line.nodeId === activeNode.id;
+                  // Separator lines carry the preceding section's id only
+                  // for React-key stability — they belong to no section
+                  // visually, so they never paint as active.
+                  const isActive =
+                    line.kind !== "separator" && line.nodeId === activeNode.id;
                   // Stable per-(node, kind) key — each node produces at most
                   // three lines (open / text / close) or a single self-closing
                   // / single-line, all with distinct kinds. So nodeId+kind is
@@ -1454,7 +1445,7 @@ export default function App() {
 }
 
 function createElementOutline(
-  root: XmlNode,
+  roots: XmlNode[],
   duplicateNodeIds: Set<string>
 ): NodeOutlineItem[] {
   const items: NodeOutlineItem[] = [];
@@ -1469,8 +1460,22 @@ function createElementOutline(
     node.children.forEach((child) => walk(child, depth + 1));
   };
 
-  walk(root, 0);
+  roots.forEach((root) => walk(root, 0));
   return items;
+}
+
+// Inserts `node` immediately after the item with `anchorId`; appends when
+// the anchor isn't found (defensive — callers pass the active node's id,
+// which is always in the list). Shared by both addSibling levels: a
+// parent's children array and the top-level roots array.
+function insertAfter(
+  list: XmlNode[],
+  anchorId: string,
+  node: XmlNode
+): XmlNode[] {
+  const index = list.findIndex((item) => item.id === anchorId);
+  const insertAt = index === -1 ? list.length : index + 1;
+  return [...list.slice(0, insertAt), node, ...list.slice(insertAt)];
 }
 
 // Walks a subtree and returns every node ID it contains, including the
@@ -1494,28 +1499,27 @@ function collectSubtreeIds(root: XmlNode): string[] {
 // Picks which element to select after the active one is deleted. The user-
 // expected behavior is "fall to the nearest neighbor", which matches list
 // editors elsewhere — file managers, table row deletes, etc. Order:
-// previous sibling > next sibling > parent (only-child fallback). The
-// `fallbackId` is used when the parent lookup fails, which should be
-// unreachable for non-root deletes but keeps the function total.
+// previous sibling > next sibling > parent (only-child fallback). For a
+// top-level section `parentId` is null, but its only-child case routes
+// through the reset-to-blank path before this is called, so the final
+// `fallbackId` (kept for totality) should be unreachable.
 function nextSelectionAfterDelete(
-  parent: XmlNode | null,
+  siblings: XmlNode[],
   deletedId: string,
+  parentId: string | null,
   fallbackId: string
 ): string {
-  if (!parent) {
-    return fallbackId;
-  }
-  const idx = parent.children.findIndex((c) => c.id === deletedId);
+  const idx = siblings.findIndex((c) => c.id === deletedId);
   if (idx === -1) {
     return fallbackId;
   }
   if (idx > 0) {
-    return parent.children[idx - 1].id;
+    return siblings[idx - 1].id;
   }
-  if (parent.children.length > 1) {
-    return parent.children[idx + 1].id;
+  if (siblings.length > 1) {
+    return siblings[idx + 1].id;
   }
-  return parent.id;
+  return parentId ?? fallbackId;
 }
 
 function buildElementLabel(node: XmlNode): string {
@@ -1532,7 +1536,7 @@ function buildElementLabel(node: XmlNode): string {
 // surrogates. Don't refactor to `Array.from(value)` — that materializes a
 // code-point array proportional to the *entire* string, which is up to
 // MAX_TEXT_CONTENT_BYTES (10 MB). This helper runs per node on every
-// documentRoot edit via the live (non-deferred) outline rebuild, so eager
+// roots edit via the live (non-deferred) outline rebuild, so eager
 // materialization reaches tens-of-MB per keystroke before the truncation
 // even happens. Short-circuit at maxLength+1 keeps work O(maxLength).
 function truncate(value: string, maxLength: number): string {
@@ -1569,15 +1573,16 @@ function cx(...names: (string | false | null | undefined)[]): string {
 // `<baseName>_<positive-decimal>`. The active element is included in the
 // scan — clicking the preset chip on an element already named e.g.
 // `feedback_3` should advance it (siblings + self {1, 2, 3} → next 4),
-// not silently rewrite to the same value.
+// not silently rewrite to the same value. `siblings` is the parent's
+// children array, or the roots array for top-level sections.
 //
 // Suffix regex requires `[1-9]\d*` to reject leading zeros, so e.g.
 // `feedback_001` does NOT collide with `feedback_1` in the used set.
-function nextAvailableSuffix(parent: XmlNode, baseName: string): number {
+function nextAvailableSuffix(siblings: XmlNode[], baseName: string): number {
   const escaped = escapeForRegex(baseName);
   const re = new RegExp(`^${escaped}_([1-9]\\d*)$`);
   const used = new Set<number>();
-  for (const child of parent.children) {
+  for (const child of siblings) {
     const match = child.tagName.trim().match(re);
     if (match) {
       const n = parseInt(match[1], 10);

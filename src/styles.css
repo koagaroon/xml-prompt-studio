@@ -1026,6 +1026,13 @@ select {
      by allowing breaks mid-token instead of letting them overflow. */
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+
+  /* Separator lines between top-level sections have empty text in both
+     grid cells; without a floor the empty grid row collapses to ~0 height
+     and the preview no longer shows the blank line that the copied XML
+     contains (breaking the preview = clipboard contract). `1lh` = one
+     line-height of this element's own font. */
+  min-height: 1lh;
 }
 
 .preview-line.is-active {
