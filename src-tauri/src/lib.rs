@@ -57,20 +57,29 @@ fn log_startup(timing: &StartupTiming, message: &str) {
 #[cfg(not(debug_assertions))]
 fn log_startup(_timing: &StartupTiming, _message: &str) {}
 
-#[tauri::command]
-fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
-    // Check the UTF-8 size up front. Also implicitly bounds the
-    // utf16le_with_bom path: at 50 MB UTF-8, the worst-case UTF-16
-    // expansion is at most 2× (4-byte non-BMP chars become 4 bytes via
-    // surrogate pairs; ASCII becomes 2 bytes). The fallback's allocation
-    // is therefore ≤ ~100 MB even in the pessimal case.
-    if xml.len() > MAX_XML_BYTES {
+// Size gate for copy_xml_to_clipboard, split out so the boundary is unit-
+// testable without touching the real clipboard. Also implicitly bounds the
+// utf16le_with_bom path: at 50 MB UTF-8, the worst-case UTF-16 expansion
+// is at most 2× (4-byte non-BMP chars become 4 bytes via surrogate pairs;
+// ASCII becomes 2 bytes). The fallback's allocation is therefore ≤ ~100 MB
+// even in the pessimal case.
+fn check_payload_size(len: usize) -> Result<(), String> {
+    if len > MAX_XML_BYTES {
         return Err(format!(
             "XML payload too large to copy ({} bytes; limit {} bytes).",
-            xml.len(),
-            MAX_XML_BYTES
+            len, MAX_XML_BYTES
         ));
     }
+    Ok(())
+}
+
+// `async` so Tauri runs this on the async runtime's thread pool instead of
+// the main thread — a sync command executes on the main thread in Tauri 2,
+// and a 50 MB arboard set_text / UTF-16 re-encode / fallback-tool wait
+// would freeze window painting for its whole duration.
+#[tauri::command]
+async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
+    check_payload_size(xml.len())?;
     // Try arboard with a borrowed slice first — `set_text` accepts
     // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
     // fails. Saves a 50 MB clone on the happy path.
@@ -144,12 +153,12 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
     {
         // clip.exe expects UTF-16 LE + BOM via stdin; without the BOM,
         // CJK characters end up garbled.
-        return spawn_and_pipe("clip", &[], &utf16le_with_bom(xml));
+        return spawn_and_pipe("clip", &[], &utf16le_with_bom(xml), true);
     }
     #[cfg(target_os = "macos")]
     {
         // pbcopy reads UTF-8 from stdin by default.
-        return spawn_and_pipe("pbcopy", &[], xml.as_bytes());
+        return spawn_and_pipe("pbcopy", &[], xml.as_bytes(), true);
     }
     #[cfg(target_os = "linux")]
     {
@@ -158,11 +167,18 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         // type; if both fail, chain the errors (mirrors the arboard→native
         // chaining above) so the user sees the full failure trail when
         // diagnosing "why doesn't Copy work on this Linux session?".
-        let wl_err = match spawn_and_pipe("wl-copy", &[], xml.as_bytes()) {
+        //
+        // capture_stderr is FALSE for both: wl-copy and xclip fork a
+        // background process to keep serving the selection, and that
+        // process inherits the piped stderr write-end — wait_with_output
+        // would then block on stderr EOF indefinitely, leaving the
+        // frontend's copy lock stuck for the rest of the session. Exit
+        // status of the foreground parent is the only signal we keep.
+        let wl_err = match spawn_and_pipe("wl-copy", &[], xml.as_bytes(), false) {
             Ok(()) => return Ok(()),
             Err(err) => err,
         };
-        return spawn_and_pipe("xclip", &["-selection", "clipboard"], xml.as_bytes())
+        return spawn_and_pipe("xclip", &["-selection", "clipboard"], xml.as_bytes(), false)
             .map_err(|xclip_err| format!("wl-copy: {wl_err}; xclip: {xclip_err}"));
     }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
@@ -176,12 +192,27 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
 // success/failure as Result<(), String>". All three native fallbacks share
 // the same shape; centralizing the error handling keeps the per-OS branches
 // short and consistent.
-fn spawn_and_pipe(cmd: &str, args: &[&str], payload: &[u8]) -> Result<(), String> {
+//
+// `capture_stderr: false` is for tools that fork a background process
+// inheriting the pipe ends (wl-copy / xclip) — piping stderr there makes
+// wait_with_output block on stderr EOF until the daemon exits. Tools that
+// run to completion (clip.exe / pbcopy) pass true and keep their stderr in
+// the error message.
+fn spawn_and_pipe(
+    cmd: &str,
+    args: &[&str],
+    payload: &[u8],
+    capture_stderr: bool,
+) -> Result<(), String> {
     let mut child = Command::new(cmd)
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
+        .stderr(if capture_stderr {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .spawn()
         .map_err(|error| format!("{}: {}", cmd, error))?;
 
@@ -189,13 +220,29 @@ fn spawn_and_pipe(cmd: &str, args: &[&str], payload: &[u8]) -> Result<(), String
     // failed to plumb its pipe), bail with an explicit error rather than
     // silently writing nothing — the child would otherwise report success
     // on empty input and the user would see a bloom on an empty clipboard.
-    let stdin = child
-        .stdin
-        .as_mut()
-        .ok_or_else(|| format!("{} stdin handle missing", cmd))?;
-    stdin
-        .write_all(payload)
-        .map_err(|error| format!("{}: {}", cmd, error))?;
+    let Some(stdin) = child.stdin.as_mut() else {
+        // Best-effort reap; the child never got its input and is exiting.
+        let _ = child.wait();
+        return Err(format!("{} stdin handle missing", cmd));
+    };
+    if let Err(error) = stdin.write_all(payload) {
+        // A failed write usually means the child died early (broken pipe);
+        // reap it — otherwise it lingers as a zombie on Unix until app
+        // exit — and surface its stderr, which says WHY it died, alongside
+        // the write error.
+        let detail = match child.wait_with_output() {
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                if stderr.is_empty() {
+                    String::new()
+                } else {
+                    format!("; stderr: {stderr}")
+                }
+            }
+            Err(_) => String::new(),
+        };
+        return Err(format!("{}: {}{}", cmd, error, detail));
+    }
 
     let output = child
         .wait_with_output()
@@ -353,5 +400,50 @@ mod tests {
             size.height <= 600.0,
             "launch height should fit available work area when config minimum allows it"
         );
+    }
+
+    // Boundary pair for the copy-size gate: AT the limit passes, ONE BYTE
+    // over is rejected. Pins the boundary from both sides so a refactor
+    // can't silently loosen the cap in either direction.
+    #[test]
+    fn payload_size_at_limit_passes() {
+        assert!(check_payload_size(MAX_XML_BYTES).is_ok());
+    }
+
+    #[test]
+    fn payload_size_one_over_limit_is_rejected() {
+        let error =
+            check_payload_size(MAX_XML_BYTES + 1).expect_err("over-limit payload must be rejected");
+        assert!(error.contains("too large"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn utf16le_with_bom_starts_with_le_bom() {
+        // clip.exe keys its decoding off the FF FE little-endian BOM.
+        assert_eq!(&utf16le_with_bom("x")[..2], &[0xFF, 0xFE]);
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn utf16le_with_bom_encodes_ascii_cjk_and_non_bmp_little_endian() {
+        // 'A' = 0x0041, '中' = 0x4E2D, '🦀' = U+1F980 → surrogate pair
+        // D83E DD80; every code unit must land low-byte-first.
+        assert_eq!(
+            utf16le_with_bom("A中🦀"),
+            vec![0xFF, 0xFE, 0x41, 0x00, 0x2D, 0x4E, 0x3E, 0xD8, 0x80, 0xDD]
+        );
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn utf16le_with_bom_round_trips_mixed_content() {
+        let original = "<反馈>hello 🦀</反馈>";
+        let bytes = utf16le_with_bom(original);
+        let units: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+            .collect();
+        assert_eq!(String::from_utf16(&units).unwrap(), original);
     }
 }
