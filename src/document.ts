@@ -5,7 +5,7 @@ import type { XmlNode } from "./types";
 // just spam the console.
 let mathRandomFallbackWarned = false;
 
-export function createId(prefix: string): string {
+function createId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return `${prefix}-${crypto.randomUUID()}`;
   }

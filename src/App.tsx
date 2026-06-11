@@ -70,26 +70,23 @@ const MAX_DEPTH = 256;
 // breadth axis.
 const MAX_SIBLINGS = 1000;
 
-// Per-field byte caps. Without these, pasting hundreds of MB into a single
-// field locks typing because the four useMemo walkers (validate / duplicate
-// / preview / outline) re-run on every keystroke. The total MAX_XML_BYTES
-// = 50 MB cap is enforced at copy time, but the typing-lag surface hits
-// well before that when one field gets oversized.
+// Per-field byte cap for text content. Without it, pasting hundreds of MB
+// into the field locks typing because the four useMemo walkers (validate /
+// duplicate / preview / outline) re-run on every keystroke. The total
+// MAX_XML_BYTES = 50 MB cap is enforced at copy time, but the typing-lag
+// surface hits well before that when one field gets oversized.
 //
-// Caps are in UTF-8 bytes for parity with MAX_XML_BYTES. Tag-name cap is
-// generous — in practice tag names are short (<50 chars). textContent cap
-// at 10 MB allows large prompt bodies (~5–10 M ASCII chars) but keeps the
-// total tree below 50 MB even with multiple maxed-out leaves.
-const MAX_TAG_NAME_BYTES = 1024;
+// Cap is in UTF-8 bytes for parity with MAX_XML_BYTES. 10 MB allows large
+// prompt bodies (~5–10 M ASCII chars) but keeps the total tree below
+// 50 MB even with multiple maxed-out leaves.
 const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 
-// Soft cap on tag-name codepoint length, separate from MAX_TAG_NAME_BYTES
-// (the hard memory ceiling). Aligns with MAX_PRESET_NAME_LENGTH so chip-
-// picked names and typed names feel equally bounded — typed input gets
-// the same safety/integrity treatment chip editing already had. Existing
-// tag names that exceed this aren't truncated; new typing past it is
-// rejected by setActiveTagName (and prevented by the input's maxLength
-// for typical input flows).
+// Cap on tag-name codepoint length. Aligns with MAX_PRESET_NAME_LENGTH so
+// chip-picked names and typed names feel equally bounded. Existing tag
+// names that exceed this aren't truncated; new typing past it is
+// truncated by setActiveTagName with an amber notice. This cap also
+// bounds tag-name memory (≤ 4 bytes per codepoint in UTF-8, so ≤ 96
+// bytes) — no separate byte cap is needed.
 const MAX_TAG_NAME_LENGTH = 24;
 
 // Stable element IDs for the form fields in the Input column. Earlier these
@@ -150,19 +147,34 @@ function readInitialPresetChips(): string[] {
     const stored = localStorage.getItem(PRESET_CHIPS_STORAGE_KEY);
     if (stored) {
       const parsed: unknown = JSON.parse(stored);
+      // An EMPTY list is valid persisted state — the user can delete
+      // every chip in edit mode, and that choice must survive a restart
+      // instead of silently resurrecting the defaults.
+      //
+      // Length is checked in codepoints (not UTF-16 units) to match
+      // validatePresetName's commit-time semantics; the cheap `length`
+      // pre-check bounds Array.from against oversized hand-edited
+      // values (each codepoint is at most 2 UTF-16 units).
       if (
         Array.isArray(parsed) &&
-        parsed.length > 0 &&
         parsed.length <= MAX_PRESET_CHIPS &&
         parsed.every(
           (item) =>
             typeof item === "string" &&
             item.length > 0 &&
-            item.length <= MAX_PRESET_NAME_LENGTH &&
+            item.length <= MAX_PRESET_NAME_LENGTH * 2 &&
+            Array.from(item).length <= MAX_PRESET_NAME_LENGTH &&
             isValidXmlName(item)
         )
       ) {
-        return parsed as string[];
+        const chips = parsed as string[];
+        // Enforce the same case-insensitive uniqueness the chip editor
+        // does — hand-edited storage with twins would produce duplicate
+        // React keys and chips the editor itself would refuse to create.
+        const lowered = new Set(chips.map((chip) => chip.toLowerCase()));
+        if (lowered.size === chips.length) {
+          return chips;
+        }
       }
     }
   } catch {
@@ -357,21 +369,32 @@ export default function App() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   };
 
+  // True while the message strip is showing the "preview is still
+  // updating" copy refusal. Tracked so the effect below can clear that
+  // message the moment the preview catches up — without the flag the
+  // strip would keep claiming the preview is behind after it isn't.
+  // Every other message path resets the flag (in the helpers below), so
+  // the catch-up clear can never wipe an unrelated message.
+  const copyWaitNoticeRef = useRef(false);
+
   // Message-strip helpers. Centralized so every site that surfaces a
   // user-facing message also sets the right severity, instead of every
   // call having to remember to set both pieces of state. Errors stop or
   // refuse an action; warnings let it proceed but flag a side effect.
   const showError = (text: string, forNodeId: string | null = null) => {
+    copyWaitNoticeRef.current = false;
     setErrorMessage(text);
     setErrorSeverity("error");
     setErrorForNodeId(forNodeId);
   };
   const showWarning = (text: string, forNodeId: string | null = null) => {
+    copyWaitNoticeRef.current = false;
     setErrorMessage(text);
     setErrorSeverity("warning");
     setErrorForNodeId(forNodeId);
   };
   const clearMessage = () => {
+    copyWaitNoticeRef.current = false;
     setErrorMessage("");
     setErrorForNodeId(null);
   };
@@ -427,6 +450,15 @@ export default function App() {
   const previewPending = deferredRoots !== roots;
   const xmlPreview = previewBuild.xml;
   const previewLines = previewBuild.lines;
+
+  // Clear the "preview is still updating" copy refusal once the preview
+  // catches up — the message's own condition is gone, so leaving it on
+  // screen would tell the user Copy XML is unavailable when it works.
+  useEffect(() => {
+    if (!previewPending && copyWaitNoticeRef.current) {
+      clearMessage();
+    }
+  });
 
   const elementOutline = useMemo(
     () => createElementOutline(roots, duplicateNodeIds),
@@ -514,8 +546,9 @@ export default function App() {
   const requestResetPresets = () => {
     setConfirmRequest({
       title: "Restore default preset chips?",
-      description:
-        "This will replace your current chips with feedback / question / instruction / extra.",
+      description: `This will replace your current chips with ${DEFAULT_PRESET_CHIPS.join(
+        " / "
+      )}.`,
       confirmLabel: "Restore",
       onConfirm: () => {
         setPresetChips([...DEFAULT_PRESET_CHIPS]);
@@ -569,7 +602,7 @@ export default function App() {
 
   const startAddChip = () => {
     // Position is one past the end — the new chip lives there if commit
-    // succeeds. The + button is hidden while an add is in flight, so
+    // succeeds. The + button is hidden while any edit is in flight, so
     // there's no risk of two pending adds clashing on the same index.
     setEditingChip({
       index: presetChips.length,
@@ -751,30 +784,30 @@ export default function App() {
   };
 
   const setActiveTagName = (tagName: string) => {
-    // Codepoint check first — gives the tighter, user-intuitive cap. The
-    // byte cap below is the safety floor (memory ceiling); the codepoint
-    // cap is the UX ceiling. Array.from counts codepoints so emoji /
-    // supplementary-plane chars don't get split.
+    // Capped for-of codepoint walk, same discipline as truncate() below:
+    // Array.from on the raw value would materialize one string object per
+    // codepoint BEFORE the cap applies — a multi-MB paste into this field
+    // (which deliberately has no maxLength) reaches hundreds of MB of
+    // transient allocation. The walk stops at the cap, keeping work
+    // O(MAX_TAG_NAME_LENGTH) regardless of paste size. for-of yields
+    // codepoints, so emoji / supplementary-plane chars don't get split.
     //
-    // Both messages route to tagNameMessage (rendered immediately below
-    // the input) instead of the global bottom strip — the alert is
+    // The truncation notice routes to tagNameMessage (rendered immediately
+    // below the input) instead of the global bottom strip — the alert is
     // about THIS field, so the cue lives next to it.
     let limitWarning: string | null = null;
-    const codepoints = Array.from(tagName);
-    if (codepoints.length > MAX_TAG_NAME_LENGTH) {
-      limitWarning = `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`;
-      tagName = codepoints.slice(0, MAX_TAG_NAME_LENGTH).join("");
+    const codepoints: string[] = [];
+    let truncated = false;
+    for (const cp of tagName) {
+      if (codepoints.length === MAX_TAG_NAME_LENGTH) {
+        truncated = true;
+        break;
+      }
+      codepoints.push(cp);
     }
-    if (exceedsByteCap(tagName, MAX_TAG_NAME_BYTES)) {
-      // After codepoint truncation, still over byte cap — only happens
-      // with many supplementary-plane chars within 24 codepoints. Reject
-      // (the user's last-good value is preserved).
-      setTagNameMessage({
-        text: `Tag name too long (limit ${MAX_TAG_NAME_BYTES} bytes).`,
-        severity: "error",
-        forNodeId: activeNode.id
-      });
-      return;
+    if (truncated) {
+      limitWarning = `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`;
+      tagName = codepoints.join("");
     }
     setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
@@ -895,6 +928,9 @@ export default function App() {
       showWarning(
         "Preview is still updating. Copy XML will be available once it matches the document."
       );
+      // Set AFTER showWarning — the helper resets the flag as part of
+      // "any other message moots the catch-up clear".
+      copyWaitNoticeRef.current = true;
       return;
     }
 
@@ -1184,7 +1220,11 @@ export default function App() {
                 if (isEditingThis) {
                   return (
                     <input
-                      key={`edit-${index}`}
+                      // Key namespaces are kept disjoint from chip names:
+                      // chip names are user-controlled valid XML Names, so
+                      // an unprefixed name key could literally collide
+                      // with a sibling's structural key.
+                      key={`edit:${index}`}
                       className="chip chip-editing"
                       value={editingChip.draft}
                       autoFocus
@@ -1217,7 +1257,7 @@ export default function App() {
                   // is already applied" cue is rendered as a warning strip
                   // below the chip row when the user clicks an
                   // already-applied chip — see presetMessage in insertPreset.
-                  <span key={name} className="chip">
+                  <span key={`chip:${name}`} className="chip">
                     <button
                       type="button"
                       className="chip-label"
@@ -1249,7 +1289,7 @@ export default function App() {
               })}
               {editMode && editingChip?.isNew && (
                 <input
-                  key="add-new"
+                  key="new:chip"
                   className="chip chip-editing chip-new"
                   value={editingChip.draft}
                   autoFocus
@@ -1272,8 +1312,11 @@ export default function App() {
                   }}
                 />
               )}
+              {/* Hidden during ANY in-flight edit (add or rename) —
+                  clicking + mid-rename would replace editingChip and
+                  silently discard the rename's draft and error state. */}
               {editMode &&
-                !editingChip?.isNew &&
+                !editingChip &&
                 presetChips.length < MAX_PRESET_CHIPS && (
                   <button
                     type="button"
