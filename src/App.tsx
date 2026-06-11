@@ -9,6 +9,14 @@ import {
   updateNode
 } from "./document";
 import {
+  MAX_PRESET_NAME_LENGTH,
+  exceedsByteCap,
+  formatMegabytes,
+  nextAvailableSuffix,
+  truncate,
+  validatePresetName
+} from "./helpers";
+import {
   copyXmlToClipboard,
   requestMainWindowShowAfterFirstPaint
 } from "./tauri";
@@ -34,13 +42,6 @@ const DEFAULT_PRESET_CHIPS = [
 // off `presetChips.length` / iterates the array — bumping this constant
 // only requires adjusting CSS layout tolerances; nothing else hardcodes 6.
 const MAX_PRESET_CHIPS = 6;
-
-// Hard cap on chip-name length, in code points. Generous for real chip
-// names ("feedback" is 8, "instruction" is 11) but tight enough that no
-// chip can sprawl across the input column or look broken in the row. The
-// rendered chip pill also gets a CSS `max-width` with ellipsis as a
-// belt-and-suspenders against pathological input.
-const MAX_PRESET_NAME_LENGTH = 24;
 
 // localStorage key for the persisted chip list. Same shape as the theme
 // key just above — read on first render, written on every change.
@@ -81,13 +82,17 @@ const MAX_SIBLINGS = 1000;
 // 50 MB even with multiple maxed-out leaves.
 const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 
-// Cap on tag-name codepoint length. Aligns with MAX_PRESET_NAME_LENGTH so
-// chip-picked names and typed names feel equally bounded. Existing tag
+// Cap on tag-name codepoint length. MUST stay ≥ MAX_PRESET_NAME_LENGTH
+// plus suffix headroom ("_" + digits): chip apply writes names like
+// `<chip>_<N>`, and if a max-length chip name plus its suffix exceeded
+// this cap, the NEXT keystroke in the Tag Name field would truncate the
+// suffix away (silently renaming the element to the bare chip name).
+// 32 = 24 (chip cap) + 1 ("_") + up to 6 digits + margin. Existing tag
 // names that exceed this aren't truncated; new typing past it is
-// truncated by setActiveTagName with an amber notice. This cap also
-// bounds tag-name memory (≤ 4 bytes per codepoint in UTF-8, so ≤ 96
+// truncated by setActiveTagName with an amber notice. The cap also
+// bounds tag-name memory (≤ 4 bytes per codepoint in UTF-8, ≤ 128
 // bytes) — no separate byte cap is needed.
-const MAX_TAG_NAME_LENGTH = 24;
+const MAX_TAG_NAME_LENGTH = 32;
 
 // Stable element IDs for the form fields in the Input column. Earlier these
 // were per-active-node and churned on every selection, confusing autofill
@@ -370,13 +375,16 @@ export default function App() {
     setTheme((current) => (current === "dark" ? "light" : "dark"));
   };
 
-  // True while the message strip is showing the "preview is still
-  // updating" copy refusal. Tracked so the effect below can clear that
-  // message the moment the preview catches up — without the flag the
-  // strip would keep claiming the preview is behind after it isn't.
-  // Every other message path resets the flag (in the helpers below), so
-  // the catch-up clear can never wipe an unrelated message.
+  // Transient-notice flags: true while the message strip is showing a
+  // self-expiring notice, so the matching expiry path can clear it the
+  // moment its condition stops holding. copyWaitNoticeRef = "preview is
+  // still updating" (expires when the preview catches up);
+  // copyBusyNoticeRef = "a copy is already in progress" (expires when
+  // the in-flight copy settles). Every other message path resets both
+  // flags (in the helpers below), so an expiry clear can never wipe an
+  // unrelated message.
   const copyWaitNoticeRef = useRef(false);
+  const copyBusyNoticeRef = useRef(false);
 
   // Message-strip helpers. Centralized so every site that surfaces a
   // user-facing message also sets the right severity, instead of every
@@ -384,18 +392,21 @@ export default function App() {
   // refuse an action; warnings let it proceed but flag a side effect.
   const showError = (text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
+    copyBusyNoticeRef.current = false;
     setErrorMessage(text);
     setErrorSeverity("error");
     setErrorForNodeId(forNodeId);
   };
   const showWarning = (text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
+    copyBusyNoticeRef.current = false;
     setErrorMessage(text);
     setErrorSeverity("warning");
     setErrorForNodeId(forNodeId);
   };
   const clearMessage = () => {
     copyWaitNoticeRef.current = false;
+    copyBusyNoticeRef.current = false;
     setErrorMessage("");
     setErrorForNodeId(null);
   };
@@ -460,6 +471,20 @@ export default function App() {
       clearMessage();
     }
   });
+
+  // Selecting an element from the list. Node-scoped messages die on
+  // navigate-away — for good, not just visually: without the clear, a
+  // stale strip ("Sibling count limit reached") would resurface on
+  // RESELECTING the node even after the condition stopped holding.
+  // Global messages (errorForNodeId === null) survive navigation. Every
+  // other selection-changing path (add/delete/new-blank) already calls
+  // clearMessage unconditionally.
+  const selectNode = (nodeId: string) => {
+    if (errorForNodeId !== null && errorForNodeId !== nodeId) {
+      clearMessage();
+    }
+    setSelectedNodeId(nodeId);
+  };
 
   const elementOutline = useMemo(
     () => createElementOutline(roots, duplicateNodeIds),
@@ -584,21 +609,16 @@ export default function App() {
     }
     setPresetMessage(null);
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
+    // An in-flight RENAME can coexist with this delete only for a
+    // DIFFERENT chip (the chip being renamed renders as the editing
+    // input, which has no × button) — so the only adjustment needed is
+    // shifting the rename's index when an earlier chip disappears.
     setEditingChip((current) => {
-      if (!current || current.isNew) {
-        return current;
-      }
-      if (current.index === index) {
-        return null;
-      }
-      if (current.index > index) {
+      if (current && !current.isNew && current.index > index) {
         return { ...current, index: current.index - 1 };
       }
       return current;
     });
-    if (editingChip && !editingChip.isNew && editingChip.index === index) {
-      setChipEditError("");
-    }
   };
 
   const startAddChip = () => {
@@ -830,7 +850,7 @@ export default function App() {
   const setActiveTextContent = (textContent: string) => {
     if (exceedsByteCap(textContent, MAX_TEXT_CONTENT_BYTES)) {
       showError(
-        `Text content too long (limit ${MAX_TEXT_CONTENT_BYTES} bytes).`,
+        `Text content too long (limit ${formatMegabytes(MAX_TEXT_CONTENT_BYTES)}).`,
         activeNode.id
       );
       return;
@@ -910,9 +930,10 @@ export default function App() {
     } else {
       clearMessage();
     }
-    // Chip-applied names are bounded short by construction (chip names
-    // ≤ 24 chars, suffix is `_<digits>`). A stale "reached the limit"
-    // warning from prior typing in this element no longer applies.
+    // Chip-applied names are bounded by construction: chip name (≤ 24
+    // codepoints) + "_" + digits, which MAX_TAG_NAME_LENGTH (32) is sized
+    // to accommodate — see that constant's comment. A stale "reached the
+    // limit" warning from prior typing in this element no longer applies.
     setTagNameMessage(null);
     // Successful chip apply also moots any "already applied" warning
     // (we just changed which chip is the lastApplied one).
@@ -920,8 +941,14 @@ export default function App() {
   };
 
   const copyPreview = async () => {
-    // Re-entry guard — drop overlapping clicks while a copy is in flight.
+    // Re-entry guard. Refusing with a VISIBLE notice instead of a silent
+    // drop: if a fallback clipboard tool ever wedges the in-flight copy,
+    // the silent version turns every later click into "nothing happens"
+    // with zero diagnostic signal. The notice self-expires when the
+    // in-flight copy settles (see the finally block).
     if (copyInFlight.current) {
+      showWarning("A copy is already in progress — one moment.");
+      copyBusyNoticeRef.current = true;
       return;
     }
 
@@ -954,18 +981,21 @@ export default function App() {
     if (exceedsByteCap(liveXml, MAX_XML_BYTES)) {
       const liveBytes = new TextEncoder().encode(liveXml).length;
       showError(
-        `XML payload too large to copy (${liveBytes} bytes; limit ${MAX_XML_BYTES} bytes).`
+        `XML payload too large to copy (${formatMegabytes(liveBytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
       );
       return;
     }
 
+    // Clear any stale pre-click message BEFORE awaiting, not on success:
+    // an error raised by other input WHILE the copy is in flight (e.g. an
+    // oversized paste into Text Content) must survive the copy settling.
+    clearMessage();
     copyInFlight.current = true;
     try {
       await copyXmlToClipboard(liveXml);
       // Increment token → bloom overlay remounts → CSS animation replays.
       // Q5 locked: green is reserved for Copy XML success only.
       setCopyToken((t) => t + 1);
-      clearMessage();
     } catch (error) {
       // Tauri commands reject with a string (the Err(String) returned by
       // Rust), not an `Error` instance. Branch on the actual runtime shape:
@@ -981,6 +1011,13 @@ export default function App() {
       showError(message);
     } finally {
       copyInFlight.current = false;
+      // The "copy already in progress" notice (raised by overlapping
+      // clicks above) has expired now that this copy settled. showError
+      // in the catch arm resets the flag, so a failure message is never
+      // wiped here.
+      if (copyBusyNoticeRef.current) {
+        clearMessage();
+      }
     }
   };
 
@@ -1137,10 +1174,11 @@ export default function App() {
                   // Depth indentation is applied via the `depth-N` class,
                   // not via inline `style={{ "--depth": ... }}`. The
                   // earlier inline-CSS-variable approach silently
-                  // collapsed to 0 in production builds: React 18 emits
+                  // collapsed to 0 in production builds: React emits
                   // the `style={{...}}` prop as a parser-time
-                  // `style="..."` attribute string in some commit paths,
-                  // which is governed by CSP `style-src 'self'` and gets
+                  // `style="..."` attribute string in some commit paths
+                  // (observed in this app's production builds), which is
+                  // governed by CSP `style-src 'self'` and gets
                   // stripped by Chromium. Dev mode (Vite HMR) is more
                   // permissive about CSP, which is why the bug was
                   // invisible until the production exe was inspected.
@@ -1151,7 +1189,7 @@ export default function App() {
                   // `.depth-0` through `.depth-12` rules; rows deeper
                   // than 12 reuse `.depth-12`'s indent (rare in practice;
                   // typical trees are 4–6 deep).
-                  onClick={() => setSelectedNodeId(item.id)}
+                  onClick={() => selectNode(item.id)}
                 >
                   <span className="element-label">{item.label}</span>
                   {item.duplicate && (
@@ -1265,6 +1303,15 @@ export default function App() {
                       tabIndex={-1}
                       onClick={() => {
                         if (editMode) {
+                          // Same protection as the + button: with a
+                          // rename/add in flight, the blur-commit has
+                          // already run — if it FAILED, starting another
+                          // rename here would silently discard the
+                          // failed draft and its error. Ignore the click
+                          // so the user sees the error instead.
+                          if (editingChip) {
+                            return;
+                          }
                           startRenameChip(index);
                         } else {
                           insertPreset(name);
@@ -1573,118 +1620,12 @@ function buildElementLabel(node: XmlNode): string {
   return `<${tagName}>${suffix}`;
 }
 
-// `maxLength` is the cap on output length (in code points), not on input.
-// The ellipsis counts toward the cap — one code point is reserved for "…".
-// for-of yields code points, so supplementary-plane characters (CJK Ext B
-// like 𠮷, emoji like 🦀) at the boundary aren't split into orphan
-// surrogates. Don't refactor to `Array.from(value)` — that materializes a
-// code-point array proportional to the *entire* string, which is up to
-// MAX_TEXT_CONTENT_BYTES (10 MB). This helper runs per node on every
-// roots edit via the live (non-deferred) outline rebuild, so eager
-// materialization reaches tens-of-MB per keystroke before the truncation
-// even happens. Short-circuit at maxLength+1 keeps work O(maxLength).
-function truncate(value: string, maxLength: number): string {
-  const codePoints: string[] = [];
-  for (const cp of value) {
-    codePoints.push(cp);
-    if (codePoints.length > maxLength) {
-      return `${codePoints.slice(0, maxLength - 1).join("")}…`;
-    }
-  }
-  return value;
-}
-
-// Cheap UTF-8 byte-count check using the upper-bound trick from copyPreview:
-// UTF-8 byte count is at most 3 × string length (BMP-heavy worst case), so
-// if `length * 3 ≤ cap` we know we're under without running TextEncoder.
-// Only encode-and-measure when the cheap bound doesn't decide it.
-function exceedsByteCap(value: string, cap: number): boolean {
-  if (value.length * 3 <= cap) {
-    return false;
-  }
-  return new TextEncoder().encode(value).length > cap;
-}
-
 // Compose a className from base + conditional class names. Same shape as
 // the React community's clsx / classnames libraries — falsy values drop
 // out, the rest joins with spaces. Used at every site where we conditionally
 // add `is-active` / `has-issue` / `input-error` etc.
 function cx(...names: (string | false | null | undefined)[]): string {
   return names.filter(Boolean).join(" ");
-}
-
-// Find the lowest unused integer ≥1 among siblings whose tagName matches
-// `<baseName>_<positive-decimal>`. The active element is included in the
-// scan — clicking the preset chip on an element already named e.g.
-// `feedback_3` should advance it (siblings + self {1, 2, 3} → next 4),
-// not silently rewrite to the same value. `siblings` is the parent's
-// children array, or the roots array for top-level sections.
-//
-// Suffix regex requires `[1-9]\d*` to reject leading zeros, so e.g.
-// `feedback_001` does NOT collide with `feedback_1` in the used set.
-function nextAvailableSuffix(siblings: XmlNode[], baseName: string): number {
-  const escaped = escapeForRegex(baseName);
-  const re = new RegExp(`^${escaped}_([1-9]\\d*)$`);
-  const used = new Set<number>();
-  for (const child of siblings) {
-    const match = child.tagName.trim().match(re);
-    if (match) {
-      const n = parseInt(match[1], 10);
-      if (Number.isFinite(n) && n > 0) {
-        used.add(n);
-      }
-    }
-  }
-  let n = 1;
-  while (used.has(n)) {
-    n += 1;
-  }
-  return n;
-}
-
-// Escape regex metacharacters. Both `[` and `]` are explicitly escaped
-// inside the character class for cross-engine portability — V8 tolerates
-// the unescaped forms but older Safari/JavaScriptCore did not.
-function escapeForRegex(value: string): string {
-  // The explicit `\[` is intentional for older WebKit / JavaScriptCore;
-  // modern engines accept it as a no-op so ESLint complains.
-  // eslint-disable-next-line no-useless-escape
-  return value.replace(/[.*+?^${}()|\[\]\\]/g, "\\$&");
-}
-
-// Validates a preset chip name on commit (Enter / blur). Returns null if
-// the name is acceptable, or a user-facing error string. Empty / too-long
-// / invalid-XML-name / case-insensitive duplicate are all rejected. The
-// caller passes `excludeIndex = -1` for adds and the chip's own index
-// for renames so a chip doesn't trip the duplicate check against itself.
-function validatePresetName(
-  name: string,
-  allChips: string[],
-  excludeIndex: number
-): string | null {
-  if (!name) {
-    return "Chip name cannot be empty.";
-  }
-  // Code-point length matches the input's `maxLength` (which counts
-  // UTF-16 code units, but for in-BMP names they're equivalent and
-  // the cap is small enough that supplementary-plane edge cases don't
-  // bite). Array.from gives the code-point count for the rare cases.
-  if (Array.from(name).length > MAX_PRESET_NAME_LENGTH) {
-    return `Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`;
-  }
-  if (!isValidXmlName(name)) {
-    return "Chip name must follow XML element naming rules.";
-  }
-  // Case-insensitive duplicate check. excludeIndex skips the chip being
-  // renamed (so renaming "Feedback" → "feedback" doesn't trip duplicate
-  // against itself).
-  const lower = name.toLowerCase();
-  for (let i = 0; i < allChips.length; i++) {
-    if (i !== excludeIndex && allChips[i].toLowerCase() === lower) {
-      return `"${name}" is already in your preset list.`;
-    }
-  }
-  return null;
 }
 
 function CogIcon() {

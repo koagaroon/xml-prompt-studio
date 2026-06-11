@@ -14,7 +14,7 @@
           ? "light"
           : "dark";
     document.documentElement.setAttribute("data-theme", theme);
-  } catch (e) {
+  } catch {
     // localStorage / matchMedia unavailable in some sandboxed embeds.
     // Silently fall through to the CSS default-dark.
   }

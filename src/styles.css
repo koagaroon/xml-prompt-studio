@@ -461,8 +461,9 @@ select {
 /* Depth indent is applied via `.depth-N` classes below, not via an inline
    CSS variable on the element. The earlier `--depth` inline-style approach
    silently collapsed to 0 in production builds because CSP `style-src
-   'self'` blocks the parser-time `style="..."` attribute strings React 18
-   emits in some commit paths. Class-based padding is unaffected.
+   'self'` blocks the parser-time `style="..."` attribute strings React
+   emits in some commit paths (observed in this app's production builds).
+   Class-based padding is unaffected.
 
    Indent caps at 12 levels — beyond that, rows reuse `.depth-12`'s
    padding so the label doesn't run off-screen. The deeper-than-12 case
