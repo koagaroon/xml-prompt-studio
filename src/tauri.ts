@@ -37,6 +37,14 @@ function afterNextPaint(callback: () => void): void {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(runOnce);
     });
+    // The timer deliberately RACES the double-rAF rather than backstopping
+    // it: this code runs while the window is still HIDDEN (visible: false
+    // until the show command), and Chromium throttles or suspends rAF in
+    // hidden pages — waiting on rAF alone can deadlock (paint signal
+    // waits for visibility, visibility waits for the paint signal), with
+    // only the Rust 5 s fallback breaking it. Worst case the timer fires
+    // ~100 ms before first paint and the user briefly sees the window's
+    // configured dark backgroundColor — far better than a 5 s no-show.
     window.setTimeout(runOnce, 100);
     return;
   }
