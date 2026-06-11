@@ -13,6 +13,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 ## Features
 
 - Element-only XML editing — nested children, sibling insertion, reorder up/down, delete
+- Multiple top-level sections — build `<instructions>`, `<context>`, `<input>` side by side with no wrapper element; sections copy out separated by a blank line, matching the multi-section prompt shape
 - Validation against the full W3C XML 1.0 §2.3 `Name` production — Unicode letters and ideographs work as tag names
 - Live formatted preview that exactly mirrors what gets copied to the clipboard
 - Customizable preset chips that fill the Tag Name input with auto-suffixed `_1`, `_2`, … to keep siblings unique. Defaults to `feedback` / `question` / `instruction` / `extra`; click the cog at the row's right end to rename, delete, or add chips (up to 6, persisted across sessions via `localStorage`)
@@ -64,6 +65,12 @@ The portable single-exe lands at `src-tauri/target/release/xml-prompt-studio.exe
 npx tsc --noEmit
 ```
 
+### Tests
+
+```powershell
+npm test
+```
+
 ### Rust check
 
 The Rust crate lives in `src-tauri/` (standard Tauri 2 layout):
@@ -92,7 +99,6 @@ Intentional product boundaries, not missing features:
 
 - Full XML editor parity
 - Attributes, namespaces, DTDs, or schema tooling
-- Multiple top-level elements (single-root per W3C XML 1.0 §2.1)
 - Complex document import
 - Rich-text editing inside text content
 - Multi-document workspace features

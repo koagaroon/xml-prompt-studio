@@ -132,9 +132,6 @@ type ElementPresetMemory = {
   history: Map<string, string>;
 };
 
-// Read the initial theme from the same source the inline bootstrap script
-// in index.html uses, so React state and the DOM data-theme attribute agree
-// from the very first render. Falls back to system preference, then dark.
 // Read the persisted preset chip list (if any) and validate it before
 // trusting localStorage. Anything that fails the shape/validity check
 // quietly falls back to the defaults — better than carrying a corrupt
@@ -184,6 +181,10 @@ function readInitialPresetChips(): string[] {
   return [...DEFAULT_PRESET_CHIPS];
 }
 
+// Read the initial theme from the same source the external bootstrap
+// script (public/theme-bootstrap.js, loaded from index.html) uses, so
+// React state and the DOM data-theme attribute agree from the very first
+// render. Falls back to system preference, then dark.
 function readInitialTheme(): Theme {
   if (typeof window === "undefined") {
     return "dark";
@@ -295,7 +296,7 @@ export default function App() {
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
   // Refs on the ribbon and body so the modal's focus trap can mark them
-  // inert while the dialog is open (see the showConfirmNewBlank effect below).
+  // inert while the dialog is open (see the confirmRequest effect below).
   // Using the DOM .inert property directly avoids depending on @types/react's
   // inert prop typing, which shifts across minor versions.
   const ribbonRef = useRef<HTMLElement>(null);
@@ -339,9 +340,9 @@ export default function App() {
   // continue to use the latest roots for immediate feedback.
   const deferredRoots = useDeferredValue(roots);
 
-  // Keep DOM and storage in sync with state. The inline script in
-  // index.html sets the initial attribute pre-render; this effect handles
-  // every change after that.
+  // Keep DOM and storage in sync with state. public/theme-bootstrap.js
+  // sets the initial attribute pre-render; this effect handles every
+  // change after that.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     try {

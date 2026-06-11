@@ -48,8 +48,10 @@
 /* === THEME VARIABLES ===
    :root holds the dark theme (default). [data-theme="light"] overrides
    only the values that change. The theme attribute is set on <html> by
-   App.tsx (and by an inline FOUC-prevention script in index.html) based
-   on localStorage / system preference. */
+   App.tsx (and pre-render by the external FOUC-prevention script
+   public/theme-bootstrap.js, loaded from index.html — kept external so
+   CSP script-src stays 'self') based on localStorage / system
+   preference. */
 
 :root {
   color-scheme: dark;
@@ -1121,7 +1123,7 @@ select {
   }
 }
 
-/* === CONFIRMATION MODAL (New Blank only) === */
+/* === CONFIRMATION MODAL (shared: New Blank, Reset presets) === */
 
 .modal-overlay {
   position: fixed;
