@@ -18,9 +18,10 @@ tauri-build = { version = "2", features = [] }
 #      the app actually uses and add `default-features = false`. Tauri 2's
 #      defaults pull a plugin set we never touch; trimming shrinks the
 #      attack surface.
-#   2. Re-check `src-tauri/tauri.conf.json` CSP `connect-src` value
-#      (`https://ipc.localhost`) — the IPC scheme can change across Tauri
-#      majors. Mismatch silently breaks the IPC bridge.
+#   2. Re-check `src-tauri/tauri.conf.json` CSP `connect-src` — currently
+#      `'self' ipc: http://ipc.localhost https://ipc.localhost`; the IPC
+#      scheme set can change across Tauri majors. Mismatch silently
+#      breaks the IPC bridge.
 [dependencies]
 arboard = "3.6.1"
 tauri = { version = "2", features = [] }

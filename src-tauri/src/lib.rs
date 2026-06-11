@@ -2,6 +2,7 @@ use arboard::Clipboard;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 #[cfg(debug_assertions)]
@@ -99,9 +100,48 @@ fn format_megabytes(bytes: usize) -> String {
 #[tauri::command]
 async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     check_payload_size(xml.len())?;
+    tauri::async_runtime::spawn_blocking(move || copy_xml_blocking(&xml))
+        .await
+        .map_err(|error| format!("clipboard task failed: {error}"))?
+}
+
+// Long-lived arboard instance, lazily created on first copy. On Linux
+// (X11 and Wayland alike) the clipboard contents are "hosted" by the app
+// that set them, and per the arboard docs "when the last Clipboard
+// instance is dropped, the contents may become unavailable to other
+// apps" — a per-copy temporary would report success (bloom fires) and
+// then serve an EMPTY paste on sessions without a clipboard manager.
+// Upstream's own recommendation is keeping the instance in persistent
+// state. Windows/macOS don't need the persistence but are unharmed.
+static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
+
+fn set_text_persistent(xml: &str) -> Result<(), String> {
+    let mut guard = CLIPBOARD
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.is_none() {
+        *guard = Some(Clipboard::new().map_err(|error| error.to_string())?);
+    }
+    let Some(clipboard) = guard.as_mut() else {
+        return Err("clipboard handle unavailable".to_string());
+    };
+    let result = clipboard.set_text(xml).map_err(|error| error.to_string());
+    if result.is_err() {
+        // Discard a possibly-broken instance (stale display connection
+        // etc.) so the next copy attempt reinitializes instead of
+        // failing forever — preserves the retry semantics the previous
+        // per-call construction had.
+        *guard = None;
+    }
+    result
+}
+
+fn copy_xml_blocking(xml: &str) -> Result<(), String> {
     // A NUL would silently truncate the pasted text in most OS clipboard
     // consumers (C-string semantics) while the preview shows the full
-    // content — refuse visibly instead of corrupting silently.
+    // content — refuse visibly instead of corrupting silently. Runs here
+    // (on the blocking pool) because the O(n) scan over up to 50 MB
+    // belongs with the rest of the heavy work, not on an async worker.
     if xml.contains('\0') {
         return Err(
             "XML payload contains a NUL (U+0000) character; paste targets would silently \
@@ -109,12 +149,6 @@ async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
                 .to_string(),
         );
     }
-    tauri::async_runtime::spawn_blocking(move || copy_xml_blocking(&xml))
-        .await
-        .map_err(|error| format!("clipboard task failed: {error}"))?
-}
-
-fn copy_xml_blocking(xml: &str) -> Result<(), String> {
     // Try arboard with a borrowed slice first — `set_text` accepts
     // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
     // fails. Saves a 50 MB clone on the happy path.
@@ -125,7 +159,7 @@ fn copy_xml_blocking(xml: &str) -> Result<(), String> {
     // clip.exe stderr"), not just the last one. When the fallback
     // succeeds, the arboard error is intentionally dropped: the user got
     // their clipboard content, no need to spam them.
-    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml)) {
+    match set_text_persistent(xml) {
         Ok(()) => Ok(()),
         Err(arb_err) => fallback_copy_native(xml)
             .map_err(|fb_err| format!("arboard: {arb_err}; fallback: {fb_err}")),
@@ -239,7 +273,8 @@ fn spawn_and_pipe(
     payload: &[u8],
     capture_stderr: bool,
 ) -> Result<(), String> {
-    let mut child = Command::new(cmd)
+    let mut command = Command::new(cmd);
+    command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
@@ -247,9 +282,18 @@ fn spawn_and_pipe(
             Stdio::piped()
         } else {
             Stdio::null()
-        })
-        .spawn()
-        .map_err(|error| format!("{cmd}: {error}"))?;
+        });
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW: the parent is windows_subsystem = "windows"
+        // (no console), so a console-subsystem child like clip.exe would
+        // otherwise get a freshly allocated VISIBLE console — a black
+        // window flashing on the RDP path this fallback exists for.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    let mut child = command.spawn().map_err(|error| format!("{cmd}: {error}"))?;
 
     // If stdin handle is missing (rare but possible if the child process
     // failed to plumb its pipe), bail with an explicit error rather than
