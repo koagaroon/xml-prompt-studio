@@ -98,12 +98,15 @@ describe("moveNode", () => {
     expect(moveNode(roots, alpha.id, -1)).toBe(roots);
   });
 
-  it("returns the same node references when a nested move hits the boundary", () => {
+  it("preserves the containing parent's reference when a nested move hits the boundary", () => {
     const { roots, childB } = fixtureForest();
     // childB is the last child — moving it down has no swap target.
-    // toBe (reference identity), not toEqual: the documented contract is
-    // that no-op moves skip cloning, which React relies on to short-
-    // circuit re-renders.
+    // toBe (reference identity), not toEqual: moveNodeInTree returns the
+    // containing parent unchanged on a no-op, pinning the subtree
+    // short-circuit. Scope of the contract: sibling roots ARE cloned by
+    // the top-level map, and App's canMove guard prevents no-op calls
+    // from reaching setRoots — so only the containing parent's identity
+    // is promised here, not the whole forest's.
     const next = moveNode(roots, childB.id, 1);
     expect(next[0]).toBe(roots[0]);
   });

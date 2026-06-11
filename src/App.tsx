@@ -10,10 +10,13 @@ import {
 } from "./document";
 import {
   MAX_PRESET_NAME_LENGTH,
+  buildElementLabel,
+  collectSubtreeIds,
   exceedsByteCap,
   formatMegabytes,
+  insertAfter,
   nextAvailableSuffix,
-  truncate,
+  nextSelectionAfterDelete,
   validatePresetName
 } from "./helpers";
 import {
@@ -1569,71 +1572,6 @@ function createElementOutline(
 
   roots.forEach((root) => walk(root, 0));
   return items;
-}
-
-// Inserts `node` immediately after the item with `anchorId`; appends when
-// the anchor isn't found (defensive — callers pass the active node's id,
-// which is always in the list). Shared by both addSibling levels: a
-// parent's children array and the top-level roots array.
-function insertAfter(
-  list: XmlNode[],
-  anchorId: string,
-  node: XmlNode
-): XmlNode[] {
-  const index = list.findIndex((item) => item.id === anchorId);
-  const insertAt = index === -1 ? list.length : index + 1;
-  return [...list.slice(0, insertAt), node, ...list.slice(insertAt)];
-}
-
-// Walks a subtree and returns every node ID it contains, including the
-// passed-in node. Used by removeSelectedNode to sweep presetMemory for
-// every entry that's about to become orphaned by the delete. Iterative
-// stack-based walk to match the implicit O(N) deleteNode cost without
-// adding recursion depth on top of it.
-function collectSubtreeIds(root: XmlNode): string[] {
-  const ids: string[] = [];
-  const stack: XmlNode[] = [root];
-  while (stack.length > 0) {
-    const node = stack.pop()!;
-    ids.push(node.id);
-    for (const child of node.children) {
-      stack.push(child);
-    }
-  }
-  return ids;
-}
-
-// Picks which element to select after the active one is deleted. The user-
-// expected behavior is "fall to the nearest neighbor", which matches list
-// editors elsewhere — file managers, table row deletes, etc. Order:
-// previous sibling > next sibling > parent (only-child fallback). For a
-// top-level section `parentId` is null, but its only-child case routes
-// through the reset-to-blank path before this is called, so the final
-// `fallbackId` (kept for totality) should be unreachable.
-function nextSelectionAfterDelete(
-  siblings: XmlNode[],
-  deletedId: string,
-  parentId: string | null,
-  fallbackId: string
-): string {
-  const idx = siblings.findIndex((c) => c.id === deletedId);
-  if (idx === -1) {
-    return fallbackId;
-  }
-  if (idx > 0) {
-    return siblings[idx - 1].id;
-  }
-  if (siblings.length > 1) {
-    return siblings[idx + 1].id;
-  }
-  return parentId ?? fallbackId;
-}
-
-function buildElementLabel(node: XmlNode): string {
-  const tagName = node.tagName.trim() || "empty-tag";
-  const previewText = node.textContent.trim();
-  const suffix = previewText ? ` ${truncate(previewText, 26)}` : "";
-  return `<${tagName}>${suffix}`;
 }
 
 // Compose a className from base + conditional class names. Same shape as

@@ -24,6 +24,11 @@ export const MAX_PRESET_NAME_LENGTH = 24;
 // materialization reaches tens-of-MB per keystroke before the truncation
 // even happens. Short-circuit at maxLength+1 keeps work O(maxLength).
 export function truncate(value: string, maxLength: number): string {
+  // maxLength ≤ 0 would otherwise hit slice(0, negative) below and
+  // return output LONGER than the cap — fail to empty instead.
+  if (maxLength <= 0) {
+    return "";
+  }
   const codePoints: string[] = [];
   for (const cp of value) {
     codePoints.push(cp);
@@ -65,11 +70,14 @@ function escapeForRegex(value: string): string {
 }
 
 // Find the lowest unused integer ≥1 among siblings whose tagName matches
-// `<baseName>_<positive-decimal>`. The active element is included in the
-// scan — clicking the preset chip on an element already named e.g.
-// `feedback_3` should advance it (siblings + self {1, 2, 3} → next 4),
-// not silently rewrite to the same value. `siblings` is the parent's
-// children array, or the roots array for top-level sections.
+// `<baseName>_<positive-decimal>`. The helper scans whatever list it is
+// given; the "active element is included in the scan" contract lives at
+// the App.tsx callsite, which passes the FULL sibling list (parent's
+// children, or the roots array for top-level sections) unfiltered —
+// clicking the preset chip on an element already named e.g. `feedback_3`
+// should advance it (siblings + self {1, 2, 3} → next 4), not silently
+// rewrite to the same value. Don't filter the active element out before
+// calling.
 //
 // Suffix regex requires `[1-9]\d*` to reject leading zeros, so e.g.
 // `feedback_001` does NOT collide with `feedback_1` in the used set.
@@ -129,4 +137,74 @@ export function validatePresetName(
     }
   }
   return null;
+}
+
+// Inserts `node` immediately after the item with `anchorId`; appends when
+// the anchor isn't found (defensive — callers pass the active node's id,
+// which is always in the list). Shared by both addSibling levels: a
+// parent's children array and the top-level roots array.
+export function insertAfter(
+  list: XmlNode[],
+  anchorId: string,
+  node: XmlNode
+): XmlNode[] {
+  const index = list.findIndex((item) => item.id === anchorId);
+  const insertAt = index === -1 ? list.length : index + 1;
+  return [...list.slice(0, insertAt), node, ...list.slice(insertAt)];
+}
+
+// Walks a subtree and returns every node ID it contains, including the
+// passed-in node. Used by removeSelectedNode to sweep presetMemory for
+// every entry that's about to become orphaned by the delete. Iterative
+// stack-based walk to match the implicit O(N) deleteNode cost without
+// adding recursion depth on top of it.
+export function collectSubtreeIds(root: XmlNode): string[] {
+  const ids: string[] = [];
+  const stack: XmlNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    ids.push(node.id);
+    for (const child of node.children) {
+      stack.push(child);
+    }
+  }
+  return ids;
+}
+
+// Picks which element to select after the active one is deleted. The user-
+// expected behavior is "fall to the nearest neighbor", which matches list
+// editors elsewhere — file managers, table row deletes, etc. Order:
+// previous sibling > next sibling > parent (only-child fallback). For a
+// top-level section `parentId` is null, but its only-child case routes
+// through the reset-to-blank path before this is called, so the final
+// `fallbackId` (kept for totality) should be unreachable.
+export function nextSelectionAfterDelete(
+  siblings: XmlNode[],
+  deletedId: string,
+  parentId: string | null,
+  fallbackId: string
+): string {
+  const idx = siblings.findIndex((c) => c.id === deletedId);
+  if (idx === -1) {
+    return fallbackId;
+  }
+  if (idx > 0) {
+    return siblings[idx - 1].id;
+  }
+  if (siblings.length > 1) {
+    return siblings[idx + 1].id;
+  }
+  return parentId ?? fallbackId;
+}
+
+// Label for an Elements-column row: tag name in angle brackets plus a
+// truncated text preview. The empty-tag placeholder is "(empty tag)" —
+// same vocabulary as the Input column's title for the same state, and
+// unbracketed so it can't be misread as a literal tag named "empty-tag".
+export function buildElementLabel(node: XmlNode): string {
+  const trimmedTag = node.tagName.trim();
+  const tagLabel = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
+  const previewText = node.textContent.trim();
+  const suffix = previewText ? ` ${truncate(previewText, 26)}` : "";
+  return `${tagLabel}${suffix}`;
 }

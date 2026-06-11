@@ -98,6 +98,14 @@ describe("validateDocument — forest walk", () => {
       bad.id
     ]);
   });
+
+  it("flags an invalid name nested under valid ancestors — pins the recursive failure path", () => {
+    const bad = node("two words");
+    const roots = [node("ok", { children: [node("mid", { children: [bad] })] })];
+    expect(validateDocument(roots).map((issue) => issue.nodeId)).toEqual([
+      bad.id
+    ]);
+  });
 });
 
 describe("findDuplicateNodes — sibling groups", () => {
