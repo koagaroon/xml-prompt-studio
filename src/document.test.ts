@@ -25,11 +25,11 @@ function fixtureForest(): {
   childB: XmlNode;
   grandchild: XmlNode;
 } {
-  const grandchild = { ...createNode("grandchild") };
-  const childA = { ...createNode("child_a") };
+  const grandchild = createNode("grandchild");
+  const childA = createNode("child_a");
   const childB = { ...createNode("child_b"), children: [grandchild] };
   const alpha = { ...createNode("alpha"), children: [childA, childB] };
-  const beta = { ...createNode("beta") };
+  const beta = createNode("beta");
   return { roots: [alpha, beta], alpha, beta, childA, childB, grandchild };
 }
 
@@ -72,11 +72,16 @@ describe("deleteNode", () => {
     expect(next[0].id).toBe(beta.id);
   });
 
-  it("deletes a nested node including its subtree", () => {
-    const { roots, childB, grandchild } = fixtureForest();
+  it("deletes a nested node including its subtree, leaving siblings intact", () => {
+    const { roots, alpha, beta, childA, childB, grandchild } = fixtureForest();
     const next = deleteNode(roots, childB.id);
     expect(findNode(next, childB.id)).toBeNull();
     expect(findNode(next, grandchild.id)).toBeNull();
+    // Survivor integrity: only the targeted subtree disappears.
+    expect(next.map((root) => root.id)).toEqual([alpha.id, beta.id]);
+    expect(findNode(next, alpha.id)?.children.map((child) => child.id)).toEqual(
+      [childA.id]
+    );
   });
 });
 
@@ -96,8 +101,11 @@ describe("moveNode", () => {
   it("returns the same node references when a nested move hits the boundary", () => {
     const { roots, childB } = fixtureForest();
     // childB is the last child — moving it down has no swap target.
+    // toBe (reference identity), not toEqual: the documented contract is
+    // that no-op moves skip cloning, which React relies on to short-
+    // circuit re-renders.
     const next = moveNode(roots, childB.id, 1);
-    expect(next[0].children).toEqual(roots[0].children);
+    expect(next[0]).toBe(roots[0]);
   });
 
   it("reorders nested siblings", () => {

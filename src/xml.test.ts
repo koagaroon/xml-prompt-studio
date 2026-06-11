@@ -60,6 +60,29 @@ describe("buildPreview — forest rendering", () => {
     const { xml, lines } = buildPreview(roots);
     expect(xml).toBe(lines.map((line) => line.text).join("\n"));
   });
+
+  it("pins the multi-line shape: 2-space depth indent, text before children, aligned close tag", () => {
+    const roots = [
+      node("outer", {
+        textContent: "lead",
+        children: [
+          node("inner", { textContent: "leaf" }),
+          node("deep", { children: [node("empty")] })
+        ]
+      })
+    ];
+    expect(buildPreview(roots).xml).toBe(
+      [
+        "<outer>",
+        "  lead",
+        "  <inner>leaf</inner>",
+        "  <deep>",
+        "    <empty/>",
+        "  </deep>",
+        "</outer>"
+      ].join("\n")
+    );
+  });
 });
 
 describe("validateDocument — forest walk", () => {
@@ -114,9 +137,31 @@ describe("isValidXmlName", () => {
     expect(isValidXmlName("_private")).toBe(true);
   });
 
-  it("rejects empty, space-bearing, and digit-led names", () => {
+  it("accepts colon and mid-name NameChars (- . digits)", () => {
+    expect(isValidXmlName("ns:tag")).toBe(true);
+    expect(isValidXmlName("a-b.c1")).toBe(true);
+  });
+
+  it("accepts combining marks mid-name — the spec-mandated ranges behind the eslint disable", () => {
+    // "e" + U+0301 COMBINING ACUTE ACCENT (NameChar via ̀-ͯ).
+    expect(isValidXmlName("café")).toBe(true);
+  });
+
+  it("accepts supplementary-plane chars — the reason NAME_REGEX needs the u flag", () => {
+    // U+20BB7 (CJK Ext B) sits in \u{10000}-\u{EFFFF}; without the u
+    // flag the range is a syntax error / mis-parse.
+    expect(isValidXmlName("\u{20BB7}tag")).toBe(true);
+  });
+
+  it("rejects empty, space-bearing, padded, and digit-led names", () => {
     expect(isValidXmlName("")).toBe(false);
     expect(isValidXmlName("two words")).toBe(false);
+    expect(isValidXmlName(" padded ")).toBe(false);
     expect(isValidXmlName("1st")).toBe(false);
+  });
+
+  it("rejects a NameChar-only char in leading position", () => {
+    // "-" is a NameChar but not a NameStartChar.
+    expect(isValidXmlName("-x")).toBe(false);
   });
 });
