@@ -62,7 +62,8 @@ The portable single-exe lands at `src-tauri/target/release/xml-prompt-studio.exe
 ### Type check
 
 ```powershell
-npx tsc --noEmit
+npx tsc --noEmit                      # app source (src/)
+npx tsc -p tsconfig.node.json         # vite.config.ts
 ```
 
 ### Tests
