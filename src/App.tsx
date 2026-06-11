@@ -472,16 +472,24 @@ export default function App() {
     }
   });
 
-  // Selecting an element from the list. Node-scoped messages die on
-  // navigate-away — for good, not just visually: without the clear, a
-  // stale strip ("Sibling count limit reached") would resurface on
+  // Selecting an element from the list. Node-scoped messages — the
+  // global strip AND the field-level tag-name / preset messages — die on
+  // navigate-away, for good, not just visually: without the clear, a
+  // stale message ("Sibling count limit reached") would resurface on
   // RESELECTING the node even after the condition stopped holding.
   // Global messages (errorForNodeId === null) survive navigation. Every
   // other selection-changing path (add/delete/new-blank) already calls
-  // clearMessage unconditionally.
+  // clearMessage unconditionally; the render-time forNodeId gates stay
+  // as defense for those paths' field messages.
   const selectNode = (nodeId: string) => {
     if (errorForNodeId !== null && errorForNodeId !== nodeId) {
       clearMessage();
+    }
+    if (tagNameMessage && tagNameMessage.forNodeId !== nodeId) {
+      setTagNameMessage(null);
+    }
+    if (presetMessage && presetMessage.forNodeId !== nodeId) {
+      setPresetMessage(null);
     }
     setSelectedNodeId(nodeId);
   };
@@ -492,9 +500,11 @@ export default function App() {
   );
 
   // The tag-name field-level message, gated on the element it was
-  // raised for. Switching elements makes the prior message disappear
-  // without us having to clear it explicitly. If the user comes back
-  // and is still at the cap, typing a key fires a fresh message.
+  // raised for. selectNode clears it for good on navigate-away; this
+  // render gate covers the other selection-changing paths (delete
+  // fallback, add) so a message never shows against the wrong element.
+  // If the user comes back and is still at the cap, typing a key fires
+  // a fresh message.
   const activeTagNameMessage =
     tagNameMessage && tagNameMessage.forNodeId === activeNode.id
       ? tagNameMessage
@@ -608,6 +618,11 @@ export default function App() {
       forgetPresetMemoryForChip(removedName);
     }
     setPresetMessage(null);
+    // A failed in-flight rename's error may name the chip being deleted
+    // ("X is already in your preset list") — deleting X makes that text
+    // false, so drop it. The rename input itself stays open; its next
+    // commit re-validates against the updated list.
+    setChipEditError("");
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
     // An in-flight RENAME can coexist with this delete only for a
     // DIFFERENT chip (the chip being renamed renders as the editing
@@ -805,7 +820,8 @@ export default function App() {
   };
 
   const setActiveTagName = (tagName: string) => {
-    // Capped for-of codepoint walk, same discipline as truncate() below:
+    // Capped for-of codepoint walk, same discipline as truncate() in
+    // helpers.ts:
     // Array.from on the raw value would materialize one string object per
     // codepoint BEFORE the cap applies — a multi-MB paste into this field
     // (which deliberately has no maxLength) reaches hundreds of MB of

@@ -845,7 +845,9 @@ select {
   transition: color 120ms ease;
 }
 
-/* Hover the text label → pill turns the standard "use" hover blue. */
+/* Hover the text label → pill turns the standard "use" hover blue.
+   :has() support: Chromium 105+; Tauri 2's WebView2 / WKWebView /
+   WebKitGTK all support it. */
 .chip:has(.chip-label:hover) {
   background: var(--chip-hover-bg);
   border-color: var(--chip-hover-border);
@@ -866,10 +868,6 @@ select {
 .chip:has(.chip-delete:hover) .chip-delete {
   color: #fff;
 }
-
-/* :has() (Chromium 105+; Tauri 2's WebView2 / WKWebView / WebKitGTK
-   all support it). */
-
 
 /* Inline + button to add a new chip when count < MAX_PRESET_CHIPS. Dashed
    border signals "empty slot you can fill" — distinct from solid chips. */

@@ -1,18 +1,13 @@
-// Tauri 2 publishes `window.isTauri` as a boolean for environment detection.
-// This is a stable public API; previously this code probed the internal
-// `__TAURI_INTERNALS__` object, which was undocumented and subject to silent
-// rename across Tauri versions.
+// Environment detection uses the official `isTauri()` helper from
+// @tauri-apps/api/core — the API package owns the probe, so it tracks
+// whatever internal marker Tauri uses across versions. Earlier versions
+// of this file probed `window.isTauri` (and before that the internal
+// `__TAURI_INTERNALS__` object) by hand with a local global declaration.
 
-import { invoke } from "@tauri-apps/api/core";
-
-declare global {
-  interface Window {
-    isTauri?: boolean;
-  }
-}
+import { invoke, isTauri } from "@tauri-apps/api/core";
 
 function isTauriEnvironment(): boolean {
-  return typeof window !== "undefined" && window.isTauri === true;
+  return typeof window !== "undefined" && isTauri();
 }
 
 let mainWindowShowRequested = false;
