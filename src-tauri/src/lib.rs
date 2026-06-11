@@ -14,6 +14,10 @@ use tauri::{LogicalSize, Manager, Size};
 // allocate gigabytes. 50_000_000 bytes ≈ 47.7 MiB of UTF-8, which is far
 // beyond any realistic prompt-engineering payload.
 const MAX_XML_BYTES: usize = 50_000_000;
+// Hand-mirrored copies of `minWidth` / `minHeight` in tauri.conf.json —
+// the JSON is the source of truth the window system actually enforces;
+// these only clamp the computed launch size. Keep the pairs in sync, or
+// launch sizing mis-clamps silently.
 const CONFIG_MIN_WINDOW_WIDTH: f64 = 720.0;
 const CONFIG_MIN_WINDOW_HEIGHT: f64 = 520.0;
 const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
@@ -65,21 +69,52 @@ fn log_startup(_timing: &StartupTiming, _message: &str) {}
 // even in the pessimal case.
 fn check_payload_size(len: usize) -> Result<(), String> {
     if len > MAX_XML_BYTES {
+        let payload = format_megabytes(len);
+        let limit = format_megabytes(MAX_XML_BYTES);
         return Err(format!(
-            "XML payload too large to copy ({} bytes; limit {} bytes).",
-            len, MAX_XML_BYTES
+            "XML payload too large to copy ({payload}; limit {limit})."
         ));
     }
     Ok(())
 }
 
-// `async` so Tauri runs this on the async runtime's thread pool instead of
-// the main thread — a sync command executes on the main thread in Tauri 2,
-// and a 50 MB arboard set_text / UTF-16 re-encode / fallback-tool wait
-// would freeze window painting for its whole duration.
+// Render a byte count as MB for user-facing messages — "50 MB" beats
+// "50000000 bytes" for scanability. Integral values drop the decimal.
+// The frontend's formatMegabytes (helpers.ts) formats its size errors
+// the same way; change both or neither.
+fn format_megabytes(bytes: usize) -> String {
+    let mb = bytes as f64 / 1_000_000.0;
+    if mb.fract() == 0.0 {
+        format!("{mb:.0} MB")
+    } else {
+        format!("{mb:.1} MB")
+    }
+}
+
+// `async` so the command leaves the main thread (sync commands execute
+// there in Tauri 2); the body is fully blocking work (arboard, UTF-16
+// re-encode, child-process wait), so it is further pushed onto the
+// dedicated blocking pool rather than occupying an async-runtime worker
+// — a wedged clipboard tool must not starve IPC dispatch.
 #[tauri::command]
 async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     check_payload_size(xml.len())?;
+    // A NUL would silently truncate the pasted text in most OS clipboard
+    // consumers (C-string semantics) while the preview shows the full
+    // content — refuse visibly instead of corrupting silently.
+    if xml.contains('\0') {
+        return Err(
+            "XML payload contains a NUL (U+0000) character; paste targets would silently \
+             truncate at it. Remove the character and copy again."
+                .to_string(),
+        );
+    }
+    tauri::async_runtime::spawn_blocking(move || copy_xml_blocking(&xml))
+        .await
+        .map_err(|error| format!("clipboard task failed: {error}"))?
+}
+
+fn copy_xml_blocking(xml: &str) -> Result<(), String> {
     // Try arboard with a borrowed slice first — `set_text` accepts
     // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
     // fails. Saves a 50 MB clone on the happy path.
@@ -90,9 +125,9 @@ async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     // clip.exe stderr"), not just the last one. When the fallback
     // succeeds, the arboard error is intentionally dropped: the user got
     // their clipboard content, no need to spam them.
-    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml.as_str())) {
+    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml)) {
         Ok(()) => Ok(()),
-        Err(arb_err) => fallback_copy_native(&xml)
+        Err(arb_err) => fallback_copy_native(xml)
             .map_err(|fb_err| format!("arboard: {arb_err}; fallback: {fb_err}")),
     }
 }
@@ -214,7 +249,7 @@ fn spawn_and_pipe(
             Stdio::null()
         })
         .spawn()
-        .map_err(|error| format!("{}: {}", cmd, error))?;
+        .map_err(|error| format!("{cmd}: {error}"))?;
 
     // If stdin handle is missing (rare but possible if the child process
     // failed to plumb its pipe), bail with an explicit error rather than
@@ -223,7 +258,7 @@ fn spawn_and_pipe(
     let Some(stdin) = child.stdin.as_mut() else {
         // Best-effort reap; the child never got its input and is exiting.
         let _ = child.wait();
-        return Err(format!("{} stdin handle missing", cmd));
+        return Err(format!("{cmd} stdin handle missing"));
     };
     if let Err(error) = stdin.write_all(payload) {
         // A failed write usually means the child died early (broken pipe);
@@ -241,7 +276,7 @@ fn spawn_and_pipe(
             }
             Err(_) => String::new(),
         };
-        return Err(format!("{}: {}{}", cmd, error, detail));
+        return Err(format!("{cmd}: {error}{detail}"));
     }
 
     let output = child
@@ -260,7 +295,7 @@ fn spawn_and_pipe(
         // Empty stderr → surface a non-empty fallback so the front-end
         // error strip (which renders only on truthy errorMessage) shows
         // *something* instead of staying invisible.
-        Err(format!("{} failed with no stderr output.", cmd))
+        Err(format!("{cmd} failed with no stderr output."))
     } else {
         Err(stderr)
     }
@@ -331,7 +366,12 @@ pub fn run() {
             let app_handle = app.handle().clone();
             thread::spawn(move || {
                 thread::sleep(Duration::from_secs(5));
-                let timing = app_handle.state::<StartupTiming>();
+                // try_state, not state: if the app exits within the 5 s
+                // sleep, managed state may already be torn down and
+                // state() would panic in this detached thread.
+                let Some(timing) = app_handle.try_state::<StartupTiming>() else {
+                    return;
+                };
                 if timing.is_main_window_shown() {
                     return;
                 }
@@ -414,7 +454,12 @@ mod tests {
     fn payload_size_one_over_limit_is_rejected() {
         let error =
             check_payload_size(MAX_XML_BYTES + 1).expect_err("over-limit payload must be rejected");
-        assert!(error.contains("too large"));
+        // Full-equality assert pins the message format AND the MB
+        // rendering (one decimal for fractional, none for integral).
+        assert_eq!(
+            error,
+            "XML payload too large to copy (50.0 MB; limit 50 MB)."
+        );
     }
 
     #[cfg(target_os = "windows")]
