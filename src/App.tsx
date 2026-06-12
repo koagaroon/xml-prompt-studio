@@ -1,4 +1,11 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 import {
   createBlankDocument,
   createNode,
@@ -388,31 +395,6 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
-  // Persist preset chips on every change. readInitialPresetChips picks
-  // them back up on the next session via the same storage key.
-  useEffect(() => {
-    try {
-      localStorage.setItem(
-        PRESET_CHIPS_STORAGE_KEY,
-        JSON.stringify(presetChips)
-      );
-    } catch {
-      /* swallow — storage failure shouldn't break chip editing */
-    }
-  }, [presetChips]);
-
-  const toggleTheme = () => {
-    // Compute outside the updater: persisting inside the setState reducer
-    // would be a side effect in what StrictMode double-invokes.
-    const next = theme === "dark" ? "light" : "dark";
-    try {
-      localStorage.setItem(THEME_STORAGE_KEY, next);
-    } catch {
-      /* swallow — storage failure shouldn't break theme toggling */
-    }
-    setTheme(next);
-  };
-
   // Transient-notice flags: true while the message strip is showing a
   // self-expiring notice, so the matching expiry path can clear it the
   // moment its condition stops holding. copyWaitNoticeRef = "preview is
@@ -442,6 +424,71 @@ export default function App() {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
     setStripMessage(null);
+  };
+
+  // localStorage write failures (corrupt webview profile, disk full)
+  // would otherwise be fully silent: the edit appears to take effect,
+  // then reverts next launch with no signal in either session. Amber,
+  // not red — the in-session action itself succeeded. One-shot per
+  // session: the first failure already says persistence is broken;
+  // repeating it on every subsequent edit would be noise. Sets the
+  // strip directly instead of calling showWarning so the useCallback
+  // closes over stable values only (refs + setState) — the chip-persist
+  // effect below can then list it as a dependency without re-running
+  // on every render.
+  const storageWarningShownRef = useRef(false);
+  const warnStorageWriteFailed = useCallback((what: string) => {
+    if (storageWarningShownRef.current) {
+      return;
+    }
+    storageWarningShownRef.current = true;
+    copyWaitNoticeRef.current = false;
+    copyBusyNoticeRef.current = false;
+    setStripMessage({
+      text: `Couldn't save your ${what} — it works for this session but will reset on next launch (storage unavailable).`,
+      severity: "warning",
+      forNodeId: null
+    });
+  }, []);
+
+  // Persist preset chips on change. readInitialPresetChips picks them
+  // back up next session via the same storage key. The initial array is
+  // deliberately NOT written back (reference check below): writing on
+  // mount would freeze DEFAULT_PRESET_CHIPS into storage on first-ever
+  // launch, so a user who never edits chips would stop receiving updated
+  // defaults — the same frozen-first-launch hazard THEME_STORAGE_KEY
+  // documents, solved the same way (persist only on user action; every
+  // chip edit produces a new array). The reference check also holds
+  // under StrictMode's double effect run.
+  const initialPresetChipsRef = useRef(presetChips);
+  useEffect(() => {
+    if (presetChips === initialPresetChipsRef.current) {
+      return;
+    }
+    try {
+      localStorage.setItem(
+        PRESET_CHIPS_STORAGE_KEY,
+        JSON.stringify(presetChips)
+      );
+    } catch {
+      // Storage failure must not break chip editing, but it must not be
+      // silent either — the edit looks successful and then reverts next
+      // launch. Surface it once (see warnStorageWriteFailed).
+      warnStorageWriteFailed("preset chips");
+    }
+  }, [presetChips, warnStorageWriteFailed]);
+
+  const toggleTheme = () => {
+    // Compute outside the updater: persisting inside the setState reducer
+    // would be a side effect in what StrictMode double-invokes.
+    const next = theme === "dark" ? "light" : "dark";
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      // Same visibility rationale as the chip-persist catch above.
+      warnStorageWriteFailed("theme choice");
+    }
+    setTheme(next);
   };
 
   const activeNode = useMemo(
