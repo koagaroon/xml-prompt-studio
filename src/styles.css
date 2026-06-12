@@ -59,9 +59,9 @@
   /* UI font stack — theme-independent, defined once so consumers (body,
      overlays) can't drift apart. CJK tail per the project convention. */
   --font-ui:
-    Inter,
+    "Inter",
     -apple-system,
-    BlinkMacSystemFont,
+    "BlinkMacSystemFont",
     "Segoe UI",
     system-ui,
     "Microsoft YaHei UI",
