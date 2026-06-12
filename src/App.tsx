@@ -19,9 +19,11 @@ import {
   MAX_PRESET_NAME_LENGTH,
   MAX_XML_BYTES,
   buildElementLabel,
+  capCodePoints,
   collectSubtreeIds,
   exceedsByteCap,
   formatMegabytes,
+  getCopyReadiness,
   insertAfter,
   nextAvailableSuffix,
   nextSelectionAfterDelete,
@@ -170,8 +172,9 @@ type EditingChip = {
 // (yields A_3), then chip B (yields B_1), then A again restores A_3
 // rather than recomputing a fresh A_4. Manual edits to the tag name
 // clear `lastApplied` (so the next chip click applies) but preserve
-// `history` (so a subsequent chip click restores its prior name). See
-// docs/architecture/xml_prompt_studio_design.md for the full semantics.
+// `history` (so a subsequent chip click restores its prior name). This
+// comment is the local maintenance contract; external design notes may
+// repeat it, but the product repo must remain understandable alone.
 type ElementPresetMemory = {
   lastApplied: string | null;
   history: Map<string, string>;
@@ -765,7 +768,10 @@ export default function App() {
     if (!editingChip) {
       return;
     }
-    setEditingChip({ ...editingChip, draft });
+    setEditingChip({
+      ...editingChip,
+      draft: capCodePoints(draft, MAX_PRESET_NAME_LENGTH)
+    });
   };
 
   const cancelChipEdit = () => {
@@ -868,17 +874,26 @@ export default function App() {
   const removeSelectedNode = () => {
     // Min-one-section invariant: deleting the LAST remaining top-level
     // section would empty the forest, so this path resets to the blank
-    // starter instead. No confirm — Delete on the sole section IS the
-    // explicit wipe gesture, same outcome as a confirmed New Blank.
+    // starter instead. This reaches the same "replace document" outcome
+    // as New Blank, so it uses the same confirmation primitive instead
+    // of becoming a one-click irreversible wipe.
     if (!activeParent && roots.length === 1) {
-      const nextRoots = createBlankDocument();
-      setRoots(nextRoots);
-      setSelectedNodeId(nextRoots[0].id);
-      clearMessage();
-      clearFieldMessages();
-      // Every old node ID is gone — wipe the whole memory map, same as
-      // the New Blank path.
-      presetMemoryRef.current.clear();
+      setConfirmRequest({
+        title: "Clear the only section?",
+        description: "This will replace the current section with a fresh blank.",
+        confirmLabel: "Clear",
+        confirmKind: "danger",
+        onConfirm: () => {
+          const nextRoots = createBlankDocument();
+          setRoots(nextRoots);
+          setSelectedNodeId(nextRoots[0].id);
+          clearMessage();
+          clearFieldMessages();
+          // Every old node ID is gone — wipe the whole memory map, same as
+          // the New Blank path.
+          presetMemoryRef.current.clear();
+        }
+      });
       return;
     }
 
@@ -1069,13 +1084,21 @@ export default function App() {
     // the silent version turns every later click into "nothing happens"
     // with zero diagnostic signal. The notice self-expires when the
     // in-flight copy settles (see the finally block).
-    if (copyInFlight.current) {
+    const copyReadiness = getCopyReadiness({
+      copyInFlight: copyInFlight.current,
+      previewPending,
+      validationIssueCount: validationIssues.length,
+      xml: xmlPreview,
+      maxBytes: MAX_XML_BYTES
+    });
+
+    if (!copyReadiness.ready && copyReadiness.reason === "busy") {
       showWarning("A copy is already in progress — one moment.");
       copyBusyNoticeRef.current = true;
       return;
     }
 
-    if (previewPending) {
+    if (!copyReadiness.ready && copyReadiness.reason === "preview-pending") {
       showWarning(
         "Preview is still updating. Copy XML will be available once it matches the document."
       );
@@ -1092,7 +1115,7 @@ export default function App() {
     // screen: preview == clipboard by construction. (Stale-copy worry
     // doesn't apply: rapid type-then-click lands in the previewPending
     // refusal, never here.)
-    if (validationIssues.length > 0) {
+    if (!copyReadiness.ready && copyReadiness.reason === "validation") {
       showError("Fix validation issues before copying XML.");
       return;
     }
@@ -1102,7 +1125,7 @@ export default function App() {
     // per-field caps via exceedsByteCap. The actual byte count is only
     // needed for the user-facing error message, so it's computed inside
     // the failure branch (one TextEncoder pass total in the worst case).
-    if (exceedsByteCap(liveXml, MAX_XML_BYTES)) {
+    if (!copyReadiness.ready && copyReadiness.reason === "too-large") {
       const liveBytes = new TextEncoder().encode(liveXml).length;
       showError(
         `XML payload too large to copy (${formatMegabytes(liveBytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
@@ -1383,7 +1406,6 @@ export default function App() {
                       className="chip chip-editing"
                       value={editingChip.draft}
                       autoFocus
-                      maxLength={MAX_PRESET_NAME_LENGTH}
                       aria-label={`Rename preset ${name}`}
                       // Active edits stay tabbable so a failed blur commit
                       // never leaves the keyboard user unable to return.
@@ -1457,7 +1479,6 @@ export default function App() {
                   className="chip chip-editing"
                   value={editingChip.draft}
                   autoFocus
-                  maxLength={MAX_PRESET_NAME_LENGTH}
                   placeholder="new chip name"
                   aria-label="Name the new preset chip"
                   tabIndex={0}

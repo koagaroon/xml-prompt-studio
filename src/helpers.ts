@@ -39,6 +39,26 @@ export function truncate(value: string, maxLength: number): string {
   return value;
 }
 
+// Hard-cap an editable string by code points without adding decoration.
+// Browser `maxLength` counts UTF-16 code units, so supplementary-plane
+// XML Name characters can be cut too early. Use this for controlled inputs
+// whose product contract is code-point based.
+export function capCodePoints(value: string, maxLength: number): string {
+  if (maxLength <= 0) {
+    return "";
+  }
+  let result = "";
+  let count = 0;
+  for (const cp of value) {
+    if (count === maxLength) {
+      break;
+    }
+    result += cp;
+    count += 1;
+  }
+  return result;
+}
+
 // Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
 // Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
 // code units), which diverged by up to 3× for CJK / emoji content — a 50M
@@ -130,10 +150,9 @@ export function validatePresetName(
   if (!name) {
     return "Chip name cannot be empty.";
   }
-  // Code-point length matches the input's `maxLength` (which counts
-  // UTF-16 code units, but for in-BMP names they're equivalent and
-  // the cap is small enough that supplementary-plane edge cases don't
-  // bite). Array.from gives the code-point count for the rare cases.
+  // Code-point length, not browser maxLength/UTF-16 units. The chip edit
+  // inputs are capped through capCodePoints before commit, and this stays
+  // as the validation boundary for persisted or hand-edited values.
   if (Array.from(name).length > MAX_PRESET_NAME_LENGTH) {
     return `Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`;
   }
@@ -150,6 +169,32 @@ export function validatePresetName(
     }
   }
   return null;
+}
+
+export type CopyReadiness =
+  | { ready: true }
+  | { ready: false; reason: "busy" | "preview-pending" | "validation" | "too-large" };
+
+export function getCopyReadiness(input: {
+  copyInFlight: boolean;
+  previewPending: boolean;
+  validationIssueCount: number;
+  xml: string;
+  maxBytes?: number;
+}): CopyReadiness {
+  if (input.copyInFlight) {
+    return { ready: false, reason: "busy" };
+  }
+  if (input.previewPending) {
+    return { ready: false, reason: "preview-pending" };
+  }
+  if (input.validationIssueCount > 0) {
+    return { ready: false, reason: "validation" };
+  }
+  if (exceedsByteCap(input.xml, input.maxBytes ?? MAX_XML_BYTES)) {
+    return { ready: false, reason: "too-large" };
+  }
+  return { ready: true };
 }
 
 // Inserts `node` immediately after the item with `anchorId`; appends when

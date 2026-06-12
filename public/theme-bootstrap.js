@@ -4,18 +4,25 @@
 // first render. Loaded as an external script (not inline) so the CSP can
 // stay on `script-src 'self'` without 'unsafe-inline' or hash allowlisting.
 (function () {
+  var stored = null;
   try {
-    var stored = localStorage.getItem("theme");
-    var theme =
-      stored === "dark" || stored === "light"
-        ? stored
-        : window.matchMedia &&
-            window.matchMedia("(prefers-color-scheme: light)").matches
-          ? "light"
-          : "dark";
-    document.documentElement.setAttribute("data-theme", theme);
+    stored = localStorage.getItem("theme");
   } catch {
-    // localStorage / matchMedia unavailable in some sandboxed embeds.
-    // Silently fall through to the CSS default-dark.
+    // localStorage unavailable in some sandboxed embeds. Still fall
+    // through to system preference so React and first paint agree.
   }
+  var theme = stored === "dark" || stored === "light" ? stored : "dark";
+  if (stored !== "dark" && stored !== "light") {
+    try {
+      if (
+        window.matchMedia &&
+        window.matchMedia("(prefers-color-scheme: light)").matches
+      ) {
+        theme = "light";
+      }
+    } catch {
+      // matchMedia unavailable — keep the CSS default-dark fallback.
+    }
+  }
+  document.documentElement.setAttribute("data-theme", theme);
 })();

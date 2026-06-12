@@ -4,9 +4,11 @@ import {
   ELEMENT_LABEL_PREVIEW_LENGTH,
   MAX_PRESET_NAME_LENGTH,
   buildElementLabel,
+  capCodePoints,
   collectSubtreeIds,
   exceedsByteCap,
   formatMegabytes,
+  getCopyReadiness,
   insertAfter,
   nextAvailableSuffix,
   nextSelectionAfterDelete,
@@ -89,6 +91,24 @@ describe("validatePresetName", () => {
     ).toBe(`Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`);
   });
 
+  it("counts supplementary-plane XML names by code point, not UTF-16 units", () => {
+    const extBNameChar = "\u{20000}";
+    expect(
+      validatePresetName(
+        extBNameChar.repeat(MAX_PRESET_NAME_LENGTH),
+        chips,
+        -1
+      )
+    ).toBeNull();
+    expect(
+      validatePresetName(
+        extBNameChar.repeat(MAX_PRESET_NAME_LENGTH + 1),
+        chips,
+        -1
+      )
+    ).toBe(`Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`);
+  });
+
   it("rejects invalid XML names", () => {
     expect(validatePresetName("two words", chips, -1)).toBe(
       "Chip name must follow XML element naming rules."
@@ -134,6 +154,20 @@ describe("truncate", () => {
     expect(truncate("anything", 0)).toBe("");
     // maxLength 1 keeps the output within the cap: just the ellipsis.
     expect(truncate("ab", 1)).toBe("…");
+  });
+});
+
+describe("capCodePoints", () => {
+  it("caps by code point without splitting supplementary characters", () => {
+    expect(capCodePoints("𠀀𠀁𠀂", 2)).toBe("𠀀𠀁");
+  });
+
+  it("returns the input unchanged when it is within the cap", () => {
+    expect(capCodePoints("feedback", MAX_PRESET_NAME_LENGTH)).toBe("feedback");
+  });
+
+  it("degrades to empty for maxLength <= 0", () => {
+    expect(capCodePoints("anything", 0)).toBe("");
   });
 });
 
@@ -288,5 +322,50 @@ describe("formatMegabytes", () => {
     expect(formatMegabytes(1_200_000)).toBe("1.2 MB");
     expect(formatMegabytes(1)).toBe("0.1 MB");
     expect(formatMegabytes(0)).toBe("0 MB");
+  });
+});
+
+describe("getCopyReadiness", () => {
+  const readyInput = {
+    copyInFlight: false,
+    previewPending: false,
+    validationIssueCount: 0,
+    xml: "<feedback/>",
+    maxBytes: 100
+  };
+
+  it("refuses stale preview before considering validation or payload size", () => {
+    expect(
+      getCopyReadiness({
+        ...readyInput,
+        previewPending: true,
+        validationIssueCount: 1,
+        xml: "x".repeat(101)
+      })
+    ).toEqual({ ready: false, reason: "preview-pending" });
+  });
+
+  it("refuses overlapping copy before stale-preview checks", () => {
+    expect(
+      getCopyReadiness({
+        ...readyInput,
+        copyInFlight: true,
+        previewPending: true
+      })
+    ).toEqual({ ready: false, reason: "busy" });
+  });
+
+  it("refuses validation issues and oversize payloads after preview is current", () => {
+    expect(
+      getCopyReadiness({ ...readyInput, validationIssueCount: 1 })
+    ).toEqual({ ready: false, reason: "validation" });
+    expect(getCopyReadiness({ ...readyInput, xml: "x".repeat(101) })).toEqual({
+      ready: false,
+      reason: "too-large"
+    });
+  });
+
+  it("allows copy only when no guard blocks it", () => {
+    expect(getCopyReadiness(readyInput)).toEqual({ ready: true });
   });
 });
