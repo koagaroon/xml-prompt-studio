@@ -99,6 +99,10 @@ export function moveNode(
     return reorder(roots, topIndex, direction);
   }
 
+  // An id matching nothing falls through to a fully cloned no-op — the
+  // same clone-always shape as updateNode/deleteNode, deliberately NOT
+  // reorder's same-reference contract for boundary no-ops. App's canMove
+  // guard keeps the missing-id case unreachable in practice.
   return roots.map((root) => moveNodeInTree(root, targetId, direction));
 }
 

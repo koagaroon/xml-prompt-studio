@@ -71,6 +71,17 @@ export function requestMainWindowShowAfterFirstPaint(): void {
 }
 
 export async function copyXmlToClipboard(xml: string): Promise<void> {
+  // Frontend mirror of the Rust-side NUL guard, placed BEFORE the branch
+  // so the dev-only browser fallback below can't "successfully" copy a
+  // payload that C-string clipboard consumers would silently truncate.
+  // The Rust check stays as the IPC-boundary defense.
+  if (xml.includes("\0")) {
+    throw new Error(
+      "XML payload contains a NUL (U+0000) character; paste targets would " +
+        "silently truncate at it. Remove the character and copy again."
+    );
+  }
+
   if (isTauriEnvironment()) {
     await invoke("copy_xml_to_clipboard", { xml });
     return;

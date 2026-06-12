@@ -562,7 +562,11 @@ select {
   border-radius: 999px;
   background: var(--badge-bg);
   color: var(--badge-text);
-  font-weight: 600;
+
+  /* 700, not 600: bundled Inter ships 400/500/700 only, and CSS weight
+     matching resolves a 600 request up to 700 anyway — declare what
+     actually renders. */
+  font-weight: 700;
 }
 
 /* === INPUT COLUMN === */
@@ -954,7 +958,7 @@ select {
   border-color: var(--border-focus);
 }
 
-.error-strip {
+.message-strip {
   margin-top: 0.6rem;
   padding: 0.55rem 0.85rem;
   border-radius: 10px;
@@ -969,7 +973,7 @@ select {
    prior tag name where a sibling now occupies that slot. The duplicate
    itself shows via the existing red row highlight + Duplicate badge;
    this strip explains why it just appeared. */
-.error-strip.is-warning {
+.message-strip.is-warning {
   background: var(--warning-bg);
   color: var(--warning-text);
 }
@@ -1042,7 +1046,11 @@ select {
 
 .preview-indicator {
   color: var(--text-accent);
-  font-weight: 700;
+
+  /* 600, not 700: bundled JetBrains Mono ships 400/600 only — a 700
+     request gets 600 or an engine-synthesized faux bold. Declare the
+     real face. */
+  font-weight: 600;
 }
 
 .preview-empty {

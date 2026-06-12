@@ -46,6 +46,14 @@ const DEFAULT_PRESET_CHIPS = [
 // only requires adjusting CSS layout tolerances; nothing else hardcodes 6.
 const MAX_PRESET_CHIPS = 6;
 
+// localStorage key for the persisted theme. Written ONLY on user toggle
+// (see toggleTheme) — a user who never toggles keeps following the OS
+// preference on every launch instead of having the first launch's
+// fallback frozen in. public/theme-bootstrap.js reads the same key but
+// can't import this constant (it's a pre-bundle external script) — keep
+// the literal there in sync.
+const THEME_STORAGE_KEY = "theme";
+
 // localStorage key for the persisted chip list. Same shape as the theme
 // key just above — read on first render, written on every change.
 const PRESET_CHIPS_STORAGE_KEY = "presetChips";
@@ -104,6 +112,22 @@ const TAG_NAME_INPUT_ID = "tag-name-input";
 const TEXT_CONTENT_INPUT_ID = "text-content-area";
 
 type Theme = "dark" | "light";
+
+// The message strip at the bottom of the Input column. One object atom
+// (not separate text/severity/forNodeId atoms) for two reasons: the
+// fields are one logical value, and a FRESH object on every set means
+// React can never bail out of a rejection-path commit — repeating an
+// identical rejection (e.g. pasting the same oversized blob twice)
+// still re-renders, so the controlled inputs always resync to state.
+// `severity`: red = action failed/blocked, amber = action succeeded
+// with a side effect worth noting. `forNodeId`: non-null scopes the
+// message to one element (hidden elsewhere, cleared for good when the
+// user navigates away — see selectNode); null = global.
+type StripMessage = {
+  text: string;
+  severity: "error" | "warning";
+  forNodeId: string | null;
+};
 
 // Generic confirmation-modal request. Two confirmations exist today (New
 // Blank discard, Reset presets); both go through this same primitive. The
@@ -198,7 +222,7 @@ function readInitialTheme(): Theme {
     return "dark";
   }
   try {
-    const stored = localStorage.getItem("theme");
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
     if (stored === "dark" || stored === "light") {
       return stored;
     }
@@ -220,16 +244,9 @@ export default function App() {
   // the wrapper, the property access fires on every render even though
   // React ignores the value after mount.
   const [selectedNodeId, setSelectedNodeId] = useState(() => roots[0].id);
-  const [errorMessage, setErrorMessage] = useState("");
-  // Severity controls the visual treatment of the message strip — red for
-  // errors (something failed or is blocked), amber for warnings (the action
-  // succeeded but produced a side effect worth noting, e.g. a preset
-  // restore now collides with a sibling). Severity is only read when
-  // errorMessage is non-empty, so we don't bother resetting it on clear.
-  const [errorSeverity, setErrorSeverity] = useState<"error" | "warning">(
-    "error"
-  );
-  const [errorForNodeId, setErrorForNodeId] = useState<string | null>(null);
+  // Message strip state — see the StripMessage type for the full
+  // semantics (single-object-atom rationale, severity, node scoping).
+  const [stripMessage, setStripMessage] = useState<StripMessage | null>(null);
   // Increments on each successful Copy XML; used as a key on the bloom overlay
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
@@ -348,16 +365,14 @@ export default function App() {
   // continue to use the latest roots for immediate feedback.
   const deferredRoots = useDeferredValue(roots);
 
-  // Keep DOM and storage in sync with state. public/theme-bootstrap.js
+  // Keep the DOM attribute in sync with state. public/theme-bootstrap.js
   // sets the initial attribute pre-render; this effect handles every
-  // change after that.
+  // change after that. Persistence is NOT here — writing on mount would
+  // freeze the system-preference fallback into storage on first launch,
+  // so later OS light/dark changes would never be honored again. Storage
+  // writes live in toggleTheme: only an explicit user choice persists.
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    try {
-      localStorage.setItem("theme", theme);
-    } catch {
-      /* swallow — storage failure shouldn't break theme toggling */
-    }
   }, [theme]);
 
   // Persist preset chips on every change. readInitialPresetChips picks
@@ -373,9 +388,16 @@ export default function App() {
     }
   }, [presetChips]);
 
-
   const toggleTheme = () => {
-    setTheme((current) => (current === "dark" ? "light" : "dark"));
+    // Compute outside the updater: persisting inside the setState reducer
+    // would be a side effect in what StrictMode double-invokes.
+    const next = theme === "dark" ? "light" : "dark";
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch {
+      /* swallow — storage failure shouldn't break theme toggling */
+    }
+    setTheme(next);
   };
 
   // Transient-notice flags: true while the message strip is showing a
@@ -396,22 +418,17 @@ export default function App() {
   const showError = (text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
-    setErrorMessage(text);
-    setErrorSeverity("error");
-    setErrorForNodeId(forNodeId);
+    setStripMessage({ text, severity: "error", forNodeId });
   };
   const showWarning = (text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
-    setErrorMessage(text);
-    setErrorSeverity("warning");
-    setErrorForNodeId(forNodeId);
+    setStripMessage({ text, severity: "warning", forNodeId });
   };
   const clearMessage = () => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
-    setErrorMessage("");
-    setErrorForNodeId(null);
+    setStripMessage(null);
   };
 
   const activeNode = useMemo(
@@ -473,7 +490,7 @@ export default function App() {
     if (!previewPending && copyWaitNoticeRef.current) {
       clearMessage();
     }
-  });
+  }, [previewPending]);
 
   // Selecting an element from the list. Node-scoped messages — the
   // global strip AND the field-level tag-name / preset messages — die on
@@ -485,7 +502,11 @@ export default function App() {
   // clearMessage unconditionally; the render-time forNodeId gates stay
   // as defense for those paths' field messages.
   const selectNode = (nodeId: string) => {
-    if (errorForNodeId !== null && errorForNodeId !== nodeId) {
+    if (
+      stripMessage &&
+      stripMessage.forNodeId !== null &&
+      stripMessage.forNodeId !== nodeId
+    ) {
       clearMessage();
     }
     if (tagNameMessage && tagNameMessage.forNodeId !== nodeId) {
@@ -516,11 +537,12 @@ export default function App() {
     presetMessage && presetMessage.forNodeId === activeNode.id
       ? presetMessage
       : null;
-  const activeErrorMessage =
-    errorMessage &&
-    (errorForNodeId === null || errorForNodeId === activeNode.id)
-      ? errorMessage
-      : "";
+  const activeStripMessage =
+    stripMessage &&
+    (stripMessage.forNodeId === null ||
+      stripMessage.forNodeId === activeNode.id)
+      ? stripMessage
+      : null;
 
   // null parent = top-level section; its sibling list is the forest
   // itself, so Move / Add Sibling / Delete work uniformly at every level.
@@ -1447,15 +1469,15 @@ export default function App() {
             onChange={(event) => setActiveTextContent(event.target.value)}
           />
 
-          {activeErrorMessage && (
+          {activeStripMessage && (
             <div
               className={cx(
-                "error-strip",
-                errorSeverity === "warning" && "is-warning"
+                "message-strip",
+                activeStripMessage.severity === "warning" && "is-warning"
               )}
               role="alert"
             >
-              {activeErrorMessage}
+              {activeStripMessage.text}
             </div>
           )}
         </section>
