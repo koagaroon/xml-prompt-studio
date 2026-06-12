@@ -49,8 +49,22 @@ impl StartupTiming {
         self.main_window_shown.load(Ordering::SeqCst)
     }
 
-    fn mark_main_window_shown(&self) {
-        self.main_window_shown.store(true, Ordering::SeqCst);
+    // Atomically claim the single "show the main window" slot. The
+    // frontend command and the 5 s fallback thread can race here; a
+    // plain check-then-show would let both observe "not shown" and
+    // double-call show(). OS-level show() is idempotent, so that race
+    // was benign — the claim exists to keep the startup log truthful
+    // about which path actually showed the window.
+    fn try_claim_main_window_show(&self) -> bool {
+        self.main_window_shown
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+    }
+
+    // Release a claim whose show() failed, so the other path can still
+    // rescue visibility instead of finding the slot taken by a failure.
+    fn release_main_window_show(&self) {
+        self.main_window_shown.store(false, Ordering::SeqCst);
     }
 }
 
@@ -120,6 +134,11 @@ fn set_text_persistent(xml: &str) -> Result<(), String> {
         // Poison means a panic mid-operation — the instance state is
         // exactly as suspect as on the Err path below, so give it the
         // same treatment: drop it and let this copy reinitialize.
+        // clear_poison makes that recovery one-shot; without it std
+        // poisoning is sticky, every later copy would re-enter this arm,
+        // and the long-lived-instance design would silently degrade to
+        // per-call instances.
+        CLIPBOARD.clear_poison();
         let mut guard = poisoned.into_inner();
         *guard = None;
         guard
@@ -141,7 +160,24 @@ fn set_text_persistent(xml: &str) -> Result<(), String> {
     result
 }
 
+// Serializes the whole copy operation, native fallback included. The
+// arboard path is already serialized by CLIPBOARD's mutex, but the
+// fallback child processes (clip.exe / pbcopy / wl-copy / xclip) were
+// not: two concurrent invocations that both fall back would race two
+// children, both report success, and the clipboard would keep whichever
+// wrote last — possibly the OLDER payload under a success report. The
+// frontend's copyInFlight guard already prevents concurrency in
+// practice; this lock makes the Rust IPC boundary self-sufficient,
+// consistent with the NUL / size guards deliberately duplicated on both
+// sides.
+static COPY_LOCK: Mutex<()> = Mutex::new(());
+
 fn copy_xml_blocking(xml: &str) -> Result<(), String> {
+    // Lock data is (), so poison carries no state worth respecting —
+    // recover unconditionally.
+    let _copy_guard = COPY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     // A NUL would silently truncate the pasted text in most OS clipboard
     // consumers (C-string semantics) while the preview shows the full
     // content — refuse visibly instead of corrupting silently. Runs here
@@ -185,18 +221,21 @@ fn show_main_window_with_handle(
     timing: &StartupTiming,
     source: &str,
 ) -> Result<(), String> {
-    if timing.is_main_window_shown() {
+    if !timing.try_claim_main_window_show() {
         log_startup(timing, &format!("{source}: main window already visible"));
         return Ok(());
     }
 
+    let release_claim = |error: String| {
+        timing.release_main_window_show();
+        error
+    };
     let window = app_handle
         .get_webview_window("main")
-        .ok_or_else(|| "main window missing".to_string())?;
+        .ok_or_else(|| release_claim("main window missing".to_string()))?;
     window
         .show()
-        .map_err(|error| format!("failed to show main window: {error}"))?;
-    timing.mark_main_window_shown();
+        .map_err(|error| release_claim(format!("failed to show main window: {error}")))?;
     log_startup(timing, &format!("{source}: main window shown"));
     Ok(())
 }
