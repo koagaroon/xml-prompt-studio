@@ -11,7 +11,7 @@ use tauri::{LogicalSize, Manager, Size};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
 // channel can carry arbitrarily large strings; without a cap, a runaway
-// pasted blob in Text Content would force arboard + utf16le_with_bom to
+// pasted blob in Text Content would force arboard + utf16le to
 // allocate gigabytes. 50_000_000 bytes ≈ 47.7 MiB of UTF-8, which is far
 // beyond any realistic prompt-engineering payload.
 const MAX_XML_BYTES: usize = 50_000_000;
@@ -64,7 +64,7 @@ fn log_startup(_timing: &StartupTiming, _message: &str) {}
 
 // Size gate for copy_xml_to_clipboard, split out so the boundary is unit-
 // testable without touching the real clipboard. Also implicitly bounds the
-// utf16le_with_bom path: at 50 MB UTF-8, the worst-case UTF-16 expansion
+// utf16le path: at 50 MB UTF-8, the worst-case UTF-16 expansion
 // is at most 2× (4-byte non-BMP chars become 4 bytes via surrogate pairs;
 // ASCII becomes 2 bytes). The fallback's allocation is therefore ≤ ~100 MB
 // even in the pessimal case.
@@ -116,9 +116,14 @@ async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
 static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
 
 fn set_text_persistent(xml: &str) -> Result<(), String> {
-    let mut guard = CLIPBOARD
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = CLIPBOARD.lock().unwrap_or_else(|poisoned| {
+        // Poison means a panic mid-operation — the instance state is
+        // exactly as suspect as on the Err path below, so give it the
+        // same treatment: drop it and let this copy reinitialize.
+        let mut guard = poisoned.into_inner();
+        *guard = None;
+        guard
+    });
     if guard.is_none() {
         *guard = Some(Clipboard::new().map_err(|error| error.to_string())?);
     }
@@ -220,9 +225,13 @@ fn launch_window_size_for_work_area(work_area_size: LogicalSize<f64>) -> Logical
 fn fallback_copy_native(xml: &str) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
-        // clip.exe expects UTF-16 LE + BOM via stdin; without the BOM,
-        // CJK characters end up garbled.
-        return spawn_and_pipe("clip", &[], &utf16le_with_bom(xml), true);
+        // clip.exe expects UTF-16 LE via stdin — WITHOUT a BOM. Verified
+        // empirically (Windows 11): a leading FF FE BOM is NOT consumed
+        // as an encoding marker but lands in the clipboard as a literal
+        // U+FEFF prefix character, silently violating the preview ==
+        // clipboard contract; BOM-less UTF-16 LE decodes correctly for
+        // ASCII-only, CJK, and non-BMP payloads alike.
+        return spawn_and_pipe("clip", &[], &utf16le(xml), true);
     }
     #[cfg(target_os = "macos")]
     {
@@ -345,15 +354,16 @@ fn spawn_and_pipe(
     }
 }
 
+// No BOM on purpose — see the WHY at the clip.exe callsite: clip.exe
+// copies a leading FF FE into the clipboard as a literal U+FEFF instead
+// of consuming it as an encoding marker.
 #[cfg(target_os = "windows")]
-fn utf16le_with_bom(value: &str) -> Vec<u8> {
+fn utf16le(value: &str) -> Vec<u8> {
     // Pre-allocate the output buffer to avoid the ~25 reallocations that
     // happen as Vec grows from 0 to ~50 MB. UTF-16 of UTF-8 input is at
     // most `value.len() * 2` bytes (worst case ASCII → each byte becomes
-    // 2 bytes) plus the 2-byte BOM. Slight over-estimate for non-BMP
-    // input, but bounded.
-    let mut bytes = Vec::with_capacity(2 + value.len() * 2);
-    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    // 2 bytes). Slight over-estimate for non-BMP input, but bounded.
+    let mut bytes = Vec::with_capacity(value.len() * 2);
     for code_unit in value.encode_utf16() {
         bytes.extend_from_slice(&code_unit.to_le_bytes());
     }
@@ -508,28 +518,30 @@ mod tests {
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn utf16le_with_bom_starts_with_le_bom() {
-        // clip.exe keys its decoding off the FF FE little-endian BOM.
-        assert_eq!(&utf16le_with_bom("x")[..2], &[0xFF, 0xFE]);
+    fn utf16le_emits_no_bom() {
+        // Empirically verified: clip.exe copies a leading FF FE into the
+        // clipboard as a literal U+FEFF instead of consuming it, breaking
+        // the preview == clipboard contract. Pin the absence.
+        assert_eq!(utf16le("x"), vec![0x78, 0x00]);
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn utf16le_with_bom_encodes_ascii_cjk_and_non_bmp_little_endian() {
+    fn utf16le_encodes_ascii_cjk_and_non_bmp_little_endian() {
         // 'A' = 0x0041, '中' = 0x4E2D, '🦀' = U+1F980 → surrogate pair
         // D83E DD80; every code unit must land low-byte-first.
         assert_eq!(
-            utf16le_with_bom("A中🦀"),
-            vec![0xFF, 0xFE, 0x41, 0x00, 0x2D, 0x4E, 0x3E, 0xD8, 0x80, 0xDD]
+            utf16le("A中🦀"),
+            vec![0x41, 0x00, 0x2D, 0x4E, 0x3E, 0xD8, 0x80, 0xDD]
         );
     }
 
     #[cfg(target_os = "windows")]
     #[test]
-    fn utf16le_with_bom_round_trips_mixed_content() {
+    fn utf16le_round_trips_mixed_content() {
         let original = "<反馈>hello 🦀</反馈>";
-        let bytes = utf16le_with_bom(original);
-        let units: Vec<u16> = bytes[2..]
+        let bytes = utf16le(original);
+        let units: Vec<u16> = bytes
             .chunks_exact(2)
             .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
             .collect();

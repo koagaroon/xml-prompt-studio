@@ -23,5 +23,12 @@ tauri-build = { version = "2", features = [] }
 #      scheme set can change across Tauri majors. Mismatch silently
 #      breaks the IPC bridge.
 [dependencies]
-arboard = "3.6.1"
+# default-features = false drops `image-data` (we only ever set text) —
+# unused dependency surface. `wayland-data-control` is NOT in arboard's
+# defaults; enabling it gives native Wayland clipboard support on Linux
+# (without it arboard falls back to X11/XWayland only). The dep it pulls
+# (wl-clipboard-rs) is target-gated to Linux in arboard itself.
+arboard = { version = "3.6.1", default-features = false, features = [
+    "wayland-data-control",
+] }
 tauri = { version = "2", features = [] }
