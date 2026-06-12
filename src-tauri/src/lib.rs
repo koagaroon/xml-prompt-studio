@@ -1,8 +1,13 @@
 use arboard::Clipboard;
+#[cfg(target_os = "windows")]
+use std::ffi::OsString;
 use std::io::{Read, Write};
+#[cfg(target_os = "windows")]
+use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, TryRecvError};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,6 +29,12 @@ const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
 const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn GetSystemDirectoryW(lp_buffer: *mut u16, size: u32) -> u32;
+}
 
 struct StartupTiming {
     #[cfg(debug_assertions)]
@@ -345,13 +356,29 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn windows_system32_helper(exe_name: &str) -> Result<PathBuf, String> {
-    let system_root = std::env::var_os("SystemRoot")
-        .or_else(|| std::env::var_os("WINDIR"))
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
-    let candidate = system_root.join("System32").join(exe_name);
+    let candidate = windows_system_directory()?.join(exe_name);
     trusted_helper(exe_name, &[candidate])
+}
+
+#[cfg(target_os = "windows")]
+fn windows_system_directory() -> Result<PathBuf, String> {
+    // Ask Windows directly instead of trusting inherited SystemRoot/WINDIR.
+    // Microsoft documents that success returns the copied length excluding
+    // NUL, while too-small buffers return the required length including NUL.
+    let mut buffer = vec![0_u16; 260];
+    loop {
+        let copied = unsafe { GetSystemDirectoryW(buffer.as_mut_ptr(), buffer.len() as u32) };
+        if copied == 0 {
+            return Err("GetSystemDirectoryW failed".to_string());
+        }
+        let copied = copied as usize;
+        if copied < buffer.len() {
+            buffer.truncate(copied);
+            return Ok(PathBuf::from(OsString::from_wide(&buffer)));
+        }
+        let next_len = copied.max(buffer.len() + 1);
+        buffer.resize(next_len, 0);
+    }
 }
 
 fn trusted_helper<I, P>(name: &str, candidates: I) -> Result<PathBuf, String>
@@ -418,31 +445,31 @@ fn spawn_and_pipe(
     // failed to plumb its pipe), bail with an explicit error rather than
     // silently writing nothing — the child would otherwise report success
     // on empty input and the user would see a bloom on an empty clipboard.
-    let Some(stdin) = child.stdin.as_mut() else {
+    if child.stdin.is_none() {
         // Best-effort kill + reap; the child never got its input, so
         // letting it run risks a helper waiting forever on stdin.
         let _ = child.kill();
         let _ = child.wait();
         return Err(format!("{cmd} stdin handle missing"));
     };
-    if let Err(error) = stdin.write_all(payload) {
+
+    let (status, write_error) =
+        pipe_payload_and_wait(cmd, &mut child, payload, FALLBACK_HELPER_TIMEOUT)?;
+
+    if let Some(error) = write_error {
         // A failed write usually means the child died early (broken pipe);
         // reap it — otherwise it lingers as a zombie on Unix until app
         // exit — and surface its stderr, which says WHY it died, alongside
         // the write error.
-        drop(child.stdin.take());
-        let wait_detail = wait_for_child(cmd, &mut child).err();
         let stderr = read_child_stderr(&mut child);
         let detail = if stderr.is_empty() {
-            wait_detail.map_or_else(String::new, |message| format!("; {message}"))
+            String::new()
         } else {
             format!("; stderr: {stderr}")
         };
         return Err(format!("{cmd}: {error}{detail}"));
     }
-    drop(child.stdin.take());
 
-    let status = wait_for_child(cmd, &mut child)?;
     if status.success() {
         return Ok(());
     }
@@ -466,25 +493,67 @@ fn spawn_and_pipe(
     }
 }
 
-fn wait_for_child(cmd: &str, child: &mut Child) -> Result<ExitStatus, String> {
+fn pipe_payload_and_wait(
+    cmd: &str,
+    child: &mut Child,
+    payload: &[u8],
+    timeout: Duration,
+) -> Result<(ExitStatus, Option<String>), String> {
     let started = Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return Ok(status),
-            Ok(None) => {
-                if started.elapsed() >= FALLBACK_HELPER_TIMEOUT {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(format!(
-                        "{cmd}: timed out after {} seconds; helper was terminated",
-                        FALLBACK_HELPER_TIMEOUT.as_secs()
-                    ));
+    let Some(mut stdin) = child.stdin.take() else {
+        return Err(format!("{cmd} stdin handle missing"));
+    };
+    let (tx, rx) = mpsc::channel();
+
+    thread::scope(|scope| {
+        scope.spawn(move || {
+            let result = stdin.write_all(payload).map_err(|error| error.to_string());
+            drop(stdin);
+            let _ = tx.send(result);
+        });
+
+        let mut write_result: Option<Result<(), String>> = None;
+        let mut child_status: Option<ExitStatus> = None;
+
+        loop {
+            if write_result.is_none() {
+                match rx.try_recv() {
+                    Ok(result) => write_result = Some(result),
+                    Err(TryRecvError::Empty) => {}
+                    Err(TryRecvError::Disconnected) => {
+                        write_result = Some(Err("stdin writer stopped unexpectedly".to_string()));
+                    }
                 }
-                thread::sleep(Duration::from_millis(25));
             }
-            Err(error) => return Err(format!("{cmd}: {error}")),
+
+            if child_status.is_none() {
+                match child.try_wait() {
+                    Ok(Some(status)) => child_status = Some(status),
+                    Ok(None) => {}
+                    Err(error) => {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return Err(format!("{cmd}: {error}"));
+                    }
+                }
+            }
+
+            if let (Some(status), Some(result)) = (child_status, write_result.as_ref()) {
+                return Ok((status, result.clone().err()));
+            }
+
+            if started.elapsed() >= timeout {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{cmd}: timed out after {} seconds; helper was terminated",
+                    timeout.as_secs()
+                ));
+            }
+
+            thread::sleep(Duration::from_millis(25));
         }
-    }
+    })
 }
 
 fn read_child_stderr(child: &mut Child) -> String {
@@ -713,6 +782,17 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_clip_helper_resolves_from_system_directory() {
+        let clip = windows_system32_helper("clip.exe").expect("resolve Windows clip.exe");
+        assert!(clip.is_absolute());
+        assert_eq!(
+            clip.file_name().and_then(|name| name.to_str()),
+            Some("clip.exe")
+        );
     }
 
     #[cfg(target_os = "windows")]
