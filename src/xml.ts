@@ -5,7 +5,9 @@ export function validateDocument(roots: XmlNode[]): ValidationIssue[] {
 
   const walk = (node: XmlNode) => {
     const tagName = node.tagName.trim();
-    if (!tagName || !isValidXmlName(tagName)) {
+    // isValidXmlName alone decides — it rejects "" itself, so no
+    // separate empty pre-check is needed.
+    if (!isValidXmlName(tagName)) {
       issues.push({ nodeId: node.id });
     }
 
@@ -96,6 +98,10 @@ export function findDuplicateNodes(roots: XmlNode[]): ValidationIssue[] {
 // kind, don't just emit two `kind: "text"` lines for the same node.
 function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   const indent = "  ".repeat(depth);
+  // This trim is LOAD-BEARING, not redundant next to validation:
+  // validation passes " feedback " (it validates the trimmed name), so
+  // removing it would emit malformed "< feedback >" with copy
+  // unblocked. Pinned by test.
   const tagName = node.tagName.trim();
   // WYSIWYG: textContent is emitted verbatim. This is intentional — the tool
   // outputs LLM-prompt markup, not strict XML, so users can write `<` `>` `&`

@@ -140,6 +140,78 @@ export function nextAvailableSuffix(
   return n;
 }
 
+// True when the string contains a high surrogate not followed by a low
+// one, or a low surrogate not preceded by a high one. A plain code-unit
+// walk, NOT a regex: the regex formulation needs lookbehind, which is a
+// PARSE-TIME hard dependency — on webview engines without it (older
+// WKWebView / WebKitGTK) the literal throws SyntaxError at module load,
+// killing the entire frontend before React mounts. charCodeAt works on
+// UTF-16 code units, which is exactly the level surrogate pairing lives
+// at; at the string's end charCodeAt(length) returns NaN, which fails
+// the low-surrogate comparison and correctly flags a trailing high
+// surrogate as lone (pinned by test).
+export function hasLoneSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        i += 1; // valid pair — skip its low half
+      } else {
+        return true;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Hard cap on chip count. Any code that iterates or counts presets reads
+// off `presetChips.length` / iterates the array — bumping this constant
+// only requires adjusting CSS layout tolerances; nothing else hardcodes 6.
+export const MAX_PRESET_CHIPS = 6;
+
+// Salvage a persisted chip list read back from storage. Returns the
+// usable list, or null when the stored value is unusable and the caller
+// should fall back to the defaults. Contract branches:
+// - non-array → null (corrupt shape);
+// - each item must be a string, pass the cheap UTF-16 length pre-check
+//   (bounds the validator's Array.from against oversized hand-edited
+//   values), and pass validatePresetName against the chips accepted so
+//   far — the SAME canonical validator the chip editor commits through,
+//   so the load path can never drift from what the editor accepts;
+// - invalid items are SKIPPED, not fatal: the live trigger is a PAST
+//   app version having persisted shapes valid under its own rules (a
+//   pre-code-point-cap name, or a higher chip-count cap — over-count
+//   keeps the first MAX_PRESET_CHIPS valid entries for the same
+//   reason), and one such entry must not discard the user's whole list;
+// - a non-empty list salvaging to NOTHING is indistinguishable from
+//   corruption → null; an empty stored array stays the user's
+//   deliberate empty state → [].
+export function salvagePresetChips(parsed: unknown): string[] | null {
+  if (!Array.isArray(parsed)) {
+    return null;
+  }
+  const chips: string[] = [];
+  for (const item of parsed) {
+    if (chips.length >= MAX_PRESET_CHIPS) {
+      break;
+    }
+    if (
+      typeof item === "string" &&
+      item.length <= MAX_PRESET_NAME_LENGTH * 2 &&
+      validatePresetName(item, chips, -1) === null
+    ) {
+      chips.push(item);
+    }
+  }
+  if (chips.length === 0 && parsed.length > 0) {
+    return null;
+  }
+  return chips;
+}
+
 // Validates a preset chip name on commit (Enter / blur). Returns null if
 // the name is acceptable, or a user-facing error string. Empty / too-long
 // / invalid-XML-name / case-insensitive duplicate are all rejected. The

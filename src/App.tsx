@@ -16,6 +16,7 @@ import {
   updateNode
 } from "./document";
 import {
+  MAX_PRESET_CHIPS,
   MAX_PRESET_NAME_LENGTH,
   MAX_XML_BYTES,
   buildElementLabel,
@@ -27,6 +28,7 @@ import {
   insertAfter,
   nextAvailableSuffix,
   nextSelectionAfterDelete,
+  salvagePresetChips,
   validatePresetName
 } from "./helpers";
 import {
@@ -46,10 +48,8 @@ const DEFAULT_PRESET_CHIPS = [
   "extra"
 ] as const;
 
-// Hard cap on chip count. Any code that iterates or counts presets reads
-// off `presetChips.length` / iterates the array — bumping this constant
-// only requires adjusting CSS layout tolerances; nothing else hardcodes 6.
-const MAX_PRESET_CHIPS = 6;
+// MAX_PRESET_CHIPS lives in helpers.ts with the salvage logic that
+// enforces it on the storage read path.
 
 // localStorage key for the persisted theme. Written ONLY on user toggle
 // (see toggleTheme) — a user who never toggles keeps following the OS
@@ -144,6 +144,17 @@ type FieldMessage = {
   forNodeId: string;
 };
 
+// Chip-editor message (rendered below the chip row in edit mode). Not a
+// FieldMessage: chip editing is not element-scoped, so there is no
+// forNodeId — but it carries severity because both red (rejected
+// commit) and amber (typing-time truncation notice) cases exist, per
+// the app-wide discipline: red = blocked, amber = succeeded with a
+// side effect.
+type ChipEditMessage = {
+  text: string;
+  severity: "error" | "warning";
+};
+
 // Generic confirmation-modal request. Destructive replace/reset actions
 // share this primitive instead of each owning a separate showFoo flag. The
 // `confirmKind` controls the styling of the confirm button — "danger"
@@ -191,46 +202,17 @@ function readInitialPresetChips(): string[] {
   try {
     const stored = localStorage.getItem(PRESET_CHIPS_STORAGE_KEY);
     if (stored) {
-      const parsed: unknown = JSON.parse(stored);
-      // An EMPTY list is valid persisted state — the user can delete
-      // every chip in edit mode, and that choice must survive a restart
-      // instead of silently resurrecting the defaults.
-      //
-      // Per-item rules go through validatePresetName — the SAME
-      // canonical validator the chip editor commits through (non-empty,
-      // code-point cap, XML Name validity, case-insensitive uniqueness
-      // against the chips accepted so far) — so the load path can never
-      // drift from what the editor would accept. The cheap UTF-16
-      // `length` pre-check stays loader-specific: it bounds the
-      // validator's Array.from against oversized hand-edited values
-      // (each code point is at most 2 UTF-16 units).
-      if (Array.isArray(parsed) && parsed.length <= MAX_PRESET_CHIPS) {
-        const chips: string[] = [];
-        for (const item of parsed) {
-          if (
-            typeof item === "string" &&
-            item.length <= MAX_PRESET_NAME_LENGTH * 2 &&
-            validatePresetName(item, chips, -1) === null
-          ) {
-            chips.push(item);
-          }
-        }
-        // Salvage semantics: keep the valid subset instead of discarding
-        // the user's whole list when a single entry fails today's rules.
-        // The live trigger is a PAST app version having persisted shapes
-        // valid under its own rules (not hand corruption, which is out
-        // of threat model). A non-empty stored list that salvages to
-        // NOTHING is indistinguishable from corruption and falls to
-        // defaults; an empty stored list stays the user's deliberate
-        // empty state.
-        if (chips.length > 0 || parsed.length === 0) {
-          return chips;
-        }
+      // All salvage semantics (valid-subset keep, empty-list
+      // preservation, over-count trim, all-invalid → null) live in
+      // salvagePresetChips — pure and unit-tested in helpers.ts.
+      const salvaged = salvagePresetChips(JSON.parse(stored));
+      if (salvaged !== null) {
+        return salvaged;
       }
     }
   } catch {
-    // localStorage unavailable, JSON parse failed, or the stored shape
-    // is corrupt — fall through to defaults.
+    // localStorage unavailable or JSON parse failed — fall through to
+    // defaults.
   }
   return [...DEFAULT_PRESET_CHIPS];
 }
@@ -315,8 +297,11 @@ export default function App() {
 
   // Per-edit validation message shown below the chip row when a commit
   // is rejected (empty / too long / invalid XML name / case-insensitive
-  // duplicate). Cleared on successful commit or cancel.
-  const [chipEditError, setChipEditError] = useState("");
+  // duplicate) or a typing-time truncation occurs — see ChipEditMessage
+  // for the severity split. Cleared on successful commit or cancel.
+  const [chipEditMessage, setChipEditMessage] = useState<ChipEditMessage | null>(
+    null
+  );
 
   // Field-level message attached to the Tag Name input. Scoping and
   // render-time gating semantics live on the FieldMessage type.
@@ -339,9 +324,15 @@ export default function App() {
   // Cancel-button focus target for the New Blank confirmation modal.
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
-  // Whether the modal overlay's last mousedown landed on the overlay
-  // itself (not inside the dialog) — consumed by the overlay's onClick.
+  // Whether the modal overlay's last mousedown / mouseup each landed on
+  // the overlay itself (not inside the dialog) — consumed by the
+  // overlay's onClick. Both ends are tracked because the click event
+  // alone can't decide: a press and release on DIFFERENT elements
+  // dispatches click at their common ancestor, which IS the overlay, so
+  // target === currentTarget passes there even when one end of the
+  // gesture was inside the dialog.
   const overlayPressedRef = useRef(false);
+  const overlayReleasedRef = useRef(false);
 
   // Refs on the ribbon and body so the modal's focus trap can mark them
   // inert while the dialog is open (see the confirmRequest effect below).
@@ -698,7 +689,7 @@ export default function App() {
         setPresetChips([...DEFAULT_PRESET_CHIPS]);
         setEditMode(false);
         setEditingChip(null);
-        setChipEditError("");
+        setChipEditMessage(null);
         setPresetMessage(null);
         // Wholesale wipe is deliberate, not laziness: node IDs all
         // survive a chips-only reset, but per-element history maps
@@ -726,7 +717,7 @@ export default function App() {
     // toggleTheme documents for its storage write.
     if (editMode) {
       setEditingChip(null);
-      setChipEditError("");
+      setChipEditMessage(null);
     }
     setEditMode(!editMode);
   };
@@ -741,7 +732,7 @@ export default function App() {
     // ("X is already in your preset list" — false once X is gone), and
     // even when it doesn't, the edit input stays open and its next
     // commit re-validates against the updated list anyway.
-    setChipEditError("");
+    setChipEditMessage(null);
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
     // An in-flight edit can coexist with this delete only as a RENAME of
     // a DIFFERENT chip or as the trailing NEW-chip input (neither edit
@@ -766,7 +757,7 @@ export default function App() {
       draft: "",
       isNew: true
     });
-    setChipEditError("");
+    setChipEditMessage(null);
   };
 
   const startRenameChip = (index: number) => {
@@ -775,7 +766,7 @@ export default function App() {
       draft: presetChips[index],
       isNew: false
     });
-    setChipEditError("");
+    setChipEditMessage(null);
   };
 
   const updateEditingChipDraft = (draft: string) => {
@@ -787,10 +778,13 @@ export default function App() {
     // unnoticed prefix. The message self-clears on the next
     // non-truncating keystroke (and on commit/cancel as before).
     const capped = capCodePoints(draft, MAX_PRESET_NAME_LENGTH);
-    setChipEditError(
+    setChipEditMessage(
       capped !== draft
-        ? `Chip name reached the ${MAX_PRESET_NAME_LENGTH}-character limit.`
-        : ""
+        ? {
+            text: `Chip name reached the ${MAX_PRESET_NAME_LENGTH}-character limit.`,
+            severity: "warning"
+          }
+        : null
     );
     setEditingChip({
       ...editingChip,
@@ -800,7 +794,7 @@ export default function App() {
 
   const cancelChipEdit = () => {
     setEditingChip(null);
-    setChipEditError("");
+    setChipEditMessage(null);
   };
 
   const commitChipEdit = () => {
@@ -818,7 +812,7 @@ export default function App() {
       editingChip.isNew ? -1 : editingChip.index
     );
     if (error) {
-      setChipEditError(error);
+      setChipEditMessage({ text: error, severity: "error" });
       return;
     }
     if (editingChip.isNew) {
@@ -835,7 +829,7 @@ export default function App() {
       );
     }
     setEditingChip(null);
-    setChipEditError("");
+    setChipEditMessage(null);
     setPresetMessage(null);
   };
 
@@ -1560,9 +1554,12 @@ export default function App() {
               </button>
             </div>
           </div>
-          {editMode && chipEditError && (
-            <div className="field-message is-error" role="alert">
-              {chipEditError}
+          {editMode && chipEditMessage && (
+            <div
+              className={`field-message is-${chipEditMessage.severity}`}
+              role="alert"
+            >
+              {chipEditMessage.text}
             </div>
           )}
           {!editMode && activePresetMessage && (
@@ -1665,16 +1662,16 @@ export default function App() {
           onMouseDown={(event) => {
             overlayPressedRef.current = event.target === event.currentTarget;
           }}
-          onClick={(event) => {
-            // Dismiss only when BOTH press and release land on the
-            // overlay: a mousedown inside the dialog (e.g. selecting the
-            // description text) whose mouseup drifts outside fires the
-            // click on the common ancestor — this overlay — and must not
-            // close the dialog mid-selection.
-            if (
-              overlayPressedRef.current &&
-              event.target === event.currentTarget
-            ) {
+          onMouseUp={(event) => {
+            overlayReleasedRef.current = event.target === event.currentTarget;
+          }}
+          onClick={() => {
+            // Dismiss only when BOTH press and release landed on the
+            // overlay — each end recorded by its own event above. The
+            // click target can't decide this alone: press and release
+            // on different elements dispatch click at their common
+            // ancestor, which is this overlay.
+            if (overlayPressedRef.current && overlayReleasedRef.current) {
               closeConfirm();
             }
           }}

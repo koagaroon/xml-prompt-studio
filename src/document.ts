@@ -16,6 +16,10 @@ function createId(prefix: string): string {
     // Math.random gives ~41 bits of entropy — birthday-collision risk
     // emerges around ~1.5M IDs in a single document, at which point
     // findNode / findParent could mis-resolve to the first matching id.
+    // warn (NOT debug) on purpose: log-level discipline would put a
+    // successful degradation at debug, but this path existing at all is
+    // the anomaly being reported — and debug output is invisible exactly
+    // where the regression would need to surface.
     console.warn(
       "createId: crypto.randomUUID unavailable; using Math.random fallback"
     );

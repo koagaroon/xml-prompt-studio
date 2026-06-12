@@ -5,36 +5,19 @@
 // `__TAURI_INTERNALS__` object) by hand with a local global declaration.
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { MAX_XML_BYTES, exceedsByteCap, formatMegabytes } from "./helpers";
+import {
+  MAX_XML_BYTES,
+  exceedsByteCap,
+  formatMegabytes,
+  hasLoneSurrogate
+} from "./helpers";
 
 function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
 }
 
-// True when the string contains a high surrogate not followed by a low
-// one, or a low surrogate not preceded by a high one. A plain code-unit
-// walk, NOT a regex: the regex formulation needs lookbehind, which is a
-// PARSE-TIME hard dependency — on webview engines without it (older
-// WKWebView / WebKitGTK) the literal throws SyntaxError at module load,
-// killing the entire frontend before React mounts. charCodeAt works on
-// UTF-16 code units, which is exactly the level surrogate pairing
-// lives at.
-function hasLoneSurrogate(value: string): boolean {
-  for (let i = 0; i < value.length; i++) {
-    const code = value.charCodeAt(i);
-    if (code >= 0xd800 && code <= 0xdbff) {
-      const next = value.charCodeAt(i + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        i += 1; // valid pair — skip its low half
-      } else {
-        return true;
-      }
-    } else if (code >= 0xdc00 && code <= 0xdfff) {
-      return true;
-    }
-  }
-  return false;
-}
+// hasLoneSurrogate lives in helpers.ts (pure, React-free, unit-tested
+// there) — see its doc for the no-lookbehind rationale.
 
 let mainWindowShowRequested = false;
 

@@ -20,6 +20,14 @@ describe("buildPreview — forest rendering", () => {
     expect(lines.some((line) => line.kind === "separator")).toBe(false);
   });
 
+  it("renders a padded tag name trimmed — renderNode's trim is load-bearing", () => {
+    // Validation passes " feedback " (it validates the trimmed name),
+    // so without renderNode's own trim the output would be the
+    // malformed "< feedback >hi</ feedback >" with copy unblocked.
+    const roots = [node(" feedback ", { textContent: "hi" })];
+    expect(buildPreview(roots).xml).toBe("<feedback>hi</feedback>");
+  });
+
   it("emits exactly one blank separator line between consecutive sections", () => {
     const roots = [node("a"), node("b"), node("c")];
     const { xml, lines } = buildPreview(roots);

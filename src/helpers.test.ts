@@ -2,16 +2,20 @@ import { describe, expect, it } from "vitest";
 import { createNode } from "./document";
 import {
   ELEMENT_LABEL_PREVIEW_LENGTH,
+  MAX_PRESET_CHIPS,
   MAX_PRESET_NAME_LENGTH,
+  MAX_XML_BYTES,
   buildElementLabel,
   capCodePoints,
   collectSubtreeIds,
   exceedsByteCap,
   formatMegabytes,
   getCopyReadiness,
+  hasLoneSurrogate,
   insertAfter,
   nextAvailableSuffix,
   nextSelectionAfterDelete,
+  salvagePresetChips,
   truncate,
   validatePresetName
 } from "./helpers";
@@ -183,6 +187,84 @@ describe("capCodePoints", () => {
     // >= comparison makes the helper degrade like truncate instead of
     // returning the input uncapped.
     expect(capCodePoints("abcdef", 2.5)).toBe("abc");
+  });
+});
+
+describe("hasLoneSurrogate", () => {
+  it("accepts plain text and well-formed surrogate pairs", () => {
+    expect(hasLoneSurrogate("")).toBe(false);
+    expect(hasLoneSurrogate("plain ascii")).toBe(false);
+    expect(hasLoneSurrogate("中🦀中")).toBe(false);
+  });
+
+  it("flags a lone high surrogate in every position — including trailing", () => {
+    expect(hasLoneSurrogate("\uD800")).toBe(true);
+    expect(hasLoneSurrogate("a\uD800b")).toBe(true);
+    // The trailing case pins the charCodeAt(length) → NaN reliance:
+    // NaN fails the low-surrogate range check, so a final high
+    // surrogate must still be flagged.
+    expect(hasLoneSurrogate("ab\uD800")).toBe(true);
+  });
+
+  it("flags a lone low surrogate — leading, mid, and after a valid pair", () => {
+    expect(hasLoneSurrogate("\uDC00ab")).toBe(true);
+    expect(hasLoneSurrogate("a\uDC00b")).toBe(true);
+    expect(hasLoneSurrogate("🦀\uDC00")).toBe(true);
+  });
+
+  it("flags doubled high surrogates (high followed by high)", () => {
+    expect(hasLoneSurrogate("\uD800𐀀")).toBe(true);
+  });
+});
+
+describe("salvagePresetChips", () => {
+  it("returns a fully valid list as-is, order preserved", () => {
+    expect(salvagePresetChips(["feedback", "reply"])).toEqual([
+      "feedback",
+      "reply"
+    ]);
+  });
+
+  it("preserves a stored empty list — the user's deliberate empty state", () => {
+    expect(salvagePresetChips([])).toEqual([]);
+  });
+
+  it("returns null for non-array shapes", () => {
+    expect(salvagePresetChips(null)).toBeNull();
+    expect(salvagePresetChips("feedback")).toBeNull();
+    expect(salvagePresetChips({ 0: "feedback" })).toBeNull();
+  });
+
+  it("skips invalid entries and keeps the valid subset in order", () => {
+    expect(salvagePresetChips(["feedback", "two words", 42, "reply"])).toEqual(
+      ["feedback", "reply"]
+    );
+  });
+
+  it("drops case-insensitive duplicates of earlier accepted chips", () => {
+    expect(salvagePresetChips(["feedback", "FEEDBACK", "reply"])).toEqual([
+      "feedback",
+      "reply"
+    ]);
+  });
+
+  it("returns null when a non-empty list salvages to nothing", () => {
+    expect(salvagePresetChips(["two words", ""])).toBeNull();
+  });
+
+  it("keeps the first MAX_PRESET_CHIPS valid entries on over-count", () => {
+    // A past app version with a HIGHER chip cap is exactly the salvage
+    // rationale — over-count must trim, not discard the whole list.
+    const stored = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    expect(salvagePresetChips(stored)).toEqual(
+      stored.slice(0, MAX_PRESET_CHIPS)
+    );
+  });
+
+  it("rejects entries over the UTF-16 pre-check bound", () => {
+    expect(
+      salvagePresetChips(["a".repeat(MAX_PRESET_NAME_LENGTH * 2 + 1)])
+    ).toBeNull();
   });
 });
 
@@ -392,20 +474,21 @@ describe("getCopyReadiness", () => {
     ).toEqual({ ready: false, reason: "validation" });
   });
 
-  it("defaults maxBytes to MAX_XML_BYTES when omitted", () => {
-    // Exercises the `maxBytes ?? MAX_XML_BYTES` arm: a small payload is
-    // fine, and the cap is genuinely the shared constant — one byte
-    // over MAX_XML_BYTES (cheaply faked via a long ASCII string is
-    // impractical, so pin the under-cap verdict plus the constant's
-    // presence through the over-cap explicit fixture above).
+  it("defaults maxBytes to MAX_XML_BYTES when omitted — both verdicts", () => {
+    const omitted = {
+      copyInFlight: false,
+      previewPending: false,
+      validationIssueCount: 0
+    };
+    expect(getCopyReadiness({ ...omitted, xml: "<feedback/>" })).toEqual({
+      ready: true
+    });
+    // The over-limit counter-fixture pins that the default is the real
+    // shared cap, not something looser (e.g. MAX_SAFE_INTEGER). One
+    // 50 MB ASCII string, single-shot — acceptable test cost.
     expect(
-      getCopyReadiness({
-        copyInFlight: false,
-        previewPending: false,
-        validationIssueCount: 0,
-        xml: "<feedback/>"
-      })
-    ).toEqual({ ready: true });
+      getCopyReadiness({ ...omitted, xml: "x".repeat(MAX_XML_BYTES + 1) })
+    ).toEqual({ ready: false, reason: "too-large" });
   });
 
   it("allows copy only when no guard blocks it", () => {
