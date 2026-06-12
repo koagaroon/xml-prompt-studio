@@ -144,8 +144,8 @@ type FieldMessage = {
   forNodeId: string;
 };
 
-// Generic confirmation-modal request. Two confirmations exist today (New
-// Blank discard, Reset presets); both go through this same primitive. The
+// Generic confirmation-modal request. Destructive replace/reset actions
+// share this primitive instead of each owning a separate showFoo flag. The
 // `confirmKind` controls the styling of the confirm button — "danger"
 // gets the red `danger-button` treatment, omitted stays neutral.
 type ConfirmRequest = {
@@ -274,10 +274,9 @@ export default function App() {
   // to force remount and replay the CSS animation each time.
   const [copyToken, setCopyToken] = useState(0);
   // Generic confirmation modal state. `null` = closed; an object request =
-  // open with the given title/description/buttons. Both New Blank and the
-  // Reset-presets action surface their confirm dialog through this single
-  // primitive rather than each owning a separate showFoo flag — adding a
-  // third confirmation in the future is one new helper, not new state.
+  // open with the given title/description/buttons. Destructive replace/reset
+  // actions surface their confirm dialog through this single primitive
+  // rather than each owning a separate showFoo flag.
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(
     null
   );
