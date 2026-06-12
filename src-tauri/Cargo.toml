@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "A lightweight XML prompt authoring desktop app"
 authors = ["koagaroon"]
 edition = "2021"
+# Floor set by `unsafe extern` blocks (1.82); Mutex::clear_poison needs
+# 1.77. An older toolchain should fail with cargo's clear MSRV message,
+# not a bare syntax error mid-build.
+rust-version = "1.82"
 
 [lib]
 name = "xml_prompt_studio_lib"
