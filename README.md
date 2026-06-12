@@ -45,7 +45,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 ### Development
 
 ```powershell
-npm install          # one-time, installs JS deps into node_modules/.bin
+npm install          # one-time, installs JS deps (incl. the tauri CLI shim in node_modules/.bin)
 npm run tauri dev    # first run compiles the Rust crates, slow once
 ```
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Empty permission set. The frontend imports `invoke` from @tauri-apps/api/core but uses ZERO Tauri core APIs (no window, event, path, app, image, menu, tray, webview, resources). The only IPC surface is custom commands (`copy_xml_to_clipboard` and `show_main_window`) registered via the `invoke_handler!` macro in src/lib.rs. Granting `core:default` would expose 9 plugin permission sets the app never touches.",
+  "description": "Empty permission set. The frontend imports `invoke` from @tauri-apps/api/core but uses ZERO Tauri core APIs (no window, event, path, app, image, menu, tray, webview, resources). The only IPC surface is the two custom commands (`copy_xml_to_clipboard` and `show_main_window`) passed to `generate_handler!` and registered through the builder's `.invoke_handler()` in src/lib.rs. Note the gating mechanism: registration alone is what bounds command reachability — per Tauri docs, all registered app commands are callable by default, and this `permissions: []` restricts only core/plugin permissions (none used). Granting `core:default` would expose 9 plugin permission sets the app never touches.",
   "windows": ["main"],
   "permissions": []
 }

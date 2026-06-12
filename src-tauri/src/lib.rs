@@ -61,8 +61,12 @@ impl StartupTiming {
             .is_ok()
     }
 
-    // Release a claim whose show() failed, so the other path can still
-    // rescue visibility instead of finding the slot taken by a failure.
+    // Release a claim whose show() failed. Best-effort, not a rescue
+    // guarantee: the other path helps only if it hasn't already run its
+    // single check and been turned away while this claim was in flight
+    // (the 5 s fallback is one-shot). Accepted residual: that window is
+    // microseconds wide AND requires show() itself to fail; the symptom
+    // (no window) is the documented release-build known limit.
     fn release_main_window_show(&self) {
         self.main_window_shown.store(false, Ordering::SeqCst);
     }
@@ -149,6 +153,9 @@ fn set_text_persistent(xml: &str) -> Result<(), String> {
     if guard.is_none() {
         *guard = Some(Clipboard::new().map_err(|error| error.to_string())?);
     }
+    // Unreachable by construction — the block above just guaranteed Some.
+    // Kept as a typed fallback (not unwrap/expect) so a future reshuffle
+    // of the init block degrades to a visible error, not a panic.
     let Some(clipboard) = guard.as_mut() else {
         return Err("clipboard handle unavailable".to_string());
     };
@@ -233,7 +240,8 @@ fn show_main_window_with_handle(
     source: &str,
 ) -> Result<(), String> {
     if !timing.try_claim_main_window_show() {
-        log_startup(timing, &format!("{source}: main window already visible"));
+        // "claimed" not "visible": the other path may still be mid-show.
+        log_startup(timing, &format!("{source}: show already claimed; skipping"));
         return Ok(());
     }
 
@@ -384,7 +392,7 @@ fn spawn_and_pipe(
 
     let output = child
         .wait_with_output()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| format!("{cmd}: {error}"))?;
     if output.status.success() {
         return Ok(());
     }
@@ -393,6 +401,9 @@ fn spawn_and_pipe(
     // on Chinese Windows the OEM codepage is CP936/GBK, not UTF-8, so
     // `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD.
     // Acceptable for this rare failure path. Don't "simplify" this away.
+    //
+    // Every error arm carries the `{cmd}:` prefix so the chained
+    // "arboard: X; fallback: Y" message names which tool produced Y.
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if stderr.is_empty() {
         // Empty stderr → surface a non-empty fallback message. The
@@ -401,7 +412,7 @@ fn spawn_and_pipe(
         // a blank strip instead of a visible failure.
         Err(format!("{cmd} failed with no stderr output."))
     } else {
-        Err(stderr)
+        Err(format!("{cmd}: {stderr}"))
     }
 }
 

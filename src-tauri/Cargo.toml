@@ -1,5 +1,9 @@
 [package]
 name = "xml-prompt-studio"
+# Single source of truth for the app version. tauri.conf.json deliberately
+# omits `version` so Tauri falls back to this value (documented Tauri 2
+# behavior) — do NOT re-add a copy there. package.json's version is npm
+# boilerplate for the private workspace, not the app version.
 version = "0.1.0"
 description = "A lightweight XML prompt authoring desktop app"
 authors = ["koagaroon"]

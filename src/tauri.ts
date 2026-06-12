@@ -11,6 +11,13 @@ function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
 }
 
+// A high surrogate not followed by a low one, or a low surrogate not
+// preceded by a high one. Deliberately NO `u` flag: without it the regex
+// works in UTF-16 code units, which is exactly the level surrogate
+// pairing lives at.
+const LONE_SURROGATE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+
 let mainWindowShowRequested = false;
 
 function logStartup(message: string): void {
@@ -80,6 +87,22 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     throw new Error(
       "XML payload contains a NUL (U+0000) character; paste targets would " +
         "silently truncate at it. Remove the character and copy again."
+    );
+  }
+
+  // Unpaired-surrogate guard, same silent-corruption rationale as the
+  // NUL guard above: JSON.stringify escapes a lone surrogate as \uD800
+  // and what the IPC transport then does is implementation-defined —
+  // strict decoding fails with a cryptic invoke error; a lossy layer
+  // would put U+FFFD on the clipboard while the preview shows the
+  // original character. Refusing here makes the failure visible and
+  // attributable on every path, so the transport's exact behavior never
+  // matters.
+  if (LONE_SURROGATE.test(xml)) {
+    throw new Error(
+      "XML payload contains an unpaired surrogate (a corrupted character); " +
+        "paste targets could receive garbled text. Remove or retype the " +
+        "affected character and copy again."
     );
   }
 
