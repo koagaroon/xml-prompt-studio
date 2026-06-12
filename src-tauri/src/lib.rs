@@ -1,16 +1,16 @@
 use arboard::Clipboard;
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
-use std::io::{Read, Write};
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, TryRecvError};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{LogicalSize, Manager, Size};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
@@ -29,6 +29,7 @@ const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
 const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
+static TEMP_STDIN_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
@@ -305,7 +306,9 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
     }
     #[cfg(target_os = "macos")]
     {
-        // pbcopy reads UTF-8 from stdin by default.
+        // pbcopy chooses its stdin encoding from locale variables. The
+        // command wrapper below forces LC_CTYPE to a UTF-8 locale so a GUI
+        // launch without Terminal's locale cannot silently garble XML.
         let pbcopy = trusted_helper("pbcopy", &["/usr/bin/pbcopy"])?;
         return spawn_and_pipe("pbcopy", &pbcopy, &[], xml.as_bytes(), true);
     }
@@ -400,10 +403,12 @@ where
     ))
 }
 
-// Shared helper for "spawn a command, write payload to its stdin, surface
+// Shared helper for "spawn a command with payload on stdin, surface
 // success/failure as Result<(), String>". All three native fallbacks share
 // the same shape; centralizing the error handling keeps the per-OS branches
-// short and consistent.
+// short and consistent. The stdin payload is passed through a temporary
+// file instead of a pipe so the timeout covers helper execution without a
+// parent-side writer thread that can block on a full pipe.
 //
 // `capture_stderr: false` is for tools that fork a background process
 // inheriting the pipe ends (wl-copy / xclip) — piping stderr there makes
@@ -417,10 +422,11 @@ fn spawn_and_pipe(
     payload: &[u8],
     capture_stderr: bool,
 ) -> Result<(), String> {
+    let (stdin_file, _stdin_guard) = create_stdin_payload_file(cmd, payload)?;
     let mut command = Command::new(program);
     command
         .args(args)
-        .stdin(Stdio::piped())
+        .stdin(Stdio::from(stdin_file))
         .stdout(Stdio::null())
         .stderr(if capture_stderr {
             Stdio::piped()
@@ -437,39 +443,15 @@ fn spawn_and_pipe(
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         command.creation_flags(CREATE_NO_WINDOW);
     }
+    #[cfg(target_os = "macos")]
+    if cmd == "pbcopy" {
+        command.env_remove("LC_ALL").env("LC_CTYPE", "en_US.UTF-8");
+    }
     let mut child = command
         .spawn()
         .map_err(|error| format!("{cmd}: {}: {error}", program.display()))?;
 
-    // If stdin handle is missing (rare but possible if the child process
-    // failed to plumb its pipe), bail with an explicit error rather than
-    // silently writing nothing — the child would otherwise report success
-    // on empty input and the user would see a bloom on an empty clipboard.
-    if child.stdin.is_none() {
-        // Best-effort kill + reap; the child never got its input, so
-        // letting it run risks a helper waiting forever on stdin.
-        let _ = child.kill();
-        let _ = child.wait();
-        return Err(format!("{cmd} stdin handle missing"));
-    };
-
-    let (status, write_error) =
-        pipe_payload_and_wait(cmd, &mut child, payload, FALLBACK_HELPER_TIMEOUT)?;
-
-    if let Some(error) = write_error {
-        // A failed write usually means the child died early (broken pipe);
-        // reap it — otherwise it lingers as a zombie on Unix until app
-        // exit — and surface its stderr, which says WHY it died, alongside
-        // the write error.
-        let stderr = read_child_stderr(&mut child);
-        let detail = if stderr.is_empty() {
-            String::new()
-        } else {
-            format!("; stderr: {stderr}")
-        };
-        return Err(format!("{cmd}: {error}{detail}"));
-    }
-
+    let status = wait_for_child(cmd, &mut child, FALLBACK_HELPER_TIMEOUT)?;
     if status.success() {
         return Ok(());
     }
@@ -493,67 +475,103 @@ fn spawn_and_pipe(
     }
 }
 
-fn pipe_payload_and_wait(
-    cmd: &str,
-    child: &mut Child,
-    payload: &[u8],
-    timeout: Duration,
-) -> Result<(ExitStatus, Option<String>), String> {
-    let started = Instant::now();
-    let Some(mut stdin) = child.stdin.take() else {
-        return Err(format!("{cmd} stdin handle missing"));
-    };
-    let (tx, rx) = mpsc::channel();
+struct TempStdinFile {
+    path: PathBuf,
+}
 
-    thread::scope(|scope| {
-        scope.spawn(move || {
-            let result = stdin.write_all(payload).map_err(|error| error.to_string());
-            drop(stdin);
-            let _ = tx.send(result);
-        });
+impl Drop for TempStdinFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
+}
 
-        let mut write_result: Option<Result<(), String>> = None;
-        let mut child_status: Option<ExitStatus> = None;
+fn create_stdin_payload_file(cmd: &str, payload: &[u8]) -> Result<(File, TempStdinFile), String> {
+    let temp_dir = std::env::temp_dir();
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
 
-        loop {
-            if write_result.is_none() {
-                match rx.try_recv() {
-                    Ok(result) => write_result = Some(result),
-                    Err(TryRecvError::Empty) => {}
-                    Err(TryRecvError::Disconnected) => {
-                        write_result = Some(Err("stdin writer stopped unexpectedly".to_string()));
-                    }
-                }
-            }
+    for _ in 0..100 {
+        let counter = TEMP_STDIN_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = temp_dir.join(format!(
+            "xml-prompt-studio-stdin-{}-{nonce}-{counter}.tmp",
+            std::process::id()
+        ));
+        let mut options = OpenOptions::new();
+        options.read(true).write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
 
-            if child_status.is_none() {
-                match child.try_wait() {
-                    Ok(Some(status)) => child_status = Some(status),
-                    Ok(None) => {}
-                    Err(error) => {
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        return Err(format!("{cmd}: {error}"));
-                    }
-                }
-            }
-
-            if let (Some(status), Some(result)) = (child_status, write_result.as_ref()) {
-                return Ok((status, result.clone().err()));
-            }
-
-            if started.elapsed() >= timeout {
-                let _ = child.kill();
-                let _ = child.wait();
+        let mut file = match options.open(&path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
                 return Err(format!(
-                    "{cmd}: timed out after {} seconds; helper was terminated",
-                    timeout.as_secs()
+                    "{cmd}: failed to create temporary stdin file: {error}"
                 ));
             }
-
-            thread::sleep(Duration::from_millis(25));
+        };
+        let guard = TempStdinFile { path };
+        if let Err(error) = file.write_all(payload) {
+            drop(file);
+            drop(guard);
+            return Err(format!(
+                "{cmd}: failed to write temporary stdin file: {error}"
+            ));
         }
-    })
+        if let Err(error) = file.seek(SeekFrom::Start(0)) {
+            drop(file);
+            drop(guard);
+            return Err(format!(
+                "{cmd}: failed to rewind temporary stdin file: {error}"
+            ));
+        }
+        return Ok((file, guard));
+    }
+
+    Err(format!(
+        "{cmd}: failed to create a unique temporary stdin file after 100 attempts"
+    ))
+}
+
+fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) => {
+                if started.elapsed() >= timeout {
+                    match child.kill() {
+                        Ok(()) => {
+                            let _ = child.wait();
+                        }
+                        Err(_) => {
+                            if let Ok(Some(_)) = child.try_wait() {
+                                let _ = child.wait();
+                            }
+                        }
+                    }
+                    return Err(format!(
+                        "{cmd}: timed out after {} seconds; helper was terminated",
+                        timeout.as_secs()
+                    ));
+                }
+            }
+            Err(error) => {
+                if child.kill().is_ok() {
+                    let _ = child.wait();
+                } else if let Ok(Some(_)) = child.try_wait() {
+                    let _ = child.wait();
+                }
+                return Err(format!("{cmd}: {error}"));
+            }
+        }
+        thread::sleep(Duration::from_millis(25));
+    }
 }
 
 fn read_child_stderr(child: &mut Child) -> String {
@@ -782,6 +800,21 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
+    }
+
+    #[test]
+    fn temporary_stdin_file_is_rewound_and_removed() {
+        let (mut file, guard) =
+            create_stdin_payload_file("test-helper", b"hello").expect("create stdin file");
+        let path = guard.path.clone();
+        let mut contents = Vec::new();
+        file.read_to_end(&mut contents)
+            .expect("read temporary stdin file");
+        assert_eq!(contents, b"hello");
+
+        drop(file);
+        drop(guard);
+        assert!(!path.exists());
     }
 
     #[cfg(target_os = "windows")]
