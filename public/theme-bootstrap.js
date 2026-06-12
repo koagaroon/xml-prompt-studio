@@ -3,16 +3,22 @@
 // so React state and the DOM data-theme attribute agree from the very
 // first render. Loaded as an external script (not inline) so the CSP can
 // stay on `script-src 'self'` without 'unsafe-inline' or hash allowlisting.
+//
+// Syntax floor is ES2019+ on purpose (let/const, bare catch) — every
+// Tauri 2 webview supports it, and matching readInitialTheme's modern
+// style keeps the two mirrored readers easy to diff.
 (function () {
-  var stored = null;
+  let stored = null;
   try {
     stored = localStorage.getItem("theme");
   } catch {
-    // localStorage unavailable in some sandboxed embeds. Still fall
-    // through to system preference so React and first paint agree.
+    // localStorage unavailable in some sandboxed embeds. Fall through
+    // to system preference so React and first paint agree.
   }
-  var theme = stored === "dark" || stored === "light" ? stored : "dark";
-  if (stored !== "dark" && stored !== "light") {
+  let theme = "dark";
+  if (stored === "dark" || stored === "light") {
+    theme = stored;
+  } else {
     try {
       if (
         window.matchMedia &&

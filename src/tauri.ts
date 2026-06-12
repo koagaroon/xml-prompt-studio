@@ -11,12 +11,30 @@ function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
 }
 
-// A high surrogate not followed by a low one, or a low surrogate not
-// preceded by a high one. Deliberately NO `u` flag: without it the regex
-// works in UTF-16 code units, which is exactly the level surrogate
-// pairing lives at.
-const LONE_SURROGATE =
-  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+// True when the string contains a high surrogate not followed by a low
+// one, or a low surrogate not preceded by a high one. A plain code-unit
+// walk, NOT a regex: the regex formulation needs lookbehind, which is a
+// PARSE-TIME hard dependency — on webview engines without it (older
+// WKWebView / WebKitGTK) the literal throws SyntaxError at module load,
+// killing the entire frontend before React mounts. charCodeAt works on
+// UTF-16 code units, which is exactly the level surrogate pairing
+// lives at.
+function hasLoneSurrogate(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        i += 1; // valid pair — skip its low half
+      } else {
+        return true;
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      return true;
+    }
+  }
+  return false;
+}
 
 let mainWindowShowRequested = false;
 
@@ -98,7 +116,7 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
   // original character. Refusing here makes the failure visible and
   // attributable on every path, so the transport's exact behavior never
   // matters.
-  if (LONE_SURROGATE.test(xml)) {
+  if (hasLoneSurrogate(xml)) {
     throw new Error(
       "XML payload contains an unpaired surrogate (a corrupted character); " +
         "paste targets could receive garbled text. Remove or retype the " +

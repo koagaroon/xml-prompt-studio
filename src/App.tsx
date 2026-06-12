@@ -206,19 +206,24 @@ function readInitialPresetChips(): string[] {
       // (each code point is at most 2 UTF-16 units).
       if (Array.isArray(parsed) && parsed.length <= MAX_PRESET_CHIPS) {
         const chips: string[] = [];
-        let valid = true;
         for (const item of parsed) {
           if (
-            typeof item !== "string" ||
-            item.length > MAX_PRESET_NAME_LENGTH * 2 ||
-            validatePresetName(item, chips, -1) !== null
+            typeof item === "string" &&
+            item.length <= MAX_PRESET_NAME_LENGTH * 2 &&
+            validatePresetName(item, chips, -1) === null
           ) {
-            valid = false;
-            break;
+            chips.push(item);
           }
-          chips.push(item);
         }
-        if (valid) {
+        // Salvage semantics: keep the valid subset instead of discarding
+        // the user's whole list when a single entry fails today's rules.
+        // The live trigger is a PAST app version having persisted shapes
+        // valid under its own rules (not hand corruption, which is out
+        // of threat model). A non-empty stored list that salvages to
+        // NOTHING is indistinguishable from corruption and falls to
+        // defaults; an empty stored list stays the user's deliberate
+        // empty state.
+        if (chips.length > 0 || parsed.length === 0) {
           return chips;
         }
       }
@@ -580,12 +585,13 @@ export default function App() {
     setSelectedNodeId(nodeId);
   };
 
-  // For selection changes caused by structural edits (add / delete /
-  // new-blank): clear node-scoped field messages outright instead of
-  // leaving them render-gated invisible in state, where they would
-  // resurface on reselecting the original node (or sit forever against
-  // a deleted id). The global strip is cleared separately by each
-  // handler via clearMessage.
+  // For any action that moots both node-scoped field messages at once —
+  // selection changes from structural edits (add / delete / new-blank)
+  // and a successful chip apply. Clearing outright (not render-gating)
+  // matters for the structural cases: a gated-invisible message would
+  // resurface on reselecting the original node, or sit forever against
+  // a deleted id. The global strip is handled separately by each caller
+  // via clearMessage.
   const clearFieldMessages = () => {
     setTagNameMessage(null);
     setPresetMessage(null);
@@ -631,7 +637,10 @@ export default function App() {
   const canMoveDown =
     activeSiblingIndex >= 0 &&
     activeSiblingIndex < activeSiblings.length - 1;
-  const tagNameInvalid = issueNodeIds.has(activeNode.id);
+  // "HasIssue", not "Invalid": the set also contains non-blocking
+  // duplicate-name state (valid XML names) — matches the element rows'
+  // has-issue vocabulary.
+  const tagNameHasIssue = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   // Depth of the currently active element. Read from the already-computed
@@ -691,6 +700,12 @@ export default function App() {
         setEditingChip(null);
         setChipEditError("");
         setPresetMessage(null);
+        // Wholesale wipe is deliberate, not laziness: node IDs all
+        // survive a chips-only reset, but per-element history maps
+        // chip NAMES to applied tag names — after the chip set swaps
+        // back to defaults, surviving same-named chips (an unrenamed
+        // "feedback") carrying pre-reset history would restore stale
+        // suffixes. Resetting the chip system resets its memory.
         presetMemoryRef.current.clear();
       }
     });
@@ -767,9 +782,19 @@ export default function App() {
     if (!editingChip) {
       return;
     }
+    // Same cap + visible-signal pattern as the Tag Name field: silent
+    // truncation would let a pasted overlong name commit as an
+    // unnoticed prefix. The message self-clears on the next
+    // non-truncating keystroke (and on commit/cancel as before).
+    const capped = capCodePoints(draft, MAX_PRESET_NAME_LENGTH);
+    setChipEditError(
+      capped !== draft
+        ? `Chip name reached the ${MAX_PRESET_NAME_LENGTH}-character limit.`
+        : ""
+    );
     setEditingChip({
       ...editingChip,
-      draft: capCodePoints(draft, MAX_PRESET_NAME_LENGTH)
+      draft: capped
     });
   };
 
@@ -828,7 +853,9 @@ export default function App() {
     // guard, holding Add Child reproduces the same O(N²) UI freeze the
     // breadth cap was added to prevent.
     if (activeNode.children.length >= MAX_SIBLINGS) {
-      showError(`Sibling count limit reached (${MAX_SIBLINGS}).`, activeNode.id);
+      // "Child count" in the user's vocabulary — the cap is the same
+      // MAX_SIBLINGS breadth axis, but the user is adding a child.
+      showError(`Child count limit reached (${MAX_SIBLINGS}).`, activeNode.id);
       return;
     }
     const child = createNode();
@@ -941,39 +968,22 @@ export default function App() {
     clearMessage();
   };
 
-  const setActiveTagName = (tagName: string) => {
-    // Capped for-of codepoint walk, same discipline as truncate() in
-    // helpers.ts:
-    // Array.from on the raw value would materialize one string object per
-    // codepoint BEFORE the cap applies — a multi-MB paste into this field
-    // (which deliberately has no maxLength) reaches hundreds of MB of
-    // transient allocation. The walk stops at the cap, keeping work
-    // O(MAX_TAG_NAME_LENGTH) regardless of paste size. for-of yields
-    // codepoints, so emoji / supplementary-plane chars don't get split.
-    //
-    // The truncation notice routes to tagNameMessage (rendered immediately
-    // below the input) instead of the global bottom strip — the alert is
-    // about THIS field, so the cue lives next to it.
-    let limitWarning: string | null = null;
-    const codepoints: string[] = [];
-    let truncated = false;
-    for (const cp of tagName) {
-      if (codepoints.length === MAX_TAG_NAME_LENGTH) {
-        truncated = true;
-        break;
-      }
-      codepoints.push(cp);
-    }
-    if (truncated) {
-      limitWarning = `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`;
-      tagName = codepoints.join("");
-    }
+  const setActiveTagName = (rawTagName: string) => {
+    // Cap via capCodePoints (helpers.ts) — code-point walk that stops at
+    // the cap, so a multi-MB paste into this field (which deliberately
+    // has no maxLength) costs O(MAX_TAG_NAME_LENGTH), and supplementary-
+    // plane chars don't get split. The equality check below is the
+    // truncation detector; the notice routes to tagNameMessage (rendered
+    // immediately below the input) instead of the global bottom strip —
+    // the alert is about THIS field, so the cue lives next to it.
+    const tagName = capCodePoints(rawTagName, MAX_TAG_NAME_LENGTH);
+    const truncated = tagName !== rawTagName;
     setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
     );
-    if (limitWarning) {
+    if (truncated) {
       setTagNameMessage({
-        text: limitWarning,
+        text: `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`,
         forNodeId: activeNode.id
       });
     } else {
@@ -1067,14 +1077,12 @@ export default function App() {
     } else {
       clearMessage();
     }
-    // Chip-applied names are bounded by construction: chip name (≤ 24
-    // codepoints) + "_" + digits, which MAX_TAG_NAME_LENGTH (32) is sized
-    // to accommodate — see that constant's comment. A stale "reached the
-    // limit" warning from prior typing in this element no longer applies.
-    setTagNameMessage(null);
-    // Successful chip apply also moots any "already applied" warning
-    // (we just changed which chip is the lastApplied one).
-    setPresetMessage(null);
+    // A successful apply moots both field messages: chip-applied names
+    // are bounded by construction (chip ≤ 24 codepoints + "_" + digits,
+    // within MAX_TAG_NAME_LENGTH — see that constant's comment), so any
+    // stale "reached the limit" warning no longer applies, and we just
+    // changed which chip is lastApplied.
+    clearFieldMessages();
   };
 
   const copyPreview = async () => {
@@ -1091,46 +1099,53 @@ export default function App() {
       maxBytes: MAX_XML_BYTES
     });
 
-    if (!copyReadiness.ready && copyReadiness.reason === "busy") {
-      showWarning("A copy is already in progress — one moment.");
-      copyBusyNoticeRef.current = true;
-      return;
+    if (!copyReadiness.ready) {
+      switch (copyReadiness.reason) {
+        case "busy":
+          showWarning("A copy is already in progress — one moment.");
+          copyBusyNoticeRef.current = true;
+          return;
+        case "preview-pending":
+          showWarning(
+            "Preview is still updating. Copy XML will be available once it matches the document."
+          );
+          // Set AFTER showWarning — the helper resets the flag as part
+          // of "any other message moots the catch-up clear".
+          copyWaitNoticeRef.current = true;
+          return;
+        case "validation":
+          showError("Fix validation issues before copying XML.");
+          return;
+        case "too-large": {
+          // The byte count is recomputed only for this message;
+          // getCopyReadiness already paid one encode pass to decide, so
+          // the worst case is two passes — acceptable on an error path.
+          const liveBytes = new TextEncoder().encode(xmlPreview).length;
+          showError(
+            `XML payload too large to copy (${formatMegabytes(liveBytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
+          );
+          return;
+        }
+        default: {
+          // Exhaustiveness pin: a new CopyReadiness reason must add a
+          // case here or this assignment fails to compile. Falling
+          // through to a successful copy would invert the helper's
+          // purpose, so unknown reasons refuse loudly instead.
+          const exhausted: never = copyReadiness.reason;
+          showError(`Copy blocked: ${String(exhausted)}.`);
+          return;
+        }
+      }
     }
 
-    if (!copyReadiness.ready && copyReadiness.reason === "preview-pending") {
-      showWarning(
-        "Preview is still updating. Copy XML will be available once it matches the document."
-      );
-      // Set AFTER showWarning — the helper resets the flag as part of
-      // "any other message moots the catch-up clear".
-      copyWaitNoticeRef.current = true;
-      return;
-    }
-
-    // The previewPending refusal above guarantees deferredRoots ===
-    // roots in this render, so the validationIssues / previewBuild
-    // memos ARE the live document's — no fresh validate + build needed.
-    // Reusing them also ties the copied payload to the exact build on
-    // screen: preview == clipboard by construction. (Stale-copy worry
-    // doesn't apply: rapid type-then-click lands in the previewPending
-    // refusal, never here.)
-    if (!copyReadiness.ready && copyReadiness.reason === "validation") {
-      showError("Fix validation issues before copying XML.");
-      return;
-    }
+    // Reaching here means every gate passed. The previewPending refusal
+    // above guarantees deferredRoots === roots in this render, so the
+    // validationIssues / previewBuild memos ARE the live document's —
+    // no fresh validate + build needed. Reusing them also ties the
+    // copied payload to the exact build on screen: preview == clipboard
+    // by construction. (Stale-copy worry doesn't apply: rapid
+    // type-then-click lands in the previewPending refusal, never here.)
     const liveXml = xmlPreview;
-
-    // Reuse the same length × 3 short-circuit + TextEncoder fallback as the
-    // per-field caps via exceedsByteCap. The actual byte count is only
-    // needed for the user-facing error message, so it's computed inside
-    // the failure branch (one TextEncoder pass total in the worst case).
-    if (!copyReadiness.ready && copyReadiness.reason === "too-large") {
-      const liveBytes = new TextEncoder().encode(liveXml).length;
-      showError(
-        `XML payload too large to copy (${formatMegabytes(liveBytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
-      );
-      return;
-    }
 
     // Clear any stale pre-click message BEFORE awaiting, not on success:
     // an error raised by other input WHILE the copy is in flight (e.g. an
@@ -1192,7 +1207,10 @@ export default function App() {
     if (body) body.inert = true;
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setConfirmRequest(null);
+        // Route through closeConfirm — the single close idiom shared
+        // with Cancel and overlay-dismiss, so future close-time cleanup
+        // can't miss the Escape path.
+        closeConfirm();
       }
     };
     window.addEventListener("keydown", handleKey);
@@ -1356,7 +1374,7 @@ export default function App() {
             id={TAG_NAME_INPUT_ID}
             name="tagName"
             value={activeNode.tagName}
-            className={cx("tag-name-input", tagNameInvalid && "input-error")}
+            className={cx("tag-name-input", tagNameHasIssue && "input-error")}
             // No `maxLength` here on purpose — letting the browser
             // silently truncate would hide the cap from the user.
             // setActiveTagName below truncates AND fires an amber
@@ -1639,6 +1657,9 @@ export default function App() {
         // role="dialog" + aria-modal="true". Keeping a click handler on
         // the overlay for click-outside-to-cancel; AT users have Escape
         // and the focused Cancel button (see useEffect for focus mgmt).
+        // The press+release target checks below are the SINGLE dismiss
+        // mechanism — the dialog deliberately has no stopPropagation,
+        // since target === currentTarget already rejects bubbled clicks.
         <div
           className="modal-overlay"
           onMouseDown={(event) => {
@@ -1664,7 +1685,6 @@ export default function App() {
             aria-modal="true"
             aria-labelledby="confirm-title"
             aria-describedby="confirm-desc"
-            onClick={(event) => event.stopPropagation()}
           >
             <h3 id="confirm-title">{confirmRequest.title}</h3>
             <p id="confirm-desc">{confirmRequest.description}</p>
