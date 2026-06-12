@@ -788,7 +788,7 @@ select {
     monospace;
 
   /* Cap so individual chips never sprawl. Combined with the 24-char
-     logical cap (MAX_PRESET_NAME_LENGTH in App.tsx) this only kicks in
+     logical cap (MAX_PRESET_NAME_LENGTH in helpers.ts) this only kicks in
      for adversarial input — but it prevents any chip from breaking the
      row's visual rhythm. `overflow: hidden` clips inner backgrounds
      (notably the chip-delete hover wash) to the pill's rounded right
@@ -860,9 +860,9 @@ select {
 /* Hover the × → the entire pill turns red. The :has() approach paints
    the chip's own background opaque-red, so there's no transparent
    layer over a blue base — the pill itself becomes red. Inner text and
-   × glyph swap to white for legibility. Specificity (0,3,0 from
-   :has(.chip-delete:hover)) outranks .chip.is-applied (0,2,0), so the
-   delete-hover treatment wins on an applied chip too. */
+   × glyph swap to white for legibility. No precedence conflict with the
+   label-hover rule above: label and × are sibling targets, so the
+   pointer hovers at most one of them at a time. */
 .chip:has(.chip-delete:hover) {
   background: var(--btn-danger-bg);
   border-color: var(--btn-danger-hover);

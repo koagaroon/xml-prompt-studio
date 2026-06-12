@@ -98,7 +98,9 @@ const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 // `<chip>_<N>`, and if a max-length chip name plus its suffix exceeded
 // this cap, the NEXT keystroke in the Tag Name field would truncate the
 // suffix away (silently renaming the element to the bare chip name).
-// 32 = 24 (chip cap) + 1 ("_") + up to 6 digits + margin. Existing tag
+// 32 = 24 (chip cap) + 1 ("_") + 4 digits + margin — nextAvailableSuffix
+// is bounded by the sibling count, which MAX_SIBLINGS caps at 1000, so
+// the largest suffix is 1001 (4 digits). Existing tag
 // names that exceed this aren't truncated; new typing past it is
 // truncated by setActiveTagName with an amber notice. The cap also
 // bounds tag-name memory (≤ 4 bytes per codepoint in UTF-8, ≤ 128
@@ -127,6 +129,25 @@ type StripMessage = {
   text: string;
   severity: "error" | "warning";
   forNodeId: string | null;
+};
+
+// Field-level messages render just below their own form field (not in
+// the column-bottom strip) and are always element-scoped: `forNodeId`
+// is non-null BY TYPE, a deliberate contrast with StripMessage's
+// nullable forNodeId (which supports global messages). A render-time
+// check shows the message only while its element stays selected, so
+// switching elements hides it without an effect+setState dance.
+type TagNameMessage = {
+  text: string;
+  severity: "error" | "warning";
+  forNodeId: string;
+};
+
+// Preset-row variant. No severity field: only one message kind exists
+// today (clicking an already-applied chip is a no-op warning).
+type PresetMessage = {
+  text: string;
+  forNodeId: string;
 };
 
 // Generic confirmation-modal request. Two confirmations exist today (New
@@ -291,26 +312,18 @@ export default function App() {
   // duplicate). Cleared on successful commit or cancel.
   const [chipEditError, setChipEditError] = useState("");
 
-  // Field-level message attached to the Tag Name input (rendered just
-  // below the input, not in the global error strip at the bottom of the
-  // column). `forNodeId` tags the element the message was raised for —
-  // a render-time check below ensures the message only shows for that
-  // element, so switching to another element makes it disappear without
-  // an effect+setState dance.
-  const [tagNameMessage, setTagNameMessage] = useState<{
-    text: string;
-    severity: "error" | "warning";
-    forNodeId: string;
-  } | null>(null);
+  // Field-level message attached to the Tag Name input. Scoping and
+  // render-time gating semantics live on the TagNameMessage type.
+  const [tagNameMessage, setTagNameMessage] = useState<TagNameMessage | null>(
+    null
+  );
 
   // Field-level message for the preset chip row. Today carries one
   // case: the user clicked an already-applied chip (lastApplied lock),
   // which is a no-op — the warning explains why nothing happened.
-  // Same forNodeId render-time gating as tagNameMessage.
-  const [presetMessage, setPresetMessage] = useState<{
-    text: string;
-    forNodeId: string;
-  } | null>(null);
+  const [presetMessage, setPresetMessage] = useState<PresetMessage | null>(
+    null
+  );
 
   // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
   // IPC calls and arboard's global Windows clipboard handle races between
@@ -623,9 +636,12 @@ export default function App() {
   };
 
   // === Chip edit-mode helpers ===
-  // The cog button toggles edit mode. Exiting edit mode also discards
-  // any in-flight edit (rename or add) — accepting a half-typed name on
-  // toggle would surprise the user.
+  // The cog button toggles edit mode. Ordering with an edit in flight:
+  // the cog's mousedown blurs the edit input, and blur commits the draft
+  // (onBlur={commitChipEdit}) BEFORE the click reaches this handler — a
+  // valid half-typed draft is therefore saved, not discarded. The
+  // cleanup below only clears an edit left open by a failed blur-commit
+  // (invalid draft plus its error text).
   const toggleEditMode = () => {
     setPresetMessage(null);
     setEditMode((current) => {
@@ -1561,9 +1577,11 @@ export default function App() {
               </button>
               <button
                 type="button"
-                className={cx(
-                  confirmRequest.confirmKind === "danger" && "danger-button"
-                )}
+                className={
+                  confirmRequest.confirmKind === "danger"
+                    ? "danger-button"
+                    : undefined
+                }
                 onClick={handleConfirm}
               >
                 {confirmRequest.confirmLabel}

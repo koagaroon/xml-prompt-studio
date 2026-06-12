@@ -345,9 +345,10 @@ fn spawn_and_pipe(
     // Acceptable for this rare failure path. Don't "simplify" this away.
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
     if stderr.is_empty() {
-        // Empty stderr → surface a non-empty fallback so the front-end
-        // error strip (which renders only on truthy errorMessage) shows
-        // *something* instead of staying invisible.
+        // Empty stderr → surface a non-empty fallback message. The
+        // front-end routes a rejected copy IPC into its message strip
+        // (showError → stripMessage); an empty error string would render
+        // a blank strip instead of a visible failure.
         Err(format!("{cmd} failed with no stderr output."))
     } else {
         Err(stderr)

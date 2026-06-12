@@ -120,6 +120,19 @@ describe("moveNode", () => {
       childA.id
     ]);
   });
+
+  it("returns a fully cloned structural no-op when the id matches nothing", () => {
+    const { roots } = fixtureForest();
+    const next = moveNode(roots, "missing-id", -1);
+    // Pins the documented fall-through contract in document.ts: the
+    // missing-id case keeps the clone-always shape of updateNode /
+    // deleteNode — deliberately NOT reorder's same-reference boundary
+    // contract. A refactor "harmonizing" it to return roots unchanged
+    // must fail here.
+    expect(next).not.toBe(roots);
+    expect(next[0]).not.toBe(roots[0]);
+    expect(next).toEqual(roots);
+  });
 });
 
 describe("findNode", () => {
