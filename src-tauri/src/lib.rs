@@ -326,7 +326,7 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         // would then block on stderr EOF indefinitely, leaving the
         // frontend's copy lock stuck for the rest of the session. Exit
         // status of the foreground parent is the only signal we keep.
-        let wl_err = match trusted_helper(
+        let wl_err = match linux_helper(
             "wl-copy",
             &["/usr/bin/wl-copy", "/usr/local/bin/wl-copy", "/bin/wl-copy"],
         )
@@ -335,7 +335,7 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
             Ok(()) => return Ok(()),
             Err(err) => err,
         };
-        return trusted_helper(
+        return linux_helper(
             "xclip",
             &["/usr/bin/xclip", "/usr/local/bin/xclip", "/bin/xclip"],
         )
@@ -393,7 +393,7 @@ where
     for candidate in candidates {
         let path = candidate.as_ref();
         checked.push(path.display().to_string());
-        if path.is_absolute() && path.is_file() {
+        if path.is_absolute() && helper_is_usable(path) {
             return Ok(path.to_path_buf());
         }
     }
@@ -401,6 +401,82 @@ where
         "{name}: helper not found in trusted locations: {}",
         checked.join(", ")
     ))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_helper(name: &str, trusted_candidates: &[&str]) -> Result<PathBuf, String> {
+    let trusted_err = match trusted_helper(name, trusted_candidates) {
+        Ok(path) => return Ok(path),
+        Err(error) => error,
+    };
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return Err(format!("{trusted_err}; PATH fallback: PATH is not set"));
+    };
+    helper_from_path_entries(name, std::env::split_paths(&path_var))
+        .map_err(|path_err| format!("{trusted_err}; PATH fallback: {path_err}"))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn helper_from_path_entries<I, P>(name: &str, entries: I) -> Result<PathBuf, String>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut checked = Vec::new();
+    let mut skipped = Vec::new();
+    for entry in entries {
+        let dir = entry.as_ref();
+        if dir.as_os_str().is_empty() || !dir.is_absolute() {
+            skipped.push(display_path_entry(dir));
+            continue;
+        }
+        let candidate = dir.join(name);
+        checked.push(candidate.display().to_string());
+        if helper_is_usable(&candidate) {
+            return Ok(candidate);
+        }
+    }
+
+    let checked_text = if checked.is_empty() {
+        "none".to_string()
+    } else {
+        checked.join(", ")
+    };
+    let skipped_text = if skipped.is_empty() {
+        String::new()
+    } else {
+        format!("; skipped unsafe PATH entries: {}", skipped.join(", "))
+    };
+    Err(format!(
+        "{name}: helper not found in vetted PATH entries: {checked_text}{skipped_text}"
+    ))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn display_path_entry(path: &Path) -> String {
+    if path.as_os_str().is_empty() {
+        "<empty>".to_string()
+    } else {
+        path.display().to_string()
+    }
+}
+
+fn helper_is_usable(path: &Path) -> bool {
+    if !path.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        return match fs::metadata(path) {
+            Ok(metadata) => metadata.permissions().mode() & 0o111 != 0,
+            Err(_) => false,
+        };
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 // Shared helper for "spawn a command with payload on stdin, surface
@@ -792,7 +868,7 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).expect("create temp helper dir");
         let helper = dir.join("helper");
-        std::fs::write(&helper, b"test").expect("write temp helper file");
+        write_test_helper(&helper);
 
         assert_eq!(
             trusted_helper("helper", [&helper]).expect("absolute helper exists"),
@@ -800,6 +876,34 @@ mod tests {
         );
 
         std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
+    }
+
+    #[test]
+    fn path_fallback_accepts_absolute_helper_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "xml-prompt-studio-path-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp PATH dir");
+        let helper = dir.join("wl-copy");
+        write_test_helper(&helper);
+
+        assert_eq!(
+            helper_from_path_entries("wl-copy", [&dir]).expect("PATH helper exists"),
+            helper
+        );
+
+        std::fs::remove_dir_all(&dir).expect("clean temp PATH dir");
+    }
+
+    #[test]
+    fn path_fallback_rejects_empty_and_relative_entries() {
+        let error =
+            helper_from_path_entries("wl-copy", [PathBuf::new(), PathBuf::from("relative-bin")])
+                .expect_err("unsafe PATH entries must be rejected");
+
+        assert!(error.contains("helper not found in vetted PATH entries: none"));
+        assert!(error.contains("skipped unsafe PATH entries: <empty>, relative-bin"));
     }
 
     #[test]
@@ -815,6 +919,19 @@ mod tests {
         drop(file);
         drop(guard);
         assert!(!path.exists());
+    }
+
+    fn write_test_helper(path: &Path) {
+        std::fs::write(path, b"test").expect("write temp helper file");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(path)
+                .expect("read temp helper metadata")
+                .permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(path, permissions).expect("mark temp helper executable");
+        }
     }
 
     #[cfg(target_os = "windows")]
