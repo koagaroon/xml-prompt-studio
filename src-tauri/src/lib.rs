@@ -1065,6 +1065,135 @@ mod tests {
         assert!(!path.exists());
     }
 
+    #[test]
+    fn trusted_helper_rejects_an_absolute_but_nonexistent_candidate() {
+        // Negative pin for "existing": without it, dropping the
+        // helper_is_usable check would pass the whole suite.
+        let missing = std::env::temp_dir().join("xml-prompt-studio-definitely-missing-helper");
+        let error =
+            trusted_helper("missing", [&missing]).expect_err("nonexistent must be rejected");
+        assert!(error.contains("helper not found in trusted locations"));
+        assert!(error.contains("xml-prompt-studio-definitely-missing-helper"));
+    }
+
+    #[test]
+    fn linux_helper_candidates_lists_usable_trusted_candidates_in_order() {
+        let dir = std::env::temp_dir().join(format!(
+            "xml-prompt-studio-candidates-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp candidates dir");
+        let first = dir.join("first-helper");
+        let second = dir.join("second-helper");
+        write_test_helper(&first);
+        write_test_helper(&second);
+        let first_str = first.to_str().expect("temp path is utf-8");
+        let second_str = second.to_str().expect("temp path is utf-8");
+
+        let candidates =
+            linux_helper_candidates("xml-prompt-studio-no-such-helper", &[first_str, second_str])
+                .expect("both trusted candidates are usable");
+        // PATH may or may not contribute a further entry for other
+        // names; the trusted hits must lead, in declaration order.
+        assert_eq!(&candidates[..2], &[first.clone(), second.clone()][..]);
+
+        std::fs::remove_dir_all(&dir).expect("clean temp candidates dir");
+    }
+
+    // Cross-platform coverage for the contributed process-management
+    // core: the timeout/kill path and the normal fast-exit path.
+    fn spawn_sleeper() -> Child {
+        #[cfg(target_os = "windows")]
+        {
+            // `ping -n 6` ≈ 5 s of runtime, no shell needed.
+            Command::new("ping")
+                .args(["-n", "6", "127.0.0.1"])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn sleeper child")
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            Command::new("sleep")
+                .arg("5")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("spawn sleeper child")
+        }
+    }
+
+    #[test]
+    fn wait_for_child_times_out_and_terminates_a_wedged_helper() {
+        let mut child = spawn_sleeper();
+        let error = wait_for_child("sleeper", &mut child, Duration::from_millis(100))
+            .expect_err("a 5 s child must trip a 100 ms timeout");
+        assert!(error.contains("timed out"));
+        // The kill path must have reaped the child — a still-running or
+        // zombie child shows up as Ok(None)/Err here.
+        assert!(matches!(child.try_wait(), Ok(Some(_))));
+    }
+
+    #[test]
+    fn wait_for_child_returns_success_for_a_fast_exit() {
+        #[cfg(target_os = "windows")]
+        let mut child = Command::new("cmd")
+            .args(["/C", "exit 0"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fast child");
+        #[cfg(not(target_os = "windows"))]
+        let mut child = Command::new("true")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn fast child");
+
+        let status = wait_for_child("fast", &mut child, Duration::from_secs(10))
+            .expect("fast child must not time out");
+        assert!(status.success());
+    }
+
+    // Landed-defense contract pins (Unix-only semantics): the 0o600
+    // payload-file mode and helper_is_usable's exec-bit requirement —
+    // both could otherwise loosen silently with the suite green.
+    #[cfg(unix)]
+    #[test]
+    fn temp_payload_file_is_created_with_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let (_file, guard) =
+            create_stdin_payload_file("test", b"secret").expect("create temp payload file");
+        let mode = std::fs::metadata(&guard.path)
+            .expect("read temp payload metadata")
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn helper_is_usable_rejects_a_file_without_an_exec_bit() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!(
+            "xml-prompt-studio-exec-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp exec-test dir");
+        let helper = dir.join("helper");
+        std::fs::write(&helper, b"data").expect("write non-executable helper");
+        let mut permissions = std::fs::metadata(&helper)
+            .expect("read helper metadata")
+            .permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(&helper, permissions).expect("strip exec bits");
+
+        assert!(!helper_is_usable(&helper));
+
+        std::fs::remove_dir_all(&dir).expect("clean temp exec-test dir");
+    }
+
     fn write_test_helper(path: &Path) {
         std::fs::write(path, b"test").expect("write temp helper file");
         #[cfg(unix)]
