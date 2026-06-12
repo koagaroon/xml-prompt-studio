@@ -1,6 +1,6 @@
 # XML Prompt Studio
 
-A Windows desktop app for composing XML-tagged prompts to send to Claude Code and other CLI tools.
+A Windows-first desktop app for composing XML-tagged prompts to send to Claude Code and other CLI tools. The codebase and clipboard layer are cross-platform (macOS / Linux fallbacks included), but only Windows builds are tested and shipped today.
 
 Build nested structures like `<feedback>...<reply>...</reply></feedback>` in a focused three-column UI — element outline on the left, the focused element's editor in the middle, and a live formatted preview on the right — then click **Copy XML** to paste the result straight into a chat.
 

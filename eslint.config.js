@@ -29,5 +29,16 @@ export default tseslint.config(
         { allowConstantExport: true }
       ]
     }
+  },
+  // Plain-JS coverage: public/theme-bootstrap.js (runs in the webview)
+  // and this config file itself (runs under Node) — union the globals.
+  // `npm run lint:js` is `eslint .` so root-level files are in scope.
+  {
+    extends: [js.configs.recommended],
+    files: ["**/*.js"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      globals: { ...globals.browser, ...globals.node }
+    }
   }
 );

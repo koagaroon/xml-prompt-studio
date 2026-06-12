@@ -135,13 +135,16 @@ describe("truncate", () => {
 });
 
 describe("exceedsByteCap", () => {
-  it("accepts under-cap values on the cheap short-circuit", () => {
+  // The first two fixtures are short-circuit-ELIGIBLE (length×3 ≤ cap),
+  // but the assertions pin only the boolean verdict — whether the cheap
+  // path or TextEncoder produced it is an internal detail the titles
+  // deliberately don't claim.
+  it("returns false for clearly under-cap values", () => {
     expect(exceedsByteCap("abc", 9)).toBe(false);
   });
 
-  it("short-circuits to pass when length*3 equals the cap exactly", () => {
-    // "中中中中" = 12 UTF-8 bytes, length 4 → 4×3 = 12 ≤ 12 decides
-    // without encoding.
+  it("returns false when length*3 equals the cap exactly", () => {
+    // "中中中中" = 12 UTF-8 bytes, length 4 → 4×3 = 12 ≤ 12.
     expect(exceedsByteCap("中中中中", 12)).toBe(false);
   });
 
