@@ -39,6 +39,15 @@ export function truncate(value: string, maxLength: number): string {
   return value;
 }
 
+// Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
+// Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
+// code units), which diverged by up to 3× for CJK / emoji content — a 50M
+// char Chinese payload would pass the JS check (50M code units) but fail
+// the Rust check (~150 MB UTF-8). Bytes on both sides keeps the cap
+// meaningful. Lives here (not App.tsx) so tauri.ts can mirror the gate on
+// the dev-only browser clipboard path.
+export const MAX_XML_BYTES = 50_000_000;
+
 // Cheap UTF-8 byte-count check: UTF-8 byte count is at most 3 × string
 // length (BMP-heavy worst case), so if `length * 3 ≤ cap` we know we're
 // under without running TextEncoder. Only encode-and-measure when the

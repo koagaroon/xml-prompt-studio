@@ -17,6 +17,7 @@ import {
 } from "./document";
 import {
   MAX_PRESET_NAME_LENGTH,
+  MAX_XML_BYTES,
   buildElementLabel,
   collectSubtreeIds,
   exceedsByteCap,
@@ -31,12 +32,7 @@ import {
   requestMainWindowShowAfterFirstPaint
 } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
-import {
-  buildPreview,
-  findDuplicateNodes,
-  isValidXmlName,
-  validateDocument
-} from "./xml";
+import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
 
 // Default preset chip list. Becomes the starting state, and the target of
 // the Reset action. The list is editable at runtime in the UI (cog button
@@ -64,14 +60,6 @@ const THEME_STORAGE_KEY = "theme";
 // localStorage key for the persisted chip list. Same shape as the theme
 // key just above — read on first render, written on every change.
 const PRESET_CHIPS_STORAGE_KEY = "presetChips";
-
-// Hard cap on copy-able XML payload, counted in UTF-8 bytes to match the
-// Rust-side MAX_XML_BYTES exactly. Earlier we used JS string length (UTF-16
-// code units), which diverged by up to 3× for CJK / emoji content — a 50M
-// char Chinese payload would pass the JS check (50M code units) but fail
-// the Rust check (~150 MB UTF-8). Bytes on both sides keeps the cap
-// meaningful.
-const MAX_XML_BYTES = 50_000_000;
 
 // Soft cap on tree depth. Past this the recursive walkers in document.ts /
 // xml.ts risk a "Maximum call stack size exceeded" RangeError on render.
@@ -208,28 +196,29 @@ function readInitialPresetChips(): string[] {
       // every chip in edit mode, and that choice must survive a restart
       // instead of silently resurrecting the defaults.
       //
-      // Length is checked in codepoints (not UTF-16 units) to match
-      // validatePresetName's commit-time semantics; the cheap `length`
-      // pre-check bounds Array.from against oversized hand-edited
-      // values (each codepoint is at most 2 UTF-16 units).
-      if (
-        Array.isArray(parsed) &&
-        parsed.length <= MAX_PRESET_CHIPS &&
-        parsed.every(
-          (item) =>
-            typeof item === "string" &&
-            item.length > 0 &&
-            item.length <= MAX_PRESET_NAME_LENGTH * 2 &&
-            Array.from(item).length <= MAX_PRESET_NAME_LENGTH &&
-            isValidXmlName(item)
-        )
-      ) {
-        const chips = parsed as string[];
-        // Enforce the same case-insensitive uniqueness the chip editor
-        // does — hand-edited storage with twins would produce duplicate
-        // React keys and chips the editor itself would refuse to create.
-        const lowered = new Set(chips.map((chip) => chip.toLowerCase()));
-        if (lowered.size === chips.length) {
+      // Per-item rules go through validatePresetName — the SAME
+      // canonical validator the chip editor commits through (non-empty,
+      // code-point cap, XML Name validity, case-insensitive uniqueness
+      // against the chips accepted so far) — so the load path can never
+      // drift from what the editor would accept. The cheap UTF-16
+      // `length` pre-check stays loader-specific: it bounds the
+      // validator's Array.from against oversized hand-edited values
+      // (each code point is at most 2 UTF-16 units).
+      if (Array.isArray(parsed) && parsed.length <= MAX_PRESET_CHIPS) {
+        const chips: string[] = [];
+        let valid = true;
+        for (const item of parsed) {
+          if (
+            typeof item !== "string" ||
+            item.length > MAX_PRESET_NAME_LENGTH * 2 ||
+            validatePresetName(item, chips, -1) !== null
+          ) {
+            valid = false;
+            break;
+          }
+          chips.push(item);
+        }
+        if (valid) {
           return chips;
         }
       }
@@ -257,8 +246,14 @@ function readInitialTheme(): Theme {
   } catch {
     // localStorage unavailable — fall through to system preference.
   }
-  if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
-    return "light";
+  try {
+    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) {
+      return "light";
+    }
+  } catch {
+    // matchMedia can throw in some sandboxed embeds. theme-bootstrap.js
+    // guards this same probe — the two readers claim to mirror each
+    // other, so the exception coverage must match too.
   }
   return "dark";
 }
@@ -340,6 +335,10 @@ export default function App() {
   // Cancel-button focus target for the New Blank confirmation modal.
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
 
+  // Whether the modal overlay's last mousedown landed on the overlay
+  // itself (not inside the dialog) — consumed by the overlay's onClick.
+  const overlayPressedRef = useRef(false);
+
   // Refs on the ribbon and body so the modal's focus trap can mark them
   // inert while the dialog is open (see the confirmRequest effect below).
   // Using the DOM .inert property directly avoids depending on @types/react's
@@ -420,11 +419,15 @@ export default function App() {
     copyBusyNoticeRef.current = false;
     setStripMessage({ text, severity: "warning", forNodeId });
   };
-  const clearMessage = () => {
+  // useCallback (unlike its showError / showWarning siblings, which only
+  // event handlers call): the preview-catch-up effect lists this as a
+  // dependency, so it needs a stable identity. Closes over stable values
+  // only (refs + setState).
+  const clearMessage = useCallback(() => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
     setStripMessage(null);
-  };
+  }, []);
 
   // localStorage write failures (corrupt webview profile, disk full)
   // would otherwise be fully silent: the edit appears to take effect,
@@ -550,7 +553,7 @@ export default function App() {
     if (!previewPending && copyWaitNoticeRef.current) {
       clearMessage();
     }
-  }, [previewPending]);
+  }, [previewPending, clearMessage]);
 
   // Selecting an element from the list. Node-scoped messages — the
   // global strip AND the field-level tag-name / preset messages — die on
@@ -558,9 +561,9 @@ export default function App() {
   // stale message ("Sibling count limit reached") would resurface on
   // RESELECTING the node even after the condition stopped holding.
   // Global messages (errorForNodeId === null) survive navigation. Every
-  // other selection-changing path (add/delete/new-blank) already calls
-  // clearMessage unconditionally; the render-time forNodeId gates stay
-  // as defense for those paths' field messages.
+  // other selection-changing path (add/delete/new-blank) calls
+  // clearMessage + clearFieldMessages unconditionally; the render-time
+  // forNodeId gates stay as pure defense.
   const selectNode = (nodeId: string) => {
     if (
       stripMessage &&
@@ -578,17 +581,28 @@ export default function App() {
     setSelectedNodeId(nodeId);
   };
 
+  // For selection changes caused by structural edits (add / delete /
+  // new-blank): clear node-scoped field messages outright instead of
+  // leaving them render-gated invisible in state, where they would
+  // resurface on reselecting the original node (or sit forever against
+  // a deleted id). The global strip is cleared separately by each
+  // handler via clearMessage.
+  const clearFieldMessages = () => {
+    setTagNameMessage(null);
+    setPresetMessage(null);
+  };
+
   const elementOutline = useMemo(
     () => createElementOutline(roots, duplicateNodeIds),
     [roots, duplicateNodeIds]
   );
 
   // The tag-name field-level message, gated on the element it was
-  // raised for. selectNode clears it for good on navigate-away; this
-  // render gate covers the other selection-changing paths (delete
-  // fallback, add) so a message never shows against the wrong element.
-  // If the user comes back and is still at the cap, typing a key fires
-  // a fresh message.
+  // raised for. Every selection-changing path clears field messages for
+  // good (selectNode conditionally, structural edits via
+  // clearFieldMessages); this render gate stays as defense so a message
+  // can never show against the wrong element. If the user comes back
+  // and is still at the cap, typing a key fires a fresh message.
   const activeTagNameMessage =
     tagNameMessage && tagNameMessage.forNodeId === activeNode.id
       ? tagNameMessage
@@ -656,6 +670,7 @@ export default function App() {
         setRoots(nextRoots);
         setSelectedNodeId(nextRoots[0].id);
         clearMessage();
+        clearFieldMessages();
         // New document means every old node ID is gone — wipe the entire
         // memory map so it doesn't accumulate orphan entries across many
         // "new blank" cycles.
@@ -691,13 +706,15 @@ export default function App() {
   // (invalid draft plus its error text).
   const toggleEditMode = () => {
     setPresetMessage(null);
-    setEditMode((current) => {
-      if (current) {
-        setEditingChip(null);
-        setChipEditError("");
-      }
-      return !current;
-    });
+    // Branch on the render-closure editMode, NOT inside a setEditMode
+    // updater: updaters must be pure (StrictMode double-invokes them),
+    // so sibling setState calls don't belong in one — same discipline
+    // toggleTheme documents for its storage write.
+    if (editMode) {
+      setEditingChip(null);
+      setChipEditError("");
+    }
+    setEditMode(!editMode);
   };
 
   const removeChip = (index: number) => {
@@ -819,6 +836,7 @@ export default function App() {
     );
     setSelectedNodeId(child.id);
     clearMessage();
+    clearFieldMessages();
   };
 
   const addSibling = () => {
@@ -845,6 +863,7 @@ export default function App() {
     }
     setSelectedNodeId(sibling.id);
     clearMessage();
+    clearFieldMessages();
   };
 
   const removeSelectedNode = () => {
@@ -857,6 +876,7 @@ export default function App() {
       setRoots(nextRoots);
       setSelectedNodeId(nextRoots[0].id);
       clearMessage();
+      clearFieldMessages();
       // Every old node ID is gone — wipe the whole memory map, same as
       // the New Blank path.
       presetMemoryRef.current.clear();
@@ -894,6 +914,7 @@ export default function App() {
     setRoots((current) => deleteNode(current, activeNode.id));
     setSelectedNodeId(target);
     clearMessage();
+    clearFieldMessages();
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
@@ -1066,17 +1087,18 @@ export default function App() {
       return;
     }
 
-    // Build from the LIVE roots, not the deferred ones. Copy XML is
-    // an explicit user action that must capture the latest state — the
-    // useDeferredValue trick is only for keystroke-smoothness on the
-    // on-screen preview. Using deferredRoots here would silently copy
-    // stale text after rapid type-then-click.
-    const liveIssues = validateDocument(roots);
-    if (liveIssues.length > 0) {
+    // The previewPending refusal above guarantees deferredRoots ===
+    // roots in this render, so the validationIssues / previewBuild
+    // memos ARE the live document's — no fresh validate + build needed.
+    // Reusing them also ties the copied payload to the exact build on
+    // screen: preview == clipboard by construction. (Stale-copy worry
+    // doesn't apply: rapid type-then-click lands in the previewPending
+    // refusal, never here.)
+    if (validationIssues.length > 0) {
       showError("Fix validation issues before copying XML.");
       return;
     }
-    const liveXml = buildPreview(roots).xml;
+    const liveXml = xmlPreview;
 
     // Reuse the same length × 3 short-circuit + TextEncoder fallback as the
     // per-field caps via exceedsByteCap. The actual byte count is only
@@ -1603,7 +1625,25 @@ export default function App() {
         // role="dialog" + aria-modal="true". Keeping a click handler on
         // the overlay for click-outside-to-cancel; AT users have Escape
         // and the focused Cancel button (see useEffect for focus mgmt).
-        <div className="modal-overlay" onClick={closeConfirm}>
+        <div
+          className="modal-overlay"
+          onMouseDown={(event) => {
+            overlayPressedRef.current = event.target === event.currentTarget;
+          }}
+          onClick={(event) => {
+            // Dismiss only when BOTH press and release land on the
+            // overlay: a mousedown inside the dialog (e.g. selecting the
+            // description text) whose mouseup drifts outside fires the
+            // click on the common ancestor — this overlay — and must not
+            // close the dialog mid-selection.
+            if (
+              overlayPressedRef.current &&
+              event.target === event.currentTarget
+            ) {
+              closeConfirm();
+            }
+          }}
+        >
           <div
             className="confirm-dialog"
             role="dialog"

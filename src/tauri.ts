@@ -5,6 +5,7 @@
 // `__TAURI_INTERNALS__` object) by hand with a local global declaration.
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { MAX_XML_BYTES, exceedsByteCap, formatMegabytes } from "./helpers";
 
 function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
@@ -79,6 +80,16 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     throw new Error(
       "XML payload contains a NUL (U+0000) character; paste targets would " +
         "silently truncate at it. Remove the character and copy again."
+    );
+  }
+
+  // Frontend mirror of the Rust-side size gate, for the same reason as
+  // the NUL guard above: the dev-only browser fallback would otherwise
+  // attempt an arbitrarily large clipboard write with no cap at all.
+  if (exceedsByteCap(xml, MAX_XML_BYTES)) {
+    const bytes = new TextEncoder().encode(xml).length;
+    throw new Error(
+      `XML payload too large to copy (${formatMegabytes(bytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
     );
   }
 
