@@ -65,7 +65,6 @@
   /* Borders */
   --border-subtle: rgb(255 255 255 / 10%);
   --border-input: rgb(255 255 255 / 14%);
-  --border-divider: rgb(255 255 255 / 16%);
   --border-focus: rgb(146 199 255 / 70%);
 
   /* Text */
@@ -136,7 +135,6 @@
   --bg-preview: rgb(248 248 243 / 95%);
   --border-subtle: rgb(35 30 25 / 10%);
   --border-input: rgb(35 30 25 / 16%);
-  --border-divider: rgb(35 30 25 / 14%);
   --border-focus: rgb(50 97 159 / 70%);
   --text-primary: #1f1c19;
   --text-secondary: rgb(35 30 25 / 72%);
@@ -453,7 +451,7 @@ select {
 
   /* Vertical breathing room so first/last rows aren't clipped against the
      scroll container edge. */
-  padding: 4px 0.3rem 4px 0;
+  padding: 0.25rem 0.3rem 0.25rem 0;
   flex: 1;
   min-height: 0;
 }
@@ -647,11 +645,12 @@ select {
    The chip list scrolls horizontally when squeezed so cog/Reset stay
    visible regardless of window width. */
 
-/* Field-level message rendered just below an input it relates to (the
-   Tag Name input today; can be applied to other fields later). Pads
-   into a small chip-like strip; severity controls the color. Lives
-   close to the field rather than in the global bottom strip — the cue
-   sits where the user is already looking. */
+/* Field-level message rendered just below the input or row it relates
+   to (Tag Name input, preset chip row, chip editor). Pads into a small
+   chip-like strip; the modifier picks the palette — is-warning for
+   amber side-effect notices, is-error for the chip editor's rejected
+   commits. Lives close to the field rather than in the global bottom
+   strip — the cue sits where the user is already looking. */
 .field-message {
   margin-top: 0.4rem;
   padding: 0.35rem 0.65rem;
@@ -696,7 +695,7 @@ select {
   overflow-x: auto;
 
   /* Vertical padding so chips don't clip against the scroll-area edge. */
-  padding: 2px 0;
+  padding: 0.125rem 0;
   scrollbar-width: thin;
 }
 
@@ -858,11 +857,14 @@ select {
 }
 
 /* Hover the × → the entire pill turns red. The :has() approach paints
-   the chip's own background opaque-red, so there's no transparent
-   layer over a blue base — the pill itself becomes red. Inner text and
-   × glyph swap to white for legibility. No precedence conflict with the
-   label-hover rule above: label and × are sibling targets, so the
-   pointer hovers at most one of them at a time. */
+   the chip's own background with a single solid danger layer (the
+   90%-alpha token), so there's no translucent red wash stacked over a
+   blue base — the pill itself reads red. Inner text and × glyph swap
+   to white for legibility. No precedence conflict with the label-hover
+   rule above: label and × are sibling targets, so the pointer hovers
+   at most one of them at a time. border-color reuses the hover
+   BACKGROUND token deliberately — its darker shade is the right border
+   weight and no dedicated danger-border token exists. */
 .chip:has(.chip-delete:hover) {
   background: var(--btn-danger-bg);
   border-color: var(--btn-danger-hover);
@@ -913,19 +915,10 @@ select {
   max-width: 12rem;
 }
 
-/* Per-edit validation message. Shown below the chip row when commit is
-   rejected. Cleared on successful commit, on cancel (Escape), and on
-   exiting edit mode. */
-.chip-edit-error {
-  margin-top: 0.4rem;
-  padding: 0.4rem 0.7rem;
-  border-radius: 8px;
-  background: var(--issue-bg);
-  color: var(--issue-text);
-  font-size: 0.78rem;
-  width: fit-content;
-  max-width: 100%;
-}
+/* The chip editor's rejected-commit message renders as
+   .field-message.is-error — one shared strip style, no parallel
+   near-duplicate rule (the two bodies had drifted only in radius and
+   padding). */
 
 .text-content-area {
   flex: 1;
@@ -1069,7 +1062,13 @@ select {
   border-radius: 999px;
   background: var(--bg-panel);
   color: var(--text-secondary);
-  font-family: Inter, system-ui, sans-serif;
+  font-family:
+    Inter,
+    system-ui,
+    "Microsoft YaHei UI",
+    "PingFang SC",
+    "Noto Sans CJK SC",
+    sans-serif;
   font-size: 0.78rem;
   font-weight: 700;
   line-height: 1.2;
@@ -1201,7 +1200,15 @@ select {
    accent color as input borders gives keyboard users a consistent indicator.
    :focus-visible (not :focus) intentionally — mouse clicks shouldn't show
    the ring; only keyboard focus does. Inputs already use a border-color
-   transition for focus, so they're not included here. */
+   transition for focus, so they're not included here.
+
+   Reachability: most of these selectors are dormant today — ribbon
+   buttons, element rows, and the chip controls all carry tabIndex={-1}
+   (deliberate tab-order policy, see the ribbon comment in App.tsx), so
+   keyboard focus never lands on them. Live arms: .dialog-buttons button
+   and the chip-editing input (plain .chip:focus-visible). The rest stay
+   as cheap defense so the ring appears automatically if the tabIndex
+   policy ever changes. */
 
 .ribbon button:focus-visible,
 .chip:focus-visible,
@@ -1211,10 +1218,10 @@ select {
 .preset-reset:focus-visible,
 .element-row:focus-visible,
 .dialog-buttons button:focus-visible {
-  /* For the chip pill, the outline lives on the outer .chip (via the
-     plain :focus-visible on the chip-editing input, or :has() for the
-     span case). Putting it on the inner chip-label / chip-delete would
-     get the outline clipped by the pill's `overflow: hidden`. */
+  /* For the chip pill, the outline lives on the outer .chip — putting
+     it on the inner chip-label / chip-delete would get it clipped by
+     the pill's `overflow: hidden`. The :has() arm only fires if the
+     inner buttons ever become tabbable. */
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }

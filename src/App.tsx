@@ -84,8 +84,10 @@ const MAX_SIBLINGS = 1000;
 // surface hits well before that when one field gets oversized.
 //
 // Cap is in UTF-8 bytes for parity with MAX_XML_BYTES. 10 MB allows large
-// prompt bodies (~5–10 M ASCII chars) but keeps the total tree below
-// 50 MB even with multiple maxed-out leaves.
+// prompt bodies (~5–10 M ASCII chars). It does NOT bound the total tree
+// (enough maxed-out fields exceed 50 MB) — the copy-time exceedsByteCap
+// check in copyPreview is the actual total-size defense; don't remove
+// that check on the assumption per-field caps cover it.
 const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 
 // Cap on tag-name codepoint length. MUST stay ≥ MAX_PRESET_NAME_LENGTH
@@ -106,7 +108,7 @@ const MAX_TAG_NAME_LENGTH = 32;
 // were per-active-node and churned on every selection, confusing autofill
 // and a11y caches even though there's only one of each on screen.
 const TAG_NAME_INPUT_ID = "tag-name-input";
-const TEXT_CONTENT_INPUT_ID = "text-content-area";
+const TEXT_CONTENT_INPUT_ID = "text-content-input";
 
 type Theme = "dark" | "light";
 
@@ -126,34 +128,29 @@ type StripMessage = {
   forNodeId: string | null;
 };
 
-// Field-level messages render just below their own form field (not in
-// the column-bottom strip) and are always element-scoped: `forNodeId`
+// Field-level message: renders just below its own form field (not in
+// the column-bottom strip) and is always element-scoped — `forNodeId`
 // is non-null BY TYPE, a deliberate contrast with StripMessage's
 // nullable forNodeId (which supports global messages). A render-time
 // check shows the message only while its element stays selected, so
-// switching elements hides it without an effect+setState dance.
-type TagNameMessage = {
-  text: string;
-  severity: "error" | "warning";
-  forNodeId: string;
-};
-
-// Preset-row variant. No severity field: only one message kind exists
-// today (clicking an already-applied chip is a no-op warning).
-type PresetMessage = {
+// switching elements hides it without an effect+setState dance. No
+// severity field: every field message today is an amber warning
+// (errors live in the strip) — add severity back only when a red
+// field message actually exists.
+type FieldMessage = {
   text: string;
   forNodeId: string;
 };
 
 // Generic confirmation-modal request. Two confirmations exist today (New
 // Blank discard, Reset presets); both go through this same primitive. The
-// `confirmKind` controls the styling of the confirm button — destructive
-// actions get the red `danger-button` treatment, others stay neutral.
+// `confirmKind` controls the styling of the confirm button — "danger"
+// gets the red `danger-button` treatment, omitted stays neutral.
 type ConfirmRequest = {
   title: string;
   description: string;
   confirmLabel: string;
-  confirmKind?: "danger" | "primary";
+  confirmKind?: "danger";
   onConfirm: () => void;
 };
 
@@ -315,15 +312,15 @@ export default function App() {
   const [chipEditError, setChipEditError] = useState("");
 
   // Field-level message attached to the Tag Name input. Scoping and
-  // render-time gating semantics live on the TagNameMessage type.
-  const [tagNameMessage, setTagNameMessage] = useState<TagNameMessage | null>(
+  // render-time gating semantics live on the FieldMessage type.
+  const [tagNameMessage, setTagNameMessage] = useState<FieldMessage | null>(
     null
   );
 
   // Field-level message for the preset chip row. Today carries one
   // case: the user clicked an already-applied chip (lastApplied lock),
   // which is a no-op — the warning explains why nothing happened.
-  const [presetMessage, setPresetMessage] = useState<PresetMessage | null>(
+  const [presetMessage, setPresetMessage] = useState<FieldMessage | null>(
     null
   );
 
@@ -448,7 +445,7 @@ export default function App() {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
     setStripMessage({
-      text: `Couldn't save your ${what} — it works for this session but will reset on next launch (storage unavailable).`,
+      text: `Couldn't save your ${what} — the change works for this session but will reset on next launch (storage unavailable).`,
       severity: "warning",
       forNodeId: null
     });
@@ -723,16 +720,18 @@ export default function App() {
       forgetPresetMemoryForChip(removedName);
     }
     setPresetMessage(null);
-    // A failed in-flight rename's error may name the chip being deleted
-    // ("X is already in your preset list") — deleting X makes that text
-    // false, so drop it. The rename input itself stays open; its next
-    // commit re-validates against the updated list.
+    // Drop any in-flight edit error: it may name the chip being deleted
+    // ("X is already in your preset list" — false once X is gone), and
+    // even when it doesn't, the edit input stays open and its next
+    // commit re-validates against the updated list anyway.
     setChipEditError("");
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
-    // An in-flight RENAME can coexist with this delete only for a
-    // DIFFERENT chip (the chip being renamed renders as the editing
-    // input, which has no × button) — so the only adjustment needed is
-    // shifting the rename's index when an earlier chip disappears.
+    // An in-flight edit can coexist with this delete only as a RENAME of
+    // a DIFFERENT chip or as the trailing NEW-chip input (neither edit
+    // form renders a × button on itself). Renames shift their index when
+    // an earlier chip disappears; a pending add keeps its stale
+    // one-past-the-end index harmlessly — commit indexes by it for
+    // renames only and appends for adds.
     setEditingChip((current) => {
       if (current && !current.isNew && current.index > index) {
         return { ...current, index: current.index - 1 };
@@ -961,7 +960,6 @@ export default function App() {
     if (limitWarning) {
       setTagNameMessage({
         text: limitWarning,
-        severity: "warning",
         forNodeId: activeNode.id
       });
     } else {
@@ -1271,7 +1269,6 @@ export default function App() {
             className="copy-button"
             tabIndex={-1}
             onClick={copyPreview}
-            title="Copy XML"
           >
             Copy XML
           </button>
@@ -1360,16 +1357,9 @@ export default function App() {
           {/* Field-level message anchored to the Tag Name input. Lives
               here (not in the global bottom strip) because it's about
               THIS field's value — the user looks at the input, the cue
-              should be next to it. Carries severity for color (amber
-              warning vs red error). */}
+              should be next to it. Always amber (see FieldMessage). */}
           {activeTagNameMessage && (
-            <div
-              className={cx(
-                "field-message",
-                `is-${activeTagNameMessage.severity}`
-              )}
-              role="alert"
-            >
+            <div className="field-message is-warning" role="alert">
               {activeTagNameMessage.text}
             </div>
           )}
@@ -1464,7 +1454,7 @@ export default function App() {
               {editMode && editingChip?.isNew && (
                 <input
                   key="new:chip"
-                  className="chip chip-editing chip-new"
+                  className="chip chip-editing"
                   value={editingChip.draft}
                   autoFocus
                   maxLength={MAX_PRESET_NAME_LENGTH}
@@ -1533,7 +1523,7 @@ export default function App() {
             </div>
           </div>
           {editMode && chipEditError && (
-            <div className="chip-edit-error" role="alert">
+            <div className="field-message is-error" role="alert">
               {chipEditError}
             </div>
           )}
@@ -1554,6 +1544,10 @@ export default function App() {
             onChange={(event) => setActiveTextContent(event.target.value)}
           />
 
+          {/* Strip text can include raw child-process stderr forwarded
+              from the Rust clipboard fallback — safe ONLY because it
+              renders as a React text node. Never switch this (or the
+              field messages) to HTML rendering. */}
           {activeStripMessage && (
             <div
               className={cx(
@@ -1591,7 +1585,7 @@ export default function App() {
                       <span className="preview-indicator" aria-hidden="true">
                         {isActive && line.primary ? ">" : ""}
                       </span>
-                      <span className="preview-text">{line.text}</span>
+                      <span>{line.text}</span>
                     </div>
                   );
                 })
