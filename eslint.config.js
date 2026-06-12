@@ -40,5 +40,17 @@ export default tseslint.config(
       ecmaVersion: "latest",
       globals: { ...globals.browser, ...globals.node }
     }
+  },
+  // public/ scripts execute in the webview EXACTLY as written — no
+  // bundler, no transpilation — so their syntax floor is whatever the
+  // oldest supported webview parses. Enforce the declared ES2019 floor
+  // at lint time: a newer construct (the lookbehind-regex class) would
+  // otherwise pass lint and fail only at parse time on old engines.
+  {
+    files: ["public/**/*.js"],
+    languageOptions: {
+      ecmaVersion: 2019,
+      globals: globals.browser
+    }
   }
 );

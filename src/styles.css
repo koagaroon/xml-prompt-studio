@@ -57,7 +57,12 @@
   color-scheme: dark;
 
   /* UI font stack — theme-independent, defined once so consumers (body,
-     overlays) can't drift apart. CJK tail per the project convention. */
+     overlays) can't drift apart. CJK tail per the project convention.
+     The quotes on "Inter" / "BlinkMacSystemFont" are LOAD-BEARING and
+     deliberately diverge from the @font-face convention above:
+     stylelint can't know a custom-property value is font-family
+     context, so unquoted mixed-case names trip value-keyword-case
+     (verified empirically) — don't "fix" them for consistency. */
   --font-ui:
     "Inter",
     -apple-system,
@@ -142,7 +147,7 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg-app: #f4f4ef;
+  --bg-app: rgb(244 244 239 / 100%);
   --bg-panel: rgb(255 255 255 / 92%);
   --bg-input: rgb(255 255 255 / 85%);
   --bg-preview: rgb(248 248 243 / 95%);
@@ -158,8 +163,11 @@
   --btn-secondary-hover: rgb(200 220 250 / 100%);
   --btn-secondary-border: rgb(50 97 159 / 25%);
   --btn-secondary-border-hover: rgb(50 97 159 / 55%);
-  --btn-primary-bg: rgb(50 97 159 / 95%);
-  --btn-primary-hover: rgb(75 130 195 / 100%);
+
+  /* --btn-primary-bg / --btn-primary-hover / --issue-input-border are
+     NOT overridden here: their light values would be byte-identical to
+     :root's, and a shadowing copy would silently absorb future :root
+     edits ("overrides only the values that change", per the header). */
   --btn-primary-border: rgb(50 97 159 / 70%);
   --btn-primary-border-hover: rgb(75 130 195 / 90%);
   --btn-danger-bg: rgb(220 80 110 / 90%);
@@ -174,7 +182,6 @@
   --preview-line-active: rgb(50 97 159 / 12%);
   --issue-bg: rgb(254 226 226 / 95%);
   --issue-text: #9b1c1c;
-  --issue-input-border: rgb(220 80 110 / 85%);
   --issue-input-bg: rgb(254 240 240 / 70%);
   --badge-bg: rgb(220 80 110 / 95%);
   --badge-text: #fff;
@@ -1127,7 +1134,13 @@ select {
   }
 }
 
-@media (width <= 920px) {
+/* Legacy max-width notation ON PURPOSE, not range syntax: range syntax
+   shares its engine floor with `lh` (older WebKitGTK parses neither),
+   and an unparseable media query means the narrow-window reflow
+   silently never fires on exactly the engines the .preview-line em
+   fallback defends. max-width parses everywhere. */
+/* stylelint-disable-next-line media-feature-range-notation */
+@media (max-width: 920px) {
   .body {
     grid-template:
       "elements input" minmax(0, 1fr)
@@ -1219,7 +1232,6 @@ select {
 
 .ribbon button:focus-visible,
 .chip:focus-visible,
-.chip:has(:focus-visible),
 .chip-add:focus-visible,
 .preset-cog:focus-visible,
 .preset-reset:focus-visible,
@@ -1227,8 +1239,19 @@ select {
 .dialog-buttons button:focus-visible {
   /* For the chip pill, the outline lives on the outer .chip — putting
      it on the inner chip-label / chip-delete would get it clipped by
-     the pill's `overflow: hidden`. The :has() arm only fires if the
-     inner buttons ever become tabbable. */
+     the pill's `overflow: hidden`. */
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+/* Kept OUT of the selector list above on purpose: selector lists are
+   non-forgiving, so on an engine without :has() the one invalid
+   selector would drop the ENTIRE rule — including the live
+   .dialog-buttons and .chip:focus-visible arms — silently removing the
+   keyboard focus ring. Isolated, its parse failure costs only itself.
+   The arm itself only fires if the inner chip buttons ever become
+   tabbable. */
+.chip:has(:focus-visible) {
   outline: 2px solid var(--border-focus);
   outline-offset: 2px;
 }
@@ -1250,6 +1273,15 @@ select {
 
   .bloom-overlay {
     animation-duration: 3s !important;
+  }
+
+  /* The wildcard above deliberately doesn't touch animation-delay, and
+     the updating-note's 350ms delay is load-bearing anti-flash logic
+     (not decoration) — pin it explicitly so a future "completion" of
+     the wildcard with `animation-delay: 0ms !important` can't
+     silently regress it. */
+  .preview-updating-note {
+    animation-delay: 350ms !important;
   }
 
   .ribbon button:hover:not(:disabled) {
