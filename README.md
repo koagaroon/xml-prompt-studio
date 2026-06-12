@@ -27,7 +27,7 @@ Prompt engineering with Claude often benefits from explicit XML-style structure 
 
 ## Tech stack
 
-- [Tauri 2](https://tauri.app/) (Rust core + WebView2)
+- [Tauri 2](https://tauri.app/) (Rust core + system webview — WebView2 on Windows)
 - [React](https://react.dev/) 19 with TypeScript
 - [Vite](https://vite.dev/) frontend build
 - [arboard](https://github.com/1Password/arboard) clipboard layer with cross-platform CLI fallbacks (Windows `clip.exe`, macOS `pbcopy`, Linux `wl-copy` / `xclip`) for RDP / locked-clipboard / sandboxed-Wayland cases

@@ -50,7 +50,10 @@ export function capCodePoints(value: string, maxLength: number): string {
   let result = "";
   let count = 0;
   for (const cp of value) {
-    if (count === maxLength) {
+    // >= (not ===) so a non-integer maxLength still terminates the cap
+    // instead of returning the input uncapped — same degradation
+    // direction as truncate's `>` guard.
+    if (count >= maxLength) {
       break;
     }
     result += cp;

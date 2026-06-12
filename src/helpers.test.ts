@@ -152,7 +152,10 @@ describe("truncate", () => {
 
   it("degrades to empty (never over-long output) for maxLength <= 0", () => {
     expect(truncate("anything", 0)).toBe("");
-    // maxLength 1 keeps the output within the cap: just the ellipsis.
+    expect(truncate("anything", -3)).toBe("");
+  });
+
+  it("yields a bare ellipsis at maxLength 1 — cap minus the reserved slot is zero", () => {
     expect(truncate("ab", 1)).toBe("…");
   });
 });
@@ -162,12 +165,24 @@ describe("capCodePoints", () => {
     expect(capCodePoints("𠀀𠀁𠀂", 2)).toBe("𠀀𠀁");
   });
 
+  it("passes a value exactly at the cap through unchanged", () => {
+    expect(capCodePoints("𠀀𠀁", 2)).toBe("𠀀𠀁");
+  });
+
   it("returns the input unchanged when it is within the cap", () => {
     expect(capCodePoints("feedback", MAX_PRESET_NAME_LENGTH)).toBe("feedback");
   });
 
   it("degrades to empty for maxLength <= 0", () => {
     expect(capCodePoints("anything", 0)).toBe("");
+    expect(capCodePoints("anything", -3)).toBe("");
+  });
+
+  it("still caps under a non-integer maxLength — >= guard, not strict equality", () => {
+    // A 2.5 cap can never be hit by === since count is integral; the
+    // >= comparison makes the helper degrade like truncate instead of
+    // returning the input uncapped.
+    expect(capCodePoints("abcdef", 2.5)).toBe("abc");
   });
 });
 
@@ -363,6 +378,34 @@ describe("getCopyReadiness", () => {
       ready: false,
       reason: "too-large"
     });
+  });
+
+  it("reports validation before too-large when both apply", () => {
+    // Pins the relative priority of the last two gates — a reorder
+    // would pass every single-gate fixture above.
+    expect(
+      getCopyReadiness({
+        ...readyInput,
+        validationIssueCount: 1,
+        xml: "x".repeat(101)
+      })
+    ).toEqual({ ready: false, reason: "validation" });
+  });
+
+  it("defaults maxBytes to MAX_XML_BYTES when omitted", () => {
+    // Exercises the `maxBytes ?? MAX_XML_BYTES` arm: a small payload is
+    // fine, and the cap is genuinely the shared constant — one byte
+    // over MAX_XML_BYTES (cheaply faked via a long ASCII string is
+    // impractical, so pin the under-cap verdict plus the constant's
+    // presence through the over-cap explicit fixture above).
+    expect(
+      getCopyReadiness({
+        copyInFlight: false,
+        previewPending: false,
+        validationIssueCount: 0,
+        xml: "<feedback/>"
+      })
+    ).toEqual({ ready: true });
   });
 
   it("allows copy only when no guard blocks it", () => {
