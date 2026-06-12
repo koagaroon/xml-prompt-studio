@@ -172,4 +172,24 @@ describe("isValidXmlName", () => {
     // "-" is a NameChar but not a NameStartChar.
     expect(isValidXmlName("-x")).toBe(false);
   });
+
+  it("pins the deliberate Latin-1 exclusion gaps × (U+00D7) and ÷ (U+00F7)", () => {
+    // NameStartChar runs [#xC0-#xD6] | [#xD8-#xF6] | [#xF8-...]: the
+    // multiplication and division signs are the two holes. Pinning both
+    // sides of each hole catches a typo widening Ø-ö to
+    // ×-÷, which every ASCII-only fixture would miss. Neither
+    // sign is a NameChar mid-name either.
+    expect(isValidXmlName("Ö")).toBe(true); // U+00D6 — last before hole 1
+    expect(isValidXmlName("×")).toBe(false); // U+00D7 — hole 1
+    expect(isValidXmlName("Ø")).toBe(true); // U+00D8 — first after hole 1
+    expect(isValidXmlName("ö")).toBe(true); // U+00F6 — last before hole 2
+    expect(isValidXmlName("÷")).toBe(false); // U+00F7 — hole 2
+    expect(isValidXmlName("ø")).toBe(true); // U+00F8 — first after hole 2
+    expect(isValidXmlName("a×b")).toBe(false);
+  });
+
+  it("pins the supplementary-plane upper bound at U+EFFFF", () => {
+    expect(isValidXmlName("\u{EFFFF}")).toBe(true); // last valid
+    expect(isValidXmlName("\u{F0000}")).toBe(false); // one past the range
+  });
 });

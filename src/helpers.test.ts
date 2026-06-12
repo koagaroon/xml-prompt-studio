@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createNode } from "./document";
 import {
+  ELEMENT_LABEL_PREVIEW_LENGTH,
   MAX_PRESET_NAME_LENGTH,
   buildElementLabel,
   collectSubtreeIds,
@@ -102,7 +103,9 @@ describe("validatePresetName", () => {
 
   it("lets a rename keep (or re-case) its own slot via excludeIndex", () => {
     expect(validatePresetName("Feedback", chips, 0)).toBeNull();
-    // ...but still rejects colliding with a DIFFERENT chip.
+  });
+
+  it("still rejects a rename that collides with a DIFFERENT chip", () => {
     expect(validatePresetName("question", chips, 0)).toBe(
       '"question" is already in your preset list.'
     );
@@ -164,6 +167,18 @@ describe("insertAfter", () => {
       "a",
       "fresh",
       "b"
+    ]);
+  });
+
+  it("inserts at the end when the anchor is the last element", () => {
+    // Pins the index + 1 === length seam (found-anchor append), distinct
+    // from the missing-anchor fallback below.
+    const [a, b] = siblings("a", "b");
+    const fresh = createNode("fresh");
+    expect(insertAfter([a, b], b.id, fresh).map((n) => n.tagName)).toEqual([
+      "a",
+      "b",
+      "fresh"
     ]);
   });
 
@@ -233,9 +248,21 @@ describe("buildElementLabel", () => {
     expect(buildElementLabel(node)).toBe("<reply> hello world");
   });
 
-  it("truncates long previews at 26 codepoints with an ellipsis", () => {
+  it("passes a preview exactly at the cap through unchanged", () => {
+    const node = {
+      ...createNode("reply"),
+      textContent: "x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH)
+    };
+    expect(buildElementLabel(node)).toBe(
+      `<reply> ${"x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH)}`
+    );
+  });
+
+  it("truncates an over-cap preview to the cap with an ellipsis", () => {
     const node = { ...createNode("reply"), textContent: "x".repeat(40) };
-    expect(buildElementLabel(node)).toBe(`<reply> ${"x".repeat(25)}…`);
+    expect(buildElementLabel(node)).toBe(
+      `<reply> ${"x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH - 1)}…`
+    );
   });
 
   it("uses the unbracketed (empty tag) placeholder — same vocabulary as the Input title", () => {
@@ -249,7 +276,17 @@ describe("formatMegabytes", () => {
     expect(formatMegabytes(10_000_000)).toBe("10 MB");
   });
 
-  it("keeps one decimal otherwise", () => {
-    expect(formatMegabytes(52_428_801)).toBe("52.4 MB");
+  it("rounds fractional values UP to the next 0.1 MB — never down", () => {
+    // One byte over a limit must display over it, not equal to it.
+    expect(formatMegabytes(50_000_001)).toBe("50.1 MB");
+    // 1.44 MB → 1.5, distinguishing ceil from round-to-nearest (1.4)
+    // and truncation (1.4).
+    expect(formatMegabytes(1_440_000)).toBe("1.5 MB");
+  });
+
+  it("keeps exact tenths as-is and handles sub-0.1-MB values", () => {
+    expect(formatMegabytes(1_200_000)).toBe("1.2 MB");
+    expect(formatMegabytes(1)).toBe("0.1 MB");
+    expect(formatMegabytes(0)).toBe("0 MB");
   });
 });

@@ -60,12 +60,16 @@ export function exceedsByteCap(value: string, cap: number): boolean {
 }
 
 // Render a byte count as MB for user-facing messages — "10 MB" beats
-// "10000000 bytes" for scanability. Integral values drop the decimal.
-// The Rust side formats its size errors the same way; change both or
-// neither.
+// "10000000 bytes" for scanability. Fractional values round UP to the
+// next 0.1 MB: a payload one byte over a limit must never display as
+// equal to it ("50.0 MB; limit 50 MB" reads as a contradiction).
+// Integral tenths drop the trailing zero decimal. The Rust side
+// formats its size errors the same way; change both or neither.
 export function formatMegabytes(bytes: number): string {
-  const mb = bytes / 1_000_000;
-  return `${Number.isInteger(mb) ? mb : mb.toFixed(1)} MB`;
+  const tenths = Math.ceil(bytes / 100_000);
+  return tenths % 10 === 0
+    ? `${tenths / 10} MB`
+    : `${(tenths / 10).toFixed(1)} MB`;
 }
 
 // Escape regex metacharacters. Both `[` and `]` are explicitly escaped
@@ -206,6 +210,13 @@ export function nextSelectionAfterDelete(
   return parentId ?? fallbackId;
 }
 
+// Cap on the text-preview portion of an Elements-row label, in code
+// points, ellipsis included (truncate's contract). Purely
+// presentational — sized so a row with a long tag name plus preview
+// stays scannable in the narrow Elements column; no derivation from
+// other caps.
+export const ELEMENT_LABEL_PREVIEW_LENGTH = 26;
+
 // Label for an Elements-column row: tag name in angle brackets plus a
 // truncated text preview. The empty-tag placeholder is "(empty tag)" —
 // same vocabulary as the Input column's title for the same state, and
@@ -214,6 +225,8 @@ export function buildElementLabel(node: XmlNode): string {
   const trimmedTag = node.tagName.trim();
   const tagLabel = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   const previewText = node.textContent.trim();
-  const suffix = previewText ? ` ${truncate(previewText, 26)}` : "";
+  const suffix = previewText
+    ? ` ${truncate(previewText, ELEMENT_LABEL_PREVIEW_LENGTH)}`
+    : "";
   return `${tagLabel}${suffix}`;
 }

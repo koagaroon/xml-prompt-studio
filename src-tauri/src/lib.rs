@@ -94,15 +94,18 @@ fn check_payload_size(len: usize) -> Result<(), String> {
 }
 
 // Render a byte count as MB for user-facing messages — "50 MB" beats
-// "50000000 bytes" for scanability. Integral values drop the decimal.
-// The frontend's formatMegabytes (helpers.ts) formats its size errors
-// the same way; change both or neither.
+// "50000000 bytes" for scanability. Fractional values round UP to the
+// next 0.1 MB: a payload one byte over the limit must never display as
+// equal to it ("50.0 MB; limit 50 MB" reads as a contradiction).
+// Integral tenths drop the trailing zero decimal. The frontend's
+// formatMegabytes (helpers.ts) formats its size errors the same way;
+// change both or neither.
 fn format_megabytes(bytes: usize) -> String {
-    let mb = bytes as f64 / 1_000_000.0;
-    if mb.fract() == 0.0 {
-        format!("{mb:.0} MB")
+    let tenths = (bytes as f64 / 100_000.0).ceil();
+    if tenths % 10.0 == 0.0 {
+        format!("{} MB", tenths / 10.0)
     } else {
-        format!("{mb:.1} MB")
+        format!("{:.1} MB", tenths / 10.0)
     }
 }
 
@@ -172,17 +175,12 @@ fn set_text_persistent(xml: &str) -> Result<(), String> {
 // sides.
 static COPY_LOCK: Mutex<()> = Mutex::new(());
 
-fn copy_xml_blocking(xml: &str) -> Result<(), String> {
-    // Lock data is (), so poison carries no state worth respecting —
-    // recover unconditionally.
-    let _copy_guard = COPY_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    // A NUL would silently truncate the pasted text in most OS clipboard
-    // consumers (C-string semantics) while the preview shows the full
-    // content — refuse visibly instead of corrupting silently. Runs here
-    // (on the blocking pool) because the O(n) scan over up to 50 MB
-    // belongs with the rest of the heavy work, not on an async worker.
+// NUL gate for copy_xml_to_clipboard, split out like check_payload_size
+// so the IPC-boundary guard is unit-testable without touching the real
+// clipboard. A NUL would silently truncate the pasted text in most OS
+// clipboard consumers (C-string semantics) while the preview shows the
+// full content — refuse visibly instead of corrupting silently.
+fn check_no_nul(xml: &str) -> Result<(), String> {
     if xml.contains('\0') {
         return Err(
             "XML payload contains a NUL (U+0000) character; paste targets would silently \
@@ -190,6 +188,19 @@ fn copy_xml_blocking(xml: &str) -> Result<(), String> {
                 .to_string(),
         );
     }
+    Ok(())
+}
+
+fn copy_xml_blocking(xml: &str) -> Result<(), String> {
+    // Lock data is (), so poison carries no state worth respecting —
+    // recover unconditionally.
+    let _copy_guard = COPY_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // The NUL gate runs here (on the blocking pool) because the O(n)
+    // scan over up to 50 MB belongs with the rest of the heavy work,
+    // not on an async worker.
+    check_no_nul(xml)?;
     // Try arboard with a borrowed slice first — `set_text` accepts
     // `Into<Cow<str>>` so a borrow is enough. Only fall back if arboard
     // fails. Saves a 50 MB clone on the happy path.
@@ -523,6 +534,15 @@ mod tests {
     }
 
     #[test]
+    fn launch_size_clamps_each_axis_independently() {
+        // Ultrawide: width hits the desktop cap while height stays on the
+        // sqrt(2/3) path — pins that the clamps are per-axis, not coupled.
+        let size = launch_window_size_for_work_area(LogicalSize::new(2200.0, 1000.0));
+
+        assert_size_close(size, MAX_LAUNCH_WINDOW_WIDTH, 816.4966);
+    }
+
+    #[test]
     fn launch_size_never_reintroduces_old_oversized_small_desktop_floor() {
         let size = launch_window_size_for_work_area(LogicalSize::new(800.0, 600.0));
 
@@ -549,11 +569,36 @@ mod tests {
         let error =
             check_payload_size(MAX_XML_BYTES + 1).expect_err("over-limit payload must be rejected");
         // Full-equality assert pins the message format AND the MB
-        // rendering (one decimal for fractional, none for integral).
+        // rendering: one byte over the limit must display OVER it
+        // (50.1, not a contradictory "50.0 MB; limit 50 MB").
         assert_eq!(
             error,
-            "XML payload too large to copy (50.0 MB; limit 50 MB)."
+            "XML payload too large to copy (50.1 MB; limit 50 MB)."
         );
+    }
+
+    #[test]
+    fn format_megabytes_rounds_up_to_next_tenth() {
+        // Ceil direction, mirrored by helpers.test.ts on the JS side.
+        assert_eq!(format_megabytes(50_000_000), "50 MB");
+        assert_eq!(format_megabytes(50_000_001), "50.1 MB");
+        // 1.44 MB → 1.5: distinguishes ceil from round-to-nearest.
+        assert_eq!(format_megabytes(1_440_000), "1.5 MB");
+        assert_eq!(format_megabytes(1), "0.1 MB");
+        assert_eq!(format_megabytes(0), "0 MB");
+    }
+
+    // Boundary pair for the NUL gate, symmetric with the size-gate pair
+    // above — the other IPC-boundary guard with the same
+    // silent-corruption rationale.
+    #[test]
+    fn nul_payload_is_rejected() {
+        assert!(check_no_nul("a\0b").is_err());
+    }
+
+    #[test]
+    fn nul_free_payload_passes() {
+        assert!(check_no_nul("a中🦀").is_ok());
     }
 
     #[cfg(target_os = "windows")]
