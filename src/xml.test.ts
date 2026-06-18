@@ -3,7 +3,6 @@ import { createNode } from "./document";
 import type { XmlNode } from "./types";
 import {
   buildPreview,
-  findDuplicateNodes,
   isValidXmlName,
   validateDocument
 } from "./xml";
@@ -114,35 +113,16 @@ describe("validateDocument — forest walk", () => {
       bad.id
     ]);
   });
-});
 
-describe("findDuplicateNodes — sibling groups", () => {
-  it("flags same-name TOP-LEVEL sections (the roots array is a sibling group)", () => {
-    const first = node("section");
-    const second = node("section");
-    const issues = findDuplicateNodes([first, second, node("other")]);
-    expect(issues.map((issue) => issue.nodeId).sort()).toEqual(
-      [first.id, second.id].sort()
-    );
-  });
-
-  it("does not flag same names across levels", () => {
-    const roots = [node("reply", { children: [node("reply")] })];
-    expect(findDuplicateNodes(roots)).toEqual([]);
-  });
-
-  it("skips empty-named siblings (the validator owns those)", () => {
-    const roots = [node(""), node("")];
-    expect(findDuplicateNodes(roots)).toEqual([]);
-  });
-
-  it("flags nested duplicate siblings", () => {
-    const twinA = node("twin");
-    const twinB = node("twin");
-    const roots = [node("parent", { children: [twinA, twinB] })];
-    expect(findDuplicateNodes(roots).map((issue) => issue.nodeId).sort()).toEqual(
-      [twinA.id, twinB.id].sort()
-    );
+  it("accepts same-name sibling tags as valid prompt structure", () => {
+    const roots = [
+      node("examples", {
+        children: [node("example"), node("example")]
+      }),
+      node("document"),
+      node("document")
+    ];
+    expect(validateDocument(roots)).toEqual([]);
   });
 });
 

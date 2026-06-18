@@ -36,7 +36,7 @@ import {
   requestMainWindowShowAfterFirstPaint
 } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
-import { buildPreview, findDuplicateNodes, validateDocument } from "./xml";
+import { buildPreview, validateDocument } from "./xml";
 
 // Default preset chip list. Becomes the starting state, and the target of
 // the Reset action. The list is editable at runtime in the UI (cog button
@@ -80,8 +80,8 @@ const MAX_DEPTH = 256;
 const MAX_SIBLINGS = 1000;
 
 // Per-field byte cap for text content. Without it, pasting hundreds of MB
-// into the field locks typing because the four useMemo walkers (validate /
-// duplicate / preview / outline) re-run on every keystroke. The total
+// into the field locks typing because the validation, preview, and outline
+// derivations re-run on every keystroke. The total
 // MAX_XML_BYTES = 50 MB cap is enforced at copy time, but the typing-lag
 // surface hits well before that when one field gets oversized.
 //
@@ -494,29 +494,15 @@ export default function App() {
     [roots, selectedNodeId]
   );
 
-  const duplicateIssues = useMemo(
-    () => findDuplicateNodes(roots),
-    [roots]
-  );
-
   const validationIssues = useMemo(
     () => validateDocument(roots),
     [roots]
   );
 
-  // Single-pass union: duplicateNodeIds is a subset of issueNodeIds, so
-  // build them together to avoid scanning duplicateIssues twice.
-  const { issueNodeIds, duplicateNodeIds } = useMemo(() => {
-    const dup = new Set<string>();
-    for (const issue of duplicateIssues) {
-      dup.add(issue.nodeId);
-    }
-    const all = new Set<string>(dup);
-    for (const issue of validationIssues) {
-      all.add(issue.nodeId);
-    }
-    return { issueNodeIds: all, duplicateNodeIds: dup };
-  }, [validationIssues, duplicateIssues]);
+  const issueNodeIds = useMemo(
+    () => new Set(validationIssues.map((issue) => issue.nodeId)),
+    [validationIssues]
+  );
 
   // Validation against the deferred roots, used to gate the on-screen
   // preview. The build runs against deferredRoots, so the gate must too —
@@ -589,8 +575,8 @@ export default function App() {
   };
 
   const elementOutline = useMemo(
-    () => createElementOutline(roots, duplicateNodeIds),
-    [roots, duplicateNodeIds]
+    () => createElementOutline(roots),
+    [roots]
   );
 
   // The tag-name field-level message, gated on the element it was
@@ -628,9 +614,8 @@ export default function App() {
   const canMoveDown =
     activeSiblingIndex >= 0 &&
     activeSiblingIndex < activeSiblings.length - 1;
-  // "HasIssue", not "Invalid": the set also contains non-blocking
-  // duplicate-name state (valid XML names) — matches the element rows'
-  // has-issue vocabulary.
+  // Invalid XML names are the only element issue: same-name sibling tags
+  // are normal Claude prompt structure and do not surface warnings.
   const tagNameHasIssue = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
@@ -1020,27 +1005,19 @@ export default function App() {
 
     // Decide which name to apply. activeSiblings covers top-level
     // sections too (their sibling list is the forest itself), so chip
-    // suffixes and collision checks work the same at every level.
+    // suffix generation works the same at every level.
     //   - If this chip has been used on this element before, restore the
     //     exact name we wrote last time. Lets the user switch between
     //     chips without losing the original suffix on either side.
     //   - First time the chip touches this element, compute the next-free
     //     `<chip>_<N>` suffix among siblings.
-    let nameToApply: string;
-    let collisionWarning = false;
-
     const previous = memory.history.get(chipName);
+    let nameToApply: string;
     if (previous !== undefined) {
+      // Restoring a prior same-name tag is fine: repeated tags are valid
+      // prompt structure, and the chip memory promise is more useful than
+      // forcing a new suffix.
       nameToApply = previous;
-      // Restoration may collide with a sibling that has taken the slot
-      // since we last used this chip here. We restore anyway (keeps the
-      // promise that this chip → this name on this element), but flag
-      // the collision so the user knows why a duplicate badge just
-      // appeared on the row.
-      const collidingSibling = activeSiblings.find(
-        (c) => c.id !== activeNode.id && c.tagName.trim() === nameToApply
-      );
-      collisionWarning = collidingSibling !== undefined;
     } else {
       const suffix = nextAvailableSuffix(activeSiblings, chipName);
       nameToApply = `${chipName}_${suffix}`;
@@ -1063,14 +1040,7 @@ export default function App() {
     memory.history.set(chipName, nameToApply);
     memory.lastApplied = chipName;
 
-    if (collisionWarning) {
-      showWarning(
-        `Restored "${nameToApply}" — a sibling already uses that name, so it now shows as a duplicate.`,
-        activeNode.id
-      );
-    } else {
-      clearMessage();
-    }
+    clearMessage();
     // A successful apply moots both field messages: chip-applied names
     // are bounded by construction (chip ≤ 24 codepoints + "_" + digits,
     // within MAX_TAG_NAME_LENGTH — see that constant's comment), so any
@@ -1349,9 +1319,6 @@ export default function App() {
                   onClick={() => selectNode(item.id)}
                 >
                   <span className="element-label">{item.label}</span>
-                  {item.duplicate && (
-                    <span className="element-badge">Duplicate</span>
-                  )}
                 </button>
               );
             })}
@@ -1712,18 +1679,14 @@ export default function App() {
   );
 }
 
-function createElementOutline(
-  roots: XmlNode[],
-  duplicateNodeIds: Set<string>
-): NodeOutlineItem[] {
+function createElementOutline(roots: XmlNode[]): NodeOutlineItem[] {
   const items: NodeOutlineItem[] = [];
 
   const walk = (node: XmlNode, depth: number) => {
     items.push({
       id: node.id,
       depth,
-      label: buildElementLabel(node),
-      duplicate: duplicateNodeIds.has(node.id)
+      label: buildElementLabel(node)
     });
     node.children.forEach((child) => walk(child, depth + 1));
   };

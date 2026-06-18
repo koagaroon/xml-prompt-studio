@@ -50,43 +50,6 @@ export function buildPreview(roots: XmlNode[]): {
   };
 }
 
-// Checks every sibling group for duplicate tag names. The top-level
-// sections (the roots array itself) are a sibling group like any other —
-// same-name top-level sections get the same amber badge, never a blocker.
-export function findDuplicateNodes(roots: XmlNode[]): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
-
-  const checkSiblings = (siblings: XmlNode[]) => {
-    const byTagName = new Map<string, XmlNode[]>();
-
-    siblings.forEach((node) => {
-      const tagName = node.tagName.trim();
-      if (!tagName) {
-        return;
-      }
-
-      const group = byTagName.get(tagName) ?? [];
-      group.push(node);
-      byTagName.set(tagName, group);
-    });
-
-    byTagName.forEach((group) => {
-      if (group.length < 2) {
-        return;
-      }
-
-      group.forEach((duplicateNode) => {
-        issues.push({ nodeId: duplicateNode.id });
-      });
-    });
-
-    siblings.forEach((node) => checkSiblings(node.children));
-  };
-
-  checkSiblings(roots);
-  return issues;
-}
-
 // Each node emits at most one line per `kind`:
 //   - "self-closing" alone (no children, no text)
 //   - "single-line"  alone (no children, has text)

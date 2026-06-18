@@ -114,17 +114,14 @@
   --row-issue-text: #ffd9e2;
   --preview-line-active: rgb(50 97 159 / 22%);
 
-  /* Issue / error / chip / badge */
+  /* Issue / error / chip */
   --issue-bg: rgb(91 33 50 / 82%);
   --issue-text: #ffd9e2;
   --issue-input-border: rgb(220 80 110 / 85%);
   --issue-input-bg: rgb(60 18 30 / 55%);
-  --badge-bg: rgb(133 56 75 / 90%);
-  --badge-text: #ffd9e2;
 
   /* Warning strip (amber). Distinct from --issue-bg's red because warnings
-     report a side effect on a successful action (e.g., a preset restore
-     now collides with a sibling), not a refusal or failure. */
+     report non-fatal states, not validation refusals or failures. */
   --warning-bg: rgb(120 75 25 / 80%);
   --warning-text: #ffe5b3;
   --chip-bg: rgb(34 53 79 / 60%);
@@ -183,8 +180,6 @@
   --issue-bg: rgb(254 226 226 / 95%);
   --issue-text: #9b1c1c;
   --issue-input-bg: rgb(254 240 240 / 70%);
-  --badge-bg: rgb(220 80 110 / 95%);
-  --badge-text: #fff;
   --warning-bg: rgb(254 235 200 / 95%);
   --warning-text: #7a4500;
   --chip-bg: rgb(232 240 252 / 70%);
@@ -535,10 +530,10 @@ select {
   color: var(--row-active-text);
 }
 
-/* Q4 locked: persistent red highlight on rows that have any validation or
-   duplicate issue. Together with the red border on the Tag Name input, this
-   is how problems are surfaced — no separate warning/validation/duplicate
-   boxes anymore. */
+/* Persistent red highlight for rows with invalid XML tag names. Together
+   with the red border on the Tag Name input, this is how validation
+   problems are surfaced — no separate warning box for routine invalid
+   names. */
 .element-row.has-issue {
   background: var(--row-issue);
   color: var(--row-issue-text);
@@ -563,19 +558,6 @@ select {
     "PingFang SC",
     "Noto Sans CJK SC",
     monospace;
-}
-
-.element-badge {
-  font-size: 0.72rem;
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  background: var(--badge-bg);
-  color: var(--badge-text);
-
-  /* 700, not 600: bundled Inter ships 400/500/700 only, and CSS weight
-     matching resolves a 600 request up to 700 anyway — declare what
-     actually renders. */
-  font-weight: 700;
 }
 
 /* === INPUT COLUMN === */
@@ -977,11 +959,8 @@ select {
   flex-shrink: 0;
 }
 
-/* Warning variant — amber-toned. Used when an action succeeded but
-   produced a side effect worth surfacing, e.g. restoring a preset chip's
-   prior tag name where a sibling now occupies that slot. The duplicate
-   itself shows via the existing red row highlight + Duplicate badge;
-   this strip explains why it just appeared. */
+/* Warning variant — amber-toned. Used for non-fatal states such as storage
+   failures, stale-preview copy attempts, and no-op actions. */
 .message-strip.is-warning {
   background: var(--warning-bg);
   color: var(--warning-text);

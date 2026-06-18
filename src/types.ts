@@ -17,7 +17,6 @@ export type NodeOutlineItem = {
   id: string;
   depth: number;
   label: string;
-  duplicate: boolean;
 };
 
 // `kind` distinguishes the structural role of each preview line so React
