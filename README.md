@@ -1,138 +1,312 @@
 # XML Prompt Studio
 
-A Windows-first desktop app for composing XML-tagged prompts to send to Claude Code and other CLI tools. The codebase and clipboard layer are cross-platform (macOS / Linux fallbacks included), but only Windows builds are tested and shipped today.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
-Build nested structures like `<feedback>...<reply>...</reply></feedback>` in a focused three-column UI — element outline on the left, the focused element's editor in the middle, and a live formatted preview on the right — then click **Copy XML** to paste the result straight into a chat.
+> **XML Prompt Studio 是一款桌面工具，用来编写、预览并复制 XML 风格的 LLM 提示词结构。** 它适合把 `<instructions>`、`<context>`、`<input>`、`<example>` 等提示词片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具。
+>
+> _XML Prompt Studio is a desktop tool for writing, previewing, and copying XML-style prompt structures for large language model (LLM) workflows._ It helps you organize prompt sections such as `<instructions>`, `<context>`, `<input>`, and `<example>`, then copy the exact preview into Claude Code or another CLI/chat tool.
 
-The app is deliberately not a generic XML IDE: element-only, no attributes, no namespaces, no schema. Tag-name validation tracks the full W3C XML 1.0 §2.3 `Name` production, so any letter the spec allows — including Chinese, Japanese, Korean, Greek — is a valid tag name.
+The app is deliberately focused: it is an XML prompt authoring tool, not a generic XML integrated development environment (IDE). It supports element-only prompt markup, multiple top-level sections, repeated same-name tags, Unicode XML tag names, and literal WYSIWYG text content.
 
-## Why it exists
+---
 
-Prompt engineering with Claude often benefits from explicit XML-style structure (`<feedback>…</feedback>`, `<question>…</question>`, etc.). Hand-typing these in a chat window is fiddly and error-prone. This app makes building and copying nested structures a few clicks, with live preview and validation.
+## 目录 | Contents
 
-## Features
+- [下载 | Download](#下载--download)
+- [功能 | Features](#功能--features)
+- [支持范围 | Supported Scope](#支持范围--supported-scope)
+- [使用方法 | Usage](#使用方法--usage)
+- [预览与复制机制 | Preview and Copy Contract](#预览与复制机制--preview-and-copy-contract)
+- [从源码构建 | Build from Source](#从源码构建--build-from-source)
+- [架构 | Architecture](#架构--architecture)
+- [许可证 | License](#许可证--license)
 
-- Element-only XML editing — nested children, sibling insertion, reorder up/down, delete
-- Multiple top-level sections — build `<instructions>`, `<context>`, `<input>` side by side with no wrapper element; sections copy out separated by a blank line, matching the multi-section prompt shape
-- Repeated same-name tags are valid prompt structure — use sibling groups like `<example>...</example>` / `<example>...</example>` without warnings
-- Validation against the full W3C XML 1.0 §2.3 `Name` production — Unicode letters and ideographs work as tag names
-- Live formatted preview that exactly mirrors what gets copied to the clipboard
-- Customizable preset chips that fill the Tag Name input with predictable auto-suffixed names like `_1`, `_2`, … Defaults to `feedback` / `question` / `instruction` / `extra`; click the cog at the row's right end to rename, delete, or add chips (up to 6, persisted across sessions via `localStorage`)
-- Persistent red row highlight + red input border for invalid XML tag names
-- WYSIWYG text content — `<`, `&`, `>` go to the clipboard verbatim, suitable for LLM prompts (which are pattern-matched, not strictly XML-parsed)
-- Confirmation modal on **New Blank** to prevent accidental wipe
-- Copy XML success feedback via a 3-second green bloom on the preview pane
-- Dark / light theme toggle with system-preference default and persisted choice
-- DPI-aware startup sizing and centered window placement
-- Bundled fonts (Inter + JetBrains Mono) for consistent look across machines
+---
 
-## Tech stack
+## 下载 | Download
 
-- [Tauri 2](https://tauri.app/) (Rust core + system webview — WebView2 on Windows)
-- [React](https://react.dev/) 19 with TypeScript
-- [Vite](https://vite.dev/) frontend build
-- [arboard](https://github.com/1Password/arboard) clipboard layer with cross-platform CLI fallbacks (Windows `clip.exe`, macOS `pbcopy`, Linux `wl-copy` / `xclip`) for RDP / locked-clipboard / sandboxed-Wayland cases
-- [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) fonts, bundled under SIL OFL 1.1
+Windows 用户如果已有发布包，可以从 [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) 页面下载免安装的便携版 exe。
 
-## Install & Run
+Windows users can download the portable, no-installer exe from [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) when a release build is available.
 
-### Prerequisites (Windows)
+- **`xml-prompt-studio.exe`** — 图形界面（GUI），适合手动编写和复制提示词结构
+- **`xml-prompt-studio.exe`** — graphical interface (GUI), for manually composing and copying prompt structures
 
-- [Node.js](https://nodejs.org/) v20+
-- [Rust toolchain](https://rustup.rs/) (`rustup` + `cargo`)
-- Visual Studio Build Tools (MSVC linker)
-- WebView2 (pre-installed on Windows 10 / 11)
+> [!NOTE]
+> 当前项目是 Windows-first：代码和剪贴板层包含 macOS / Linux 回退路径，但目前只测试和交付 Windows 便携版。
+>
+> The project is Windows-first today: the codebase and clipboard layer include macOS / Linux fallbacks, but only Windows portable builds are tested and shipped currently.
 
-### Development
+macOS / Linux 用户请参考下方「从源码构建」。
 
-```powershell
-npm install          # one-time, installs JS deps (incl. the tauri CLI shim in node_modules/.bin)
-npm run tauri dev    # first run compiles the Rust crates, slow once
+macOS / Linux users, see "Build from Source" below.
+
+---
+
+## 功能 | Features
+
+| 功能 / Feature | 说明 / Description |
+| --- | --- |
+| **三栏编辑界面 / Three-column editor** | 左侧元素列表，中间编辑当前元素，右侧实时预览 / Element outline on the left, focused element editor in the middle, live preview on the right |
+| **多顶层提示词结构 / Multiple top-level sections** | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，不会强制包进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root |
+| **嵌套元素编辑 / Nested element editing** | 添加子元素、同级元素，上移 / 下移，删除元素 / Add children, add siblings, move elements up/down, and delete elements |
+| **同名标签有效 / Same-name tags are valid** | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会报错 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings |
+| **XML Name 校验 / XML Name validation** | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names |
+| **可编辑预设标签 / Editable preset chips** | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage` |
+| **预览即复制内容 / Preview equals clipboard** | 右侧预览和剪贴板文本来自同一条渲染管线 / The preview and clipboard payload come from the same render pipeline |
+| **剪贴板防护 / Clipboard safeguards** | 拒绝 NUL、孤立 UTF-16 surrogate、超大 UTF-8 载荷，并在 Tauri 与浏览器路径前都检查 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads before both Tauri and browser clipboard paths |
+| **主题与窗口体验 / Theme and window polish** | 深色 / 浅色主题、系统偏好初始值、DPI 感知启动尺寸、居中显示 / Dark/light themes, system-preference default, DPI-aware startup sizing, and centered launch |
+
+> [!TIP]
+> **中文标签名可用** — 例如 `<反馈>`、`<上下文>`、`<示例>` 都是有效标签名，只要符合 XML `Name` 规则。
+>
+> **Chinese tag names work** — Names such as `<反馈>`, `<上下文>`, and `<示例>` are valid as long as they follow XML `Name` rules.
+
+---
+
+## 支持范围 | Supported Scope
+
+XML Prompt Studio 输出的是提示词标记，而不是严格给 XML 解析器消费的数据文件。这个边界是产品设计的一部分。
+
+XML Prompt Studio outputs prompt markup, not strict data files meant for XML parsers. This boundary is intentional.
+
+| 项目 / Area | 当前行为 / Current behavior |
+| --- | --- |
+| 文档形态 / Document shape | 非空森林模型：多个顶层元素并列存在 / Non-empty forest model: multiple top-level elements can sit side by side |
+| 元素结构 / Element structure | 只有元素名、文本内容、子元素 / Element name, text content, and child elements only |
+| 文本内容 / Text content | WYSIWYG：`<`、`>`、`&` 会原样输出，不自动转义 / WYSIWYG: `<`, `>`, and `&` are emitted literally, not escaped |
+| 标签名 / Tag names | 对修剪后的标签名应用 XML 1.0 `Name` 校验 / XML 1.0 `Name` validation is applied to trimmed tag names |
+| 顶层分隔 / Top-level separators | 顶层 section 之间复制一个空行，与预览一致 / One blank line is copied between top-level sections, matching the preview |
+| 属性 / Attributes | 不支持 / Not supported |
+| 命名空间 / Namespaces | `:` 可作为 XML Name 字符，但不会解析 namespace 语义 / `:` is allowed by XML Name syntax, but namespace semantics are not parsed |
+| DTD / XSD / Schema | 不支持 / Not supported |
+| XPath / query tooling | 不支持 / Not supported |
+| 严格单根 XML 文档 / Strict single-root XML document | 不强制；多个顶层 prompt section 是正常用法 / Not enforced; multiple top-level prompt sections are normal |
+| 多文档工作区 / Multi-document workspace | 不支持 / Not supported |
+
+---
+
+## 使用方法 | Usage
+
+### 基本流程 | Basic Workflow
+
+1. 点击 **New Blank** 从一个新的 `<feedback>` section 开始。 / Click **New Blank** to start from a fresh `<feedback>` section.
+2. 在左侧 **Elements** 列选择当前元素。 / Select the current element in the **Elements** column.
+3. 在 **Tag Name** 中输入标签名，或点击 preset chip 自动填入标签名。 / Type a tag name in **Tag Name**, or click a preset chip to generate one.
+4. 在 **Text Content** 中输入提示词正文。 / Write prompt text in **Text Content**.
+5. 使用 **Add Child** / **Add Sibling** 扩展结构。 / Use **Add Child** / **Add Sibling** to grow the structure.
+6. 在右侧 **Preview** 确认复制内容。 / Confirm the copied content in **Preview**.
+7. 点击 **Copy XML**，把预览文本复制到剪贴板。 / Click **Copy XML** to copy the preview text to the clipboard.
+
+### 示例 | Example
+
+```xml
+<instructions>
+  Be direct, precise, and explain tradeoffs.
+</instructions>
+
+<context>
+  The user is editing a Tauri desktop app README.
+</context>
+
+<input>
+  Rewrite this section in a clearer public-facing style.
+</input>
 ```
 
-If you see `'tauri' is not recognized`, `npm install` was skipped.
+### 预设标签 | Preset Chips
 
-### Production build
+- 默认预设：`feedback`、`question`、`instruction`、`extra`
+- 点击齿轮按钮进入编辑模式，可重命名、删除、添加或恢复默认预设
+- 最多 6 个预设，每个名称最多 24 个 code points
+- 预设名称必须是有效 XML 名称，并且在预设列表中大小写不敏感地唯一
+- 点击预设会生成形如 `feedback_1`、`feedback_2` 的标签名；同级已有编号时会选择最小可用正整数
+
+- Default presets: `feedback`, `question`, `instruction`, `extra`
+- Click the cog button to enter edit mode, then rename, delete, add, or reset presets
+- Up to 6 presets, with 24 code points per preset name
+- Preset names must be valid XML names and case-insensitively unique inside the preset list
+- Clicking a preset generates names such as `feedback_1` and `feedback_2`; the smallest available positive suffix is used among siblings
+
+---
+
+## 预览与复制机制 | Preview and Copy Contract
+
+预览区是信任界面：用户看到什么，复制出去的就应该是什么。
+
+The preview is the trust surface: what you see should be what gets copied.
+
+```text
+XmlNode[] forest
+  |
+  v
+buildPreview(roots)
+  |
+  +-- PreviewLine[] rendered in the Preview column
+  |
+  `-- PreviewLine.text joined with "\n"
+        |
+        v
+      Clipboard payload
+```
+
+复制前会按优先级检查：
+
+Copy checks run in this priority order:
+
+1. 已有复制正在进行 / Another copy is already in progress
+2. 预览还没有追上最新编辑 / The deferred preview has not caught up to the latest edit
+3. 存在无效标签名 / There are invalid tag names
+4. 复制内容超过 50 MB UTF-8 上限 / The payload exceeds the 50 MB UTF-8 cap
+
+如果预览还在更新，**Copy XML** 会拒绝复制并提示等待，避免把旧预览复制出去。
+
+If the preview is still updating, **Copy XML** refuses the copy and asks you to wait, avoiding stale clipboard output.
+
+---
+
+## 从源码构建 | Build from Source
+
+### 前置条件 | Prerequisites
+
+- [Node.js](https://nodejs.org/) satisfying `^20.19.0 || ^22.13.0 || >=24`
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.82+
+- Windows: Visual Studio Build Tools (MSVC linker)
+- Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
+- macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
+
+### 开发 | Development
+
+```powershell
+npm install
+npm run tauri dev
+```
+
+如果看到 `'tauri' is not recognized`，通常是还没有运行 `npm install`。
+
+If you see `'tauri' is not recognized`, `npm install` was probably skipped.
+
+### 构建 | Production Build
 
 ```powershell
 npm run tauri build
 ```
 
-The portable single-exe lands at `src-tauri/target/release/xml-prompt-studio.exe` — installer bundling is off by default (`bundle.active: false` in `tauri.conf.json`); flip it to `true` for a one-off MSI / NSIS bundle.
+Windows 便携式 exe 会生成到：
 
-### Type check
+The Windows portable exe is produced at:
 
-```powershell
-npx tsc --noEmit                      # app source (src/)
-npx tsc -p tsconfig.node.json         # vite.config.ts
+```text
+src-tauri/target/release/xml-prompt-studio.exe
 ```
 
-### Tests
+`src-tauri/tauri.conf.json` 当前设置 `bundle.active: false`，所以默认输出是便携式二进制文件，而不是 MSI / NSIS 安装包。
+
+`src-tauri/tauri.conf.json` currently sets `bundle.active: false`, so the default output is a portable binary rather than an MSI / NSIS installer.
+
+### 测试 | Testing
 
 ```powershell
-npm test
-```
-
-### Rust check
-
-The Rust crate lives in `src-tauri/` (standard Tauri 2 layout):
-
-```powershell
+npm run lint
+npm run test
+npm run build
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
-Or from inside that directory:
+拆分命令：
+
+Split commands:
 
 ```powershell
-cd src-tauri
-cargo check
+npm run lint:js
+npm run lint:css
+npm run lint:rs
+npm run test:js
+npm run test:rs
 ```
 
-## Future ideas
+---
 
-Direction-compatible extensions worth considering:
+## 架构 | Architecture
 
-- Undo / redo — the data model is already immutable, a history stack is straightforward
+```text
+┌────────────────────────────────────────────────────────────────────┐
+│  React + TypeScript frontend                                      │
+│  - App.tsx: UI state, event handlers, selection, confirmations     │
+│  - document.ts: immutable tree operations                          │
+│  - xml.ts: validation and preview rendering                        │
+│  - helpers.ts: pure limits, copy readiness, preset helpers          │
+│  - tauri.ts: frontend clipboard bridge and startup show request     │
+└───────────────────────────────┬────────────────────────────────────┘
+                                │
+                         Tauri IPC
+                                │
+┌───────────────────────────────┴────────────────────────────────────┐
+│  Rust native layer                                                  │
+│  - copy_xml_to_clipboard: serialized native clipboard boundary      │
+│  - arboard persistent clipboard handle                              │
+│  - native fallback helpers: clip.exe / pbcopy / wl-copy / xclip     │
+│  - launch sizing, centering, hidden-window show fallback            │
+└────────────────────────────────────────────────────────────────────┘
+```
 
-## Non-goals
+Important design locks:
 
-Intentional product boundaries, not missing features:
+- `src-tauri/Cargo.toml` is the app-version source of truth.
+- `tauri.conf.json` intentionally omits `version`.
+- `buildPreview(roots)` is the shared source for preview and copied XML.
+- Strict Content Security Policy (CSP, 内容安全策略) is enabled; avoid inline styles/scripts in production-sensitive code.
+- The Rust layer stays thin; product logic belongs in the frontend unless native APIs are required.
 
-- Full XML editor parity
-- Attributes, namespaces, DTDs, or schema tooling
-- Complex document import
-- Rich-text editing inside text content
-- Multi-document workspace features
+---
 
-## License
+## 许可证 | License
 
 Copyright (c) 2026 koagaroon
 
-The application's source code is licensed under the [MIT License](LICENSE).
+本项目采用 [MIT License](LICENSE) 授权。
 
-### Bundled fonts
+This project is licensed under the [MIT License](LICENSE).
 
-The fonts in `public/fonts/` ship with the application binary under their own license, the SIL Open Font License (OFL) Version 1.1 — separate from the project's MIT license. The verbatim license texts are included alongside the font files; see [`public/fonts/LICENSES.md`](public/fonts/LICENSES.md) for an index, and the [`Inter-LICENSE.txt`](public/fonts/Inter-LICENSE.txt) / [`JetBrainsMono-OFL.txt`](public/fonts/JetBrainsMono-OFL.txt) files for the full text.
+### 捆绑字体 | Bundled Fonts
 
-### Third-party dependencies
+`public/fonts/` 中的字体会随应用一起分发，并使用各自的 SIL Open Font License (OFL) Version 1.1，而不是项目的 MIT License。完整许可证文本已随字体文件一起包含。
 
-#### Runtime (shipped with the application)
+The fonts in `public/fonts/` ship with the application and are licensed under their own SIL Open Font License (OFL) Version 1.1, not under the project's MIT License. The full license texts are included alongside the font files.
 
-| Component | License | Usage |
+| 字体 / Font | 许可证 / License | 用途 / Usage |
 | --- | --- | --- |
-| [Tauri](https://tauri.app/) | MIT OR Apache-2.0 | Desktop application framework |
-| [@tauri-apps/api](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | Frontend-to-Rust IPC bridge |
-| [React](https://react.dev/) | MIT | UI framework |
-| [arboard](https://github.com/1Password/arboard) | MIT OR Apache-2.0 | Cross-platform clipboard access (Rust) |
-| [Inter](https://rsms.me/inter/) | SIL OFL 1.1 | Bundled UI font (Regular / Medium / Bold) |
-| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | SIL OFL 1.1 | Bundled monospace font (Regular / SemiBold) |
+| [Inter](https://rsms.me/inter/) | [SIL Open Font License 1.1](public/fonts/Inter-LICENSE.txt) | UI body, labels, and controls |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | [SIL Open Font License 1.1](public/fonts/JetBrainsMono-OFL.txt) | XML preview, tag names, and monospaced UI text |
 
-#### Build-time only (not shipped)
+See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the short attribution index.
 
-| Component | License | Usage |
+### 第三方依赖 | Third-Party Dependencies
+
+下表列出主要直接依赖和随应用分发的资产；完整传递依赖以 `package-lock.json` 和 `src-tauri/Cargo.lock` 为准。
+
+The tables below list the main direct dependencies and bundled assets; the full transitive dependency set is recorded in `package-lock.json` and `src-tauri/Cargo.lock`.
+
+#### 运行时依赖（随应用分发）| Runtime (shipped with the application)
+
+| 组件 / Component | 许可证 / License | 用途 / Usage |
 | --- | --- | --- |
-| [TypeScript](https://www.typescriptlang.org/) | Apache-2.0 | Type checking |
-| [Vite](https://vite.dev/) | MIT | Frontend build tool |
-| [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | MIT | React support for Vite |
-| [@tauri-apps/cli](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | Tauri build and dev CLI |
-| [tauri-build](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | Tauri Rust build script helper |
+| [Tauri](https://tauri.app/) | MIT OR Apache-2.0 | 桌面应用框架 / Desktop app framework |
+| [@tauri-apps/api](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | 前端到 Rust 的 IPC bridge / Frontend-to-Rust IPC bridge |
+| [React](https://react.dev/) / React DOM | MIT | UI 框架 / UI framework |
+| [arboard](https://github.com/1Password/arboard) | MIT OR Apache-2.0 | 跨平台剪贴板访问 / Cross-platform clipboard access |
+| [Inter](https://rsms.me/inter/) | SIL OFL 1.1 | 捆绑 UI 字体 / Bundled UI font |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | SIL OFL 1.1 | 捆绑等宽字体 / Bundled monospace font |
+
+#### 构建时依赖（不随应用分发）| Build-time only (not shipped)
+
+| 组件 / Component | 许可证 / License | 用途 / Usage |
+| --- | --- | --- |
+| [TypeScript](https://www.typescriptlang.org/) | Apache-2.0 | 类型检查 / Type checking |
+| [Vite](https://vite.dev/) | MIT | 前端构建工具 / Frontend build tool |
+| [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | MIT | Vite React 支持 / React support for Vite |
+| [Tauri CLI](https://tauri.app/) | MIT OR Apache-2.0 | Tauri 构建入口 / Tauri build entry point |
+| [tauri-build](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | Tauri Rust 构建脚本 helper / Tauri Rust build script helper |
+| [ESLint](https://eslint.org/) | MIT | JavaScript / TypeScript 代码检查 / JavaScript and TypeScript linting |
+| [Stylelint](https://stylelint.io/) | MIT | CSS 代码检查 / CSS linting |
+| [Vitest](https://vitest.dev/) | MIT | 单元测试 / Unit testing |
