@@ -2,13 +2,13 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
-> **XML Prompt Studio 是一款桌面工具，用来编写、预览并复制 XML 风格的大语言模型（Large Language Model, LLM）提示词结构。** 它适合把 `<instructions>`、`<context>`、`<input>`、`<example>` 等提示词片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具。
+> **XML Prompt Studio 是一款桌面工具，用于编写、预览和复制 XML 风格的大语言模型（LLM）提示词。** 你可以把 `<instructions>`、`<context>`、`<input>`、`<example>` 等片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具中。
 >
-> _XML Prompt Studio is a desktop tool for writing, previewing, and copying XML-style prompt structures for large language model (LLM) workflows._ It helps you organize prompt sections such as `<instructions>`, `<context>`, `<input>`, and `<example>`, then copy the exact preview into Claude Code or another CLI/chat tool.
+> _XML Prompt Studio is a desktop app for writing, previewing, and copying XML-style prompts for large language model (LLM) workflows._ You can organize sections such as `<instructions>`, `<context>`, `<input>`, and `<example>` into a clear tag structure, then copy them into Claude Code or another CLI/chat tool.
 
-这款应用保持刻意聚焦：它是 XML 提示词创作工具，不是通用 XML 集成开发环境（Integrated Development Environment, IDE）。它支持纯元素提示词标记、多顶层 section、同名重复标签、Unicode XML 标签名，以及字面所见即所得（What You See Is What You Get, WYSIWYG）文本内容。
+这款应用有意保持聚焦：它是一个 XML 提示词创作工具，而不是通用的 XML IDE。它只使用元素标记提示词、允许多个顶层 section、支持同名标签重复出现、允许 Unicode 标签名，并原样输出文本内容（所见即所得，WYSIWYG）。
 
-The app is deliberately focused: it is an XML prompt authoring tool, not a generic XML integrated development environment (IDE). It supports element-only prompt markup, multiple top-level sections, repeated same-name tags, Unicode XML tag names, and literal WYSIWYG text content.
+This app is intentionally focused: it is an XML prompt authoring tool, not a general-purpose XML IDE. It uses element-only prompt markup, allows multiple top-level sections, supports repeated same-name tags, accepts Unicode tag names, and outputs text content exactly as written (WYSIWYG).
 
 ---
 
@@ -27,17 +27,17 @@ The app is deliberately focused: it is an XML prompt authoring tool, not a gener
 
 ## 下载 | Download
 
-Windows 用户如果已有发布包，可以从 [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) 页面下载免安装的便携版 exe。
+Windows 用户可在 [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) 页面下载免安装的便携版 exe。
 
-Windows users can download the portable, no-installer exe from [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) when a release build is available.
+Windows users can download the portable, no-installer exe from the [Releases](https://github.com/koagaroon/xml-prompt-studio/releases) page.
 
 - **`xml-prompt-studio.exe`** — 图形界面（GUI），适合手动编写和复制提示词结构
 - **`xml-prompt-studio.exe`** — graphical interface (GUI), for manually composing and copying prompt structures
 
 > [!NOTE]
-> 当前项目是 Windows-first：代码和剪贴板层包含 macOS / Linux 回退路径，但目前只测试和交付 Windows 便携版。
+> 目前项目优先支持 Windows：代码和剪贴板层预留了 macOS / Linux 的备用方案，但现阶段仅测试与交付 Windows 便携版。
 >
-> The project is Windows-first today: the codebase and clipboard layer include macOS / Linux fallbacks, but only Windows portable builds are tested and shipped currently.
+> The project currently prioritizes Windows: the codebase and clipboard layer include macOS / Linux fallback options, but only Windows portable builds are tested and shipped at this stage.
 
 macOS / Linux 用户请参考下方「从源码构建」。
 
@@ -55,8 +55,8 @@ macOS / Linux users, see "Build from Source" below.
 | **同名标签有效 / Same-name tags are valid** | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会报错 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings |
 | **XML Name 校验 / XML Name validation** | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names |
 | **可编辑预设标签 / Editable preset chips** | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage` |
-| **预览即复制内容 / Preview equals clipboard** | 右侧预览和剪贴板文本来自同一条渲染管线 / The preview and clipboard payload come from the same render pipeline |
-| **剪贴板防护 / Clipboard safeguards** | 拒绝 NUL、孤立 UTF-16 surrogate、超大 UTF-8 载荷，并在 Tauri 与浏览器路径前都检查 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads before both Tauri and browser clipboard paths |
+| **预览内容 = 剪贴板内容 / Preview matches clipboard** | 右侧预览就是实际复制到剪贴板的文本 / The right-side preview is the text copied to the clipboard |
+| **剪贴板防护 / Clipboard safeguards** | 拒绝 NUL 字符、孤立 UTF-16 代理项以及超大 UTF-8 载荷，并在 Tauri 与浏览器两条剪贴板路径中均进行校验 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads, with validation on both the Tauri and browser clipboard paths |
 | **主题与窗口体验 / Theme and window polish** | 深色 / 浅色主题、系统偏好初始值、DPI 感知启动尺寸、居中显示 / Dark/light themes, system-preference default, DPI-aware startup sizing, and centered launch |
 
 > [!TIP]
@@ -125,13 +125,13 @@ The example below shows multiple top-level sections emitted side by side, separa
 - 默认预设：`feedback`、`question`、`instruction`、`extra`
 - 点击齿轮按钮进入编辑模式，可重命名、删除、添加或恢复默认预设
 - 最多 6 个预设，每个名称最多 24 个 code points
-- 预设名称必须是有效 XML 名称，并且在预设列表中大小写不敏感地唯一
+- 预设名称必须是有效的 XML 名称，且在预设列表中唯一（不区分大小写）
 - 点击预设会生成形如 `feedback_1`、`feedback_2` 的标签名；同级已有编号时会选择最小可用正整数
 
 - Default presets: `feedback`, `question`, `instruction`, `extra`
 - Click the cog button to enter edit mode, then rename, delete, add, or reset presets
 - Up to 6 presets, with 24 code points per preset name
-- Preset names must be valid XML names and case-insensitively unique inside the preset list
+- Preset names must be valid XML names and unique within the preset list (case-insensitive)
 - Clicking a preset generates names such as `feedback_1` and `feedback_2`; the smallest available positive suffix is used among siblings
 
 ---
@@ -161,13 +161,13 @@ buildPreview(roots)
 Copy checks run in this priority order:
 
 1. 已有复制正在进行 / Another copy is already in progress
-2. 预览还没有追上最新编辑 / The deferred preview has not caught up to the latest edit
+2. 预览尚未更新到最新编辑内容 / The preview has not updated to the latest edit yet
 3. 存在无效标签名 / There are invalid tag names
 4. 复制内容超过 50 MB UTF-8 上限 / The payload exceeds the 50 MB UTF-8 cap
 
-如果预览还在更新，**Copy XML** 会拒绝复制并提示等待，避免把旧预览复制出去。
+如果预览仍在更新，**Copy XML** 会拒绝复制并提示等待，以防将过时的内容复制出去。
 
-If the preview is still updating, **Copy XML** refuses the copy and asks you to wait, avoiding stale clipboard output.
+If the preview is still updating, **Copy XML** refuses the copy and asks you to wait, preventing outdated content from being copied.
 
 ---
 
@@ -295,9 +295,9 @@ See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICE
 
 ### 第三方依赖 | Third-Party Dependencies
 
-下表列出主要直接依赖和随应用分发的资产；完整传递依赖以 `package-lock.json` 和 `src-tauri/Cargo.lock` 为准。
+下表列出主要直接依赖和随应用分发的资产；完整的传递依赖链请分别参见 `package-lock.json` 和 `src-tauri/Cargo.lock`。
 
-The tables below list the main direct dependencies and bundled assets; the full transitive dependency set is recorded in `package-lock.json` and `src-tauri/Cargo.lock`.
+The tables below list the main direct dependencies and bundled assets; for the full transitive dependency graph, see `package-lock.json` and `src-tauri/Cargo.lock`.
 
 #### 运行时依赖（随应用分发）| Runtime (shipped with the application)
 
