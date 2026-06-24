@@ -2,9 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
-> **XML Prompt Studio 是一款桌面工具，用来编写、预览并复制 XML 风格的 LLM 提示词结构。** 它适合把 `<instructions>`、`<context>`、`<input>`、`<example>` 等提示词片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具。
+> **XML Prompt Studio 是一款桌面工具，用来编写、预览并复制 XML 风格的大语言模型（Large Language Model, LLM）提示词结构。** 它适合把 `<instructions>`、`<context>`、`<input>`、`<example>` 等提示词片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具。
 >
 > _XML Prompt Studio is a desktop tool for writing, previewing, and copying XML-style prompt structures for large language model (LLM) workflows._ It helps you organize prompt sections such as `<instructions>`, `<context>`, `<input>`, and `<example>`, then copy the exact preview into Claude Code or another CLI/chat tool.
+
+这款应用保持刻意聚焦：它是 XML 提示词创作工具，不是通用 XML 集成开发环境（Integrated Development Environment, IDE）。它支持纯元素提示词标记、多顶层 section、同名重复标签、Unicode XML 标签名，以及字面所见即所得（What You See Is What You Get, WYSIWYG）文本内容。
 
 The app is deliberately focused: it is an XML prompt authoring tool, not a generic XML integrated development environment (IDE). It supports element-only prompt markup, multiple top-level sections, repeated same-name tags, Unicode XML tag names, and literal WYSIWYG text content.
 
@@ -99,6 +101,10 @@ XML Prompt Studio outputs prompt markup, not strict data files meant for XML par
 7. 点击 **Copy XML**，把预览文本复制到剪贴板。 / Click **Copy XML** to copy the preview text to the clipboard.
 
 ### 示例 | Example
+
+下面的示例展示多个顶层 section 并列输出，中间用一个空行分隔。
+
+The example below shows multiple top-level sections emitted side by side, separated by one blank line.
 
 ```xml
 <instructions>
@@ -250,13 +256,17 @@ npm run test:rs
 +----------------------------------------------------------------------+
 ```
 
+重要设计约束：
+
 Important design locks:
 
-- `src-tauri/Cargo.toml` is the app-version source of truth.
-- `tauri.conf.json` intentionally omits `version`.
-- `buildPreview(roots)` is the shared source for preview and copied XML.
-- Strict Content Security Policy (CSP, 内容安全策略) is enabled; avoid inline styles/scripts in production-sensitive code.
-- The Rust layer stays thin; product logic belongs in the frontend unless native APIs are required.
+| 约束 / Lock | 说明 / Description |
+| --- | --- |
+| 应用版本来源 / App version source | `src-tauri/Cargo.toml` 是应用版本的唯一来源 / `src-tauri/Cargo.toml` is the app-version source of truth |
+| Tauri 配置版本 / Tauri config version | `tauri.conf.json` 刻意省略 `version` / `tauri.conf.json` intentionally omits `version` |
+| 预览与复制管线 / Preview and copy pipeline | `buildPreview(roots)` 同时驱动预览和复制 XML / `buildPreview(roots)` is the shared source for preview and copied XML |
+| Content Security Policy (CSP, 内容安全策略) | 生产敏感代码避免 inline styles/scripts / Avoid inline styles/scripts in production-sensitive code |
+| 原生层边界 / Native layer boundary | Rust 层保持很薄；除非必须使用原生 API，产品逻辑放在前端 / The Rust layer stays thin; product logic belongs in the frontend unless native APIs are required |
 
 ---
 
@@ -276,8 +286,10 @@ The fonts in `public/fonts/` ship with the application and are licensed under th
 
 | 字体 / Font | 许可证 / License | 用途 / Usage |
 | --- | --- | --- |
-| [Inter](https://rsms.me/inter/) | [SIL Open Font License 1.1](public/fonts/Inter-LICENSE.txt) | UI body, labels, and controls |
-| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | [SIL Open Font License 1.1](public/fonts/JetBrainsMono-OFL.txt) | XML preview, tag names, and monospaced UI text |
+| [Inter](https://rsms.me/inter/) | [SIL Open Font License 1.1](public/fonts/Inter-LICENSE.txt) | UI 正文、标签和控件 / UI body, labels, and controls |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | [SIL Open Font License 1.1](public/fonts/JetBrainsMono-OFL.txt) | XML 预览、标签名和等宽 UI 文本 / XML preview, tag names, and monospaced UI text |
+
+更多简短归属索引见 [public/fonts/LICENSES.md](public/fonts/LICENSES.md) 和 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the short attribution index.
 
