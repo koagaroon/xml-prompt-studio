@@ -230,24 +230,24 @@ npm run test:rs
 ## 架构 | Architecture
 
 ```text
-┌────────────────────────────────────────────────────────────────────┐
-│  React + TypeScript frontend                                      │
-│  - App.tsx: UI state, event handlers, selection, confirmations     │
-│  - document.ts: immutable tree operations                          │
-│  - xml.ts: validation and preview rendering                        │
-│  - helpers.ts: pure limits, copy readiness, preset helpers          │
-│  - tauri.ts: frontend clipboard bridge and startup show request     │
-└───────────────────────────────┬────────────────────────────────────┘
-                                │
-                         Tauri IPC
-                                │
-┌───────────────────────────────┴────────────────────────────────────┐
-│  Rust native layer                                                  │
-│  - copy_xml_to_clipboard: serialized native clipboard boundary      │
-│  - arboard persistent clipboard handle                              │
-│  - native fallback helpers: clip.exe / pbcopy / wl-copy / xclip     │
-│  - launch sizing, centering, hidden-window show fallback            │
-└────────────────────────────────────────────────────────────────────┘
++----------------------------------------------------------------------+
+| React + TypeScript frontend                                          |
+| - App.tsx: UI state, handlers, selection, confirmations              |
+| - document.ts: immutable tree operations                             |
+| - xml.ts: validation and preview rendering                           |
+| - helpers.ts: pure limits, copy readiness, preset helpers            |
+| - tauri.ts: clipboard bridge and startup show request                |
++----------------------------------------------------------------------+
+                                   |
+                                Tauri IPC
+                                   |
++----------------------------------------------------------------------+
+| Rust native layer                                                    |
+| - copy_xml_to_clipboard: serialized clipboard boundary               |
+| - arboard persistent clipboard handle                                |
+| - native fallbacks: clip.exe / pbcopy / wl-copy / xclip              |
+| - launch sizing, centering, hidden-window show fallback              |
++----------------------------------------------------------------------+
 ```
 
 Important design locks:
