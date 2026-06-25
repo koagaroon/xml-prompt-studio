@@ -1,16 +1,17 @@
 use arboard::Clipboard;
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::fs;
+use std::io::{Read, Write};
 #[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 use tauri::{LogicalSize, Manager, Size};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
@@ -31,7 +32,7 @@ const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
 const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
-static TEMP_STDIN_COUNTER: AtomicU64 = AtomicU64::new(0);
+const STDIN_WRITER_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
 
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
@@ -63,26 +64,12 @@ impl StartupTiming {
         self.main_window_shown.load(Ordering::SeqCst)
     }
 
-    // Atomically claim the single "show the main window" slot. The
-    // frontend command and the 5 s fallback thread can race here; a
-    // plain check-then-show would let both observe "not shown" and
-    // double-call show(). OS-level show() is idempotent, so that race
-    // was benign — the claim exists to keep the startup log truthful
-    // about which path actually showed the window.
-    fn try_claim_main_window_show(&self) -> bool {
-        self.main_window_shown
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-    }
-
-    // Release a claim whose show() failed. Best-effort, not a rescue
-    // guarantee: the other path helps only if it hasn't already run its
-    // single check and been turned away while this claim was in flight
-    // (the 5 s fallback is one-shot). Accepted residual: that window is
-    // microseconds wide AND requires show() itself to fail; the symptom
-    // (no window) is the documented release-build known limit.
-    fn release_main_window_show(&self) {
-        self.main_window_shown.store(false, Ordering::SeqCst);
+    // Record actual success, not an in-flight claim. The frontend path
+    // and fallback path may race and both call show(); Tauri show() is
+    // idempotent, while a one-shot fallback skipping a failed in-flight
+    // show attempt can strand the window hidden.
+    fn mark_main_window_shown(&self) {
+        self.main_window_shown.store(true, Ordering::SeqCst);
     }
 }
 
@@ -257,22 +244,21 @@ fn show_main_window_with_handle(
     timing: &StartupTiming,
     source: &str,
 ) -> Result<(), String> {
-    if !timing.try_claim_main_window_show() {
-        // "claimed" not "visible": the other path may still be mid-show.
-        log_startup(timing, &format!("{source}: show already claimed; skipping"));
+    if timing.is_main_window_shown() {
+        log_startup(
+            timing,
+            &format!("{source}: main window already shown; skipping"),
+        );
         return Ok(());
     }
 
-    let release_claim = |error: String| {
-        timing.release_main_window_show();
-        error
-    };
     let window = app_handle
         .get_webview_window("main")
-        .ok_or_else(|| release_claim("main window missing".to_string()))?;
+        .ok_or_else(|| "main window missing".to_string())?;
     window
         .show()
-        .map_err(|error| release_claim(format!("failed to show main window: {error}")))?;
+        .map_err(|error| format!("failed to show main window: {error}"))?;
+    timing.mark_main_window_shown();
     log_startup(timing, &format!("{source}: main window shown"));
     Ok(())
 }
@@ -308,7 +294,7 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         // clipboard contract; BOM-less UTF-16 LE decodes correctly for
         // ASCII-only, CJK, and non-BMP payloads alike.
         let clip = windows_system32_helper("clip.exe")?;
-        return spawn_and_pipe("clip.exe", &clip, &[], &utf16le(xml), true)
+        return spawn_and_pipe("clip.exe", &clip, &[], utf16le(xml), true)
             .map_err(HelperRunError::into_message);
     }
     #[cfg(target_os = "macos")]
@@ -317,14 +303,15 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         // command wrapper below forces LC_CTYPE to a UTF-8 locale so a GUI
         // launch without Terminal's locale cannot silently garble XML.
         let pbcopy = trusted_helper("pbcopy", &["/usr/bin/pbcopy"])?;
-        return spawn_and_pipe("pbcopy", &pbcopy, &[], xml.as_bytes(), true)
+        return spawn_and_pipe("pbcopy", &pbcopy, &[], xml.as_bytes().to_vec(), true)
             .map_err(HelperRunError::into_message);
     }
     #[cfg(target_os = "linux")]
     {
         // Try Wayland's wl-copy first (modern), fall back to X11's xclip
-        // (legacy). Either may be missing depending on the distro / session
-        // type; if both fail, chain the errors (mirrors the arboard→native
+        // (legacy). Use package-managed system locations only; either helper
+        // may be missing depending on the distro / session type. If both fail,
+        // chain the errors (mirrors the arboard→native
         // chaining above) so the user sees the full failure trail when
         // diagnosing "why doesn't Copy work on this Linux session?". The
         // inner errors already carry their own tool prefixes — no extra
@@ -333,10 +320,11 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         // spawn_linux_helper iterates candidates: a stat-passing but
         // unspawnable binary at a trusted path (stale FHS compat shim,
         // wrong architecture) advances to the next candidate instead of
-        // masking the vetted-PATH arm that exists for exactly that case.
+        // masking the next trusted absolute candidate that exists for
+        // exactly that case.
         let wl_err = match spawn_linux_helper(
             "wl-copy",
-            &["/usr/bin/wl-copy", "/usr/local/bin/wl-copy", "/bin/wl-copy"],
+            &["/usr/bin/wl-copy", "/bin/wl-copy"],
             &[],
             xml.as_bytes(),
         ) {
@@ -345,7 +333,7 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         };
         return spawn_linux_helper(
             "xclip",
-            &["/usr/bin/xclip", "/usr/local/bin/xclip", "/bin/xclip"],
+            &["/usr/bin/xclip", "/bin/xclip"],
             &["-selection", "clipboard"],
             xml.as_bytes(),
         )
@@ -393,23 +381,35 @@ where
     I: IntoIterator<Item = P>,
     P: AsRef<Path>,
 {
-    // Same checked/skipped error contract as its vetted-PATH twin
-    // (helper_from_path_entries): non-absolute candidates are reported
-    // as skipped, not as probed — the error must not claim a check that
-    // never ran.
+    trusted_helper_candidates(name, candidates).map(|mut candidates| candidates.remove(0))
+}
+
+fn trusted_helper_candidates<I, P>(name: &str, candidates: I) -> Result<Vec<PathBuf>, String>
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
     let mut checked = Vec::new();
     let mut skipped = Vec::new();
+    let mut seen = Vec::new();
+    let mut usable = Vec::new();
+
     for candidate in candidates {
         let path = candidate.as_ref();
         if !path.is_absolute() {
-            skipped.push(display_path_entry(path));
+            skipped.push(display_candidate_path(path));
             continue;
         }
         checked.push(path.display().to_string());
         if helper_is_usable(path) {
-            return Ok(path.to_path_buf());
+            push_unique_canonical(path, &mut seen, &mut usable);
         }
     }
+
+    if !usable.is_empty() {
+        return Ok(usable);
+    }
+
     let checked_text = if checked.is_empty() {
         "none".to_string()
     } else {
@@ -425,80 +425,33 @@ where
     ))
 }
 
-// Env-reading wrapper over linux_helper_candidates_from — tests use the
-// injectable form directly, so this is test-dead by design.
+fn push_unique_canonical(path: &Path, seen: &mut Vec<PathBuf>, candidates: &mut Vec<PathBuf>) {
+    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !seen.contains(&canonical) {
+        seen.push(canonical);
+        candidates.push(path.to_path_buf());
+    }
+}
+
+fn display_candidate_path(path: &Path) -> String {
+    if path.as_os_str().is_empty() {
+        "<empty>".to_string()
+    } else {
+        path.display().to_string()
+    }
+}
+
+// Ordered candidate list for a Linux clipboard helper: trusted absolute
+// helper locations only. We deliberately do not consult inherited PATH:
+// absolute PATH entries can still be user-writable or launch-controlled,
+// and spawning from them reintroduces helper hijack risk.
 #[cfg(any(target_os = "linux", test))]
 #[cfg_attr(test, allow(dead_code))]
 fn linux_helper_candidates(
     name: &str,
     trusted_candidates: &[&str],
 ) -> Result<Vec<PathBuf>, String> {
-    let path_entries = std::env::var_os("PATH")
-        .map(|path_var| std::env::split_paths(&path_var).collect::<Vec<_>>());
-    linux_helper_candidates_from(name, trusted_candidates, path_entries)
-}
-
-// Ordered candidate list for a Linux clipboard helper: every usable
-// trusted-location hit first, then the first vetted-PATH hit. Deduped
-// by CANONICALIZED path: usrmerged distros alias /bin to /usr/bin, so
-// two literal candidates can be the same binary — and running an
-// identical failed helper twice doubles the error chain and the
-// worst-case wait for nothing. Returns the detailed two-stage
-// resolution error when nothing is usable anywhere. PATH entries are
-// injected (not read here) so the dedup is testable without mutating
-// the process-global PATH.
-#[cfg(any(target_os = "linux", test))]
-fn linux_helper_candidates_from(
-    name: &str,
-    trusted_candidates: &[&str],
-    path_entries: Option<Vec<PathBuf>>,
-) -> Result<Vec<PathBuf>, String> {
-    fn push_unique(path: &Path, seen: &mut Vec<PathBuf>, candidates: &mut Vec<PathBuf>) {
-        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if !seen.contains(&canonical) {
-            seen.push(canonical);
-            candidates.push(path.to_path_buf());
-        }
-    }
-
-    let mut seen: Vec<PathBuf> = Vec::new();
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    for candidate in trusted_candidates {
-        let path = Path::new(candidate);
-        if path.is_absolute() && helper_is_usable(path) {
-            push_unique(path, &mut seen, &mut candidates);
-        }
-    }
-    if let Some(entries) = &path_entries {
-        if let Ok(found) = helper_from_path_entries(name, entries) {
-            push_unique(&found, &mut seen, &mut candidates);
-        }
-    }
-    if !candidates.is_empty() {
-        return Ok(candidates);
-    }
-    let trusted_err = match trusted_helper(name, trusted_candidates) {
-        // A helper appearing between the scans above is a race we accept
-        // gracefully rather than error on.
-        Ok(path) => return Ok(vec![path]),
-        Err(error) => error,
-    };
-    let Some(entries) = path_entries else {
-        return Err(format!("{trusted_err}; PATH fallback: PATH is not set"));
-    };
-    match helper_from_path_entries(name, &entries) {
-        Ok(path) => Ok(vec![path]),
-        Err(path_err) => {
-            // helper_from_path_entries prefixes "{name}: " — strip it
-            // here, the leading component already names the tool (the
-            // codebase avoids "wl-copy: …; wl-copy: …" chains).
-            let stripped = path_err
-                .strip_prefix(&format!("{name}: "))
-                .map(str::to_string)
-                .unwrap_or(path_err);
-            Err(format!("{trusted_err}; PATH fallback: {stripped}"))
-        }
-    }
+    trusted_helper_candidates(name, trusted_candidates)
 }
 
 // Spawn a Linux clipboard helper, advancing through the candidate list
@@ -522,7 +475,7 @@ fn spawn_linux_helper(
     let candidates = linux_helper_candidates(name, trusted_candidates)?;
     let mut errors: Vec<String> = Vec::new();
     for candidate in &candidates {
-        match spawn_and_pipe(name, candidate, args, payload, false) {
+        match spawn_and_pipe(name, candidate, args, payload.to_vec(), false) {
             Ok(()) => return Ok(()),
             Err(HelperRunError::Spawn(message)) => errors.push(message),
             Err(HelperRunError::Ran(message)) => {
@@ -532,50 +485,6 @@ fn spawn_linux_helper(
         }
     }
     Err(errors.join("; "))
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn helper_from_path_entries<I, P>(name: &str, entries: I) -> Result<PathBuf, String>
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    let mut checked = Vec::new();
-    let mut skipped = Vec::new();
-    for entry in entries {
-        let dir = entry.as_ref();
-        if dir.as_os_str().is_empty() || !dir.is_absolute() {
-            skipped.push(display_path_entry(dir));
-            continue;
-        }
-        let candidate = dir.join(name);
-        checked.push(candidate.display().to_string());
-        if helper_is_usable(&candidate) {
-            return Ok(candidate);
-        }
-    }
-
-    let checked_text = if checked.is_empty() {
-        "none".to_string()
-    } else {
-        checked.join(", ")
-    };
-    let skipped_text = if skipped.is_empty() {
-        String::new()
-    } else {
-        format!("; skipped unsafe PATH entries: {}", skipped.join(", "))
-    };
-    Err(format!(
-        "{name}: helper not found in vetted PATH entries: {checked_text}{skipped_text}"
-    ))
-}
-
-fn display_path_entry(path: &Path) -> String {
-    if path.as_os_str().is_empty() {
-        "<empty>".to_string()
-    } else {
-        path.display().to_string()
-    }
 }
 
 fn helper_is_usable(path: &Path) -> bool {
@@ -620,45 +529,32 @@ impl HelperRunError {
 }
 
 // Shared helper for "spawn a command with payload on stdin, surface
-// success/failure as a two-class HelperRunError". All three native
-// fallbacks share the same shape; centralizing the error handling keeps
-// the per-OS branches short and consistent. The stdin payload is passed
-// through a temporary file instead of a pipe so the timeout covers
-// helper execution without a parent-side writer thread that can block
-// on a full pipe — and stderr, when captured, goes through a temporary
-// file for the mirrored reason: a pipe filled past its ~64 KB capacity
-// by a noisy helper would block the helper until the timeout, replacing
-// its real diagnostic with a timeout message.
+// success/failure as a two-class HelperRunError". The payload is written
+// through an anonymous pipe on a writer thread, never through a named
+// temp path. The writer is checked after the child settles so a helper
+// that exits before consuming the full payload cannot be reported as a
+// successful clipboard write.
 //
-// `capture_stderr: false` is for tools that fork a background process
-// inheriting the stderr handle (wl-copy / xclip) — the daemon would keep
-// appending to the capture long after the foreground parent exits, so
-// only the exit code is a reliable signal there. Tools that run to
-// completion (clip.exe / pbcopy) pass true and keep their stderr in the
-// error message.
+// `capture_stderr: false` is for tools that may fork a background
+// process inheriting stderr (wl-copy / xclip). Tools that run to
+// completion (clip.exe / pbcopy) pass true and keep bounded stderr in
+// the error message.
 fn spawn_and_pipe(
     cmd: &str,
     program: &Path,
     args: &[&str],
-    payload: &[u8],
+    payload: Vec<u8>,
     capture_stderr: bool,
 ) -> Result<(), HelperRunError> {
-    let (stdin_file, _stdin_guard) =
-        create_stdin_payload_file(cmd, payload).map_err(HelperRunError::Ran)?;
-    let mut stderr_guard: Option<TempStdinFile> = None;
     let stderr_stdio = if capture_stderr {
-        // An empty payload file whose handle becomes the child's stderr;
-        // read back by path after the child settles.
-        let (file, guard) = create_stdin_payload_file(cmd, b"").map_err(HelperRunError::Ran)?;
-        stderr_guard = Some(guard);
-        Stdio::from(file)
+        Stdio::piped()
     } else {
         Stdio::null()
     };
     let mut command = Command::new(program);
     command
         .args(args)
-        .stdin(Stdio::from(stdin_file))
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(stderr_stdio);
     #[cfg(target_os = "windows")]
@@ -684,13 +580,11 @@ fn spawn_and_pipe(
     let mut child = command
         .spawn()
         .map_err(|error| HelperRunError::Spawn(format!("{cmd}: {}: {error}", program.display())))?;
-
-    let read_stderr = |guard: &Option<TempStdinFile>| -> String {
-        guard
-            .as_ref()
-            .map(|guard| read_stderr_capture(&guard.path))
-            .unwrap_or_default()
-    };
+    let stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| HelperRunError::Ran(format!("{cmd}: child stdin pipe unavailable")))?;
+    let writer = spawn_stdin_writer(cmd.to_string(), stdin, payload);
 
     // Post-spawn errors name the resolved program path: with several
     // candidates per tool, a bare "{cmd}: exited with …" chain would
@@ -700,26 +594,28 @@ fn spawn_and_pipe(
     let status = match wait_for_child(&label, &mut child, FALLBACK_HELPER_TIMEOUT) {
         Ok(status) => status,
         Err(error) => {
-            // Timeout / wait failure: whatever the helper wrote before
-            // being terminated is the best diagnostic available — append
-            // it instead of letting the timeout mask it.
-            let stderr = read_stderr(&stderr_guard);
-            return Err(HelperRunError::Ran(if stderr.is_empty() {
-                error
-            } else {
-                format!("{error}; stderr: {stderr}")
-            }));
+            let writer_error = finish_stdin_writer(&label, writer).err();
+            let stderr = read_child_stderr(&mut child);
+            return Err(HelperRunError::Ran(format_helper_run_error(
+                error,
+                stderr,
+                writer_error,
+            )));
         }
     };
-    if status.success() {
+    let writer_error = finish_stdin_writer(&label, writer).err();
+    if status.success() && writer_error.is_none() {
         return Ok(());
+    }
+    if let Some(error) = writer_error {
+        return Err(HelperRunError::Ran(error));
     }
 
     // Every error arm carries the `{cmd}:` prefix so the chained
     // "arboard: X; fallback: Y" message names which tool produced Y.
     // The front-end routes a rejected copy IPC into its message strip
     // (showError → stripMessage), so the text must never be empty.
-    let stderr = read_stderr(&stderr_guard);
+    let stderr = read_child_stderr(&mut child);
     Err(HelperRunError::Ran(if stderr.is_empty() {
         if capture_stderr {
             format!("{label}: exited with {status} and no stderr output.")
@@ -734,101 +630,52 @@ fn spawn_and_pipe(
     }))
 }
 
-// Delete-on-drop guard for a helper's temp payload file. Despite the
-// name's stdin origin it backs both directions: the stdin payload AND
-// the stderr capture (see spawn_and_pipe). Crash-orphaned files are
-// swept at next startup (sweep_stale_payload_files).
-struct TempStdinFile {
-    path: PathBuf,
+fn spawn_stdin_writer(
+    cmd: String,
+    mut stdin: std::process::ChildStdin,
+    payload: Vec<u8>,
+) -> JoinHandle<Result<(), String>> {
+    thread::spawn(move || {
+        stdin
+            .write_all(&payload)
+            .map_err(|error| format!("{cmd}: failed to write helper stdin: {error}"))?;
+        stdin
+            .flush()
+            .map_err(|error| format!("{cmd}: failed to flush helper stdin: {error}"))?;
+        Ok(())
+    })
 }
 
-impl Drop for TempStdinFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.path);
-    }
-}
-
-// Best-effort startup sweep of payload temp files orphaned by a crash /
-// SIGKILL / failed kill — clipboard payloads must not persist on disk
-// beyond the copy that needed them. This runs on a detached thread
-// CONCURRENT with startup, so this process's own files are excluded by
-// pid prefix, not by timing assumptions. Accepted residual: a second
-// concurrent app instance's in-flight files match too — worst case its
-// stderr capture is deleted and a real helper diagnostic degrades to
-// "no stderr output" (bounded, multi-instance only).
-fn sweep_stale_payload_files() {
-    let own_prefix = format!("xml-prompt-studio-stdin-{}-", std::process::id());
-    let Ok(entries) = fs::read_dir(std::env::temp_dir()) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if name.starts_with("xml-prompt-studio-stdin-")
-            && name.ends_with(".tmp")
-            && !name.starts_with(&own_prefix)
-        {
-            let _ = fs::remove_file(entry.path());
-        }
-    }
-}
-
-fn create_stdin_payload_file(cmd: &str, payload: &[u8]) -> Result<(File, TempStdinFile), String> {
-    let temp_dir = std::env::temp_dir();
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-
-    for _ in 0..100 {
-        let counter = TEMP_STDIN_COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = temp_dir.join(format!(
-            "xml-prompt-studio-stdin-{}-{nonce}-{counter}.tmp",
-            std::process::id()
-        ));
-        let mut options = OpenOptions::new();
-        options.read(true).write(true).create_new(true);
-        // 0o600 is Unix-only on purpose: Windows %TEMP% inherits a
-        // per-user ACL, which is equivalent protection — and any
-        // principal who could read past it already owns the account.
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
-
-        let mut file = match options.open(&path) {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => {
-                return Err(format!(
-                    "{cmd}: failed to create temporary stdin file: {error}"
-                ));
-            }
-        };
-        let guard = TempStdinFile { path };
-        if let Err(error) = file.write_all(payload) {
-            drop(file);
-            drop(guard);
+fn finish_stdin_writer(label: &str, writer: JoinHandle<Result<(), String>>) -> Result<(), String> {
+    let started = Instant::now();
+    while !writer.is_finished() {
+        if started.elapsed() >= STDIN_WRITER_JOIN_TIMEOUT {
             return Err(format!(
-                "{cmd}: failed to write temporary stdin file: {error}"
+                "{label}: stdin writer did not finish after {} seconds",
+                STDIN_WRITER_JOIN_TIMEOUT.as_secs()
             ));
         }
-        if let Err(error) = file.seek(SeekFrom::Start(0)) {
-            drop(file);
-            drop(guard);
-            return Err(format!(
-                "{cmd}: failed to rewind temporary stdin file: {error}"
-            ));
-        }
-        return Ok((file, guard));
+        thread::sleep(Duration::from_millis(10));
     }
+    match writer.join() {
+        Ok(result) => result,
+        Err(_) => Err(format!("{label}: stdin writer panicked")),
+    }
+}
 
-    Err(format!(
-        "{cmd}: failed to create a unique temporary stdin file after 100 attempts"
-    ))
+fn format_helper_run_error(
+    primary: String,
+    stderr: String,
+    writer_error: Option<String>,
+) -> String {
+    let mut parts = vec![primary];
+    if !stderr.is_empty() {
+        parts.push(format!("stderr: {stderr}"));
+    }
+    if let Some(error) = writer_error {
+        parts.push(error);
+    }
+    parts.join("; ")
 }
 
 fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<ExitStatus, String> {
@@ -893,21 +740,18 @@ fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<Exi
 // would load them all and ship them over IPC into the message strip.
 const STDERR_CAPTURE_LIMIT_BYTES: u64 = 4096;
 
-// Read back (a bounded head of) a stderr capture file after the child
-// settled. Decoding caveat (Windows-specific but harmless elsewhere):
-// on Chinese Windows the OEM codepage is CP936/GBK, not UTF-8, so
+// Read back (a bounded head of) a stderr pipe after the child settled.
+// Decoding caveat (Windows-specific but harmless elsewhere): on Chinese
+// Windows the OEM codepage is CP936/GBK, not UTF-8, so
 // `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD. Acceptable
 // for this rare failure path. Don't "simplify" this away.
-fn read_stderr_capture(path: &Path) -> String {
-    let Ok(file) = File::open(path) else {
+fn read_child_stderr(child: &mut Child) -> String {
+    let Some(stderr) = child.stderr.take() else {
         return String::new();
     };
     let mut bytes = Vec::new();
-    if file
-        .take(STDERR_CAPTURE_LIMIT_BYTES)
-        .read_to_end(&mut bytes)
-        .is_err()
-    {
+    let mut limited = stderr.take(STDERR_CAPTURE_LIMIT_BYTES);
+    if limited.read_to_end(&mut bytes).is_err() {
         return String::new();
     }
     String::from_utf8_lossy(&bytes).trim().to_string()
@@ -939,10 +783,6 @@ pub fn run() {
         .setup(|app| {
             let timing = app.state::<StartupTiming>();
             log_startup(timing.inner(), "setup entered");
-
-            // Off the setup path — a slow/huge temp dir must not delay
-            // first paint.
-            thread::spawn(sweep_stale_payload_files);
 
             // The JSON size is the hidden pre-setup fallback. When monitor
             // probing succeeds, launch from two-thirds of the work-area
@@ -1114,6 +954,15 @@ mod tests {
     }
 
     #[test]
+    fn startup_timing_marks_shown_only_after_success_marker() {
+        let timing = StartupTiming::new();
+        assert!(!timing.is_main_window_shown());
+
+        timing.mark_main_window_shown();
+        assert!(timing.is_main_window_shown());
+    }
+
+    #[test]
     fn trusted_helper_requires_an_existing_absolute_path() {
         let relative = PathBuf::from("relative-helper-name");
         assert!(trusted_helper("relative", [&relative]).is_err());
@@ -1135,46 +984,23 @@ mod tests {
     }
 
     #[test]
-    fn path_fallback_accepts_absolute_helper_directory() {
+    fn linux_helper_candidates_do_not_discover_unlisted_absolute_helpers() {
         let dir = std::env::temp_dir().join(format!(
             "xml-prompt-studio-path-test-{}",
             std::process::id()
         ));
-        std::fs::create_dir_all(&dir).expect("create temp PATH dir");
+        std::fs::create_dir_all(&dir).expect("create temp helper dir");
         let helper = dir.join("wl-copy");
         write_test_helper(&helper);
+        let helper_text = helper.display().to_string();
 
-        assert_eq!(
-            helper_from_path_entries("wl-copy", [&dir]).expect("PATH helper exists"),
-            helper
-        );
+        let error = linux_helper_candidates("wl-copy", &[])
+            .expect_err("unlisted helpers must not be discovered through PATH-style lookup");
 
-        std::fs::remove_dir_all(&dir).expect("clean temp PATH dir");
-    }
+        assert!(error.contains("helper not found in trusted locations: none"));
+        assert!(!error.contains(&helper_text));
 
-    #[test]
-    fn path_fallback_rejects_empty_and_relative_entries() {
-        let error =
-            helper_from_path_entries("wl-copy", [PathBuf::new(), PathBuf::from("relative-bin")])
-                .expect_err("unsafe PATH entries must be rejected");
-
-        assert!(error.contains("helper not found in vetted PATH entries: none"));
-        assert!(error.contains("skipped unsafe PATH entries: <empty>, relative-bin"));
-    }
-
-    #[test]
-    fn temporary_stdin_file_is_rewound_and_removed() {
-        let (mut file, guard) =
-            create_stdin_payload_file("test-helper", b"hello").expect("create stdin file");
-        let path = guard.path.clone();
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents)
-            .expect("read temporary stdin file");
-        assert_eq!(contents, b"hello");
-
-        drop(file);
-        drop(guard);
-        assert!(!path.exists());
+        std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
     }
 
     #[test]
@@ -1202,15 +1028,11 @@ mod tests {
         let first_str = first.to_str().expect("temp path is utf-8");
         let second_str = second.to_str().expect("temp path is utf-8");
 
-        // Injectable form with no PATH entries: the result is EXACTLY
-        // the trusted hits, in declaration order — no [..2] slicing that
-        // would also blind the assert to duplicates.
-        let candidates = linux_helper_candidates_from(
-            "xml-prompt-studio-no-such-helper",
-            &[first_str, second_str],
-            None,
-        )
-        .expect("both trusted candidates are usable");
+        // The result is EXACTLY the trusted hits, in declaration order —
+        // no [..2] slicing that would also blind the assert to duplicates.
+        let candidates =
+            linux_helper_candidates("xml-prompt-studio-no-such-helper", &[first_str, second_str])
+                .expect("both trusted candidates are usable");
         assert_eq!(candidates, vec![first.clone(), second.clone()]);
 
         std::fs::remove_dir_all(&dir).expect("clean temp candidates dir");
@@ -1220,8 +1042,7 @@ mod tests {
     fn linux_helper_candidates_dedup_collapses_aliased_candidates() {
         // Pins the canonical-path dedup (usrmerge /bin → /usr/bin class).
         // Literal duplicates exercise the same `seen` mechanism without
-        // needing symlink privileges on Windows; a PATH entry pointing at
-        // the same directory pins the cross-stage dedup too.
+        // needing symlink privileges on Windows.
         let dir = std::env::temp_dir().join(format!(
             "xml-prompt-studio-dedup-test-{}",
             std::process::id()
@@ -1231,12 +1052,8 @@ mod tests {
         write_test_helper(&helper);
         let helper_str = helper.to_str().expect("temp path is utf-8");
 
-        let candidates = linux_helper_candidates_from(
-            "dup-helper",
-            &[helper_str, helper_str],
-            Some(vec![dir.clone()]),
-        )
-        .expect("the deduped candidate is usable");
+        let candidates = linux_helper_candidates("dup-helper", &[helper_str, helper_str])
+            .expect("the deduped candidate is usable");
         assert_eq!(candidates, vec![helper.clone()]);
 
         std::fs::remove_dir_all(&dir).expect("clean temp dedup dir");
@@ -1298,22 +1115,41 @@ mod tests {
         assert!(status.success());
     }
 
-    // Landed-defense contract pins (Unix-only semantics): the 0o600
-    // payload-file mode and helper_is_usable's exec-bit requirement —
-    // both could otherwise loosen silently with the suite green.
-    #[cfg(unix)]
     #[test]
-    fn temp_payload_file_is_created_with_owner_only_permissions() {
-        use std::os::unix::fs::PermissionsExt;
-        let (_file, guard) =
-            create_stdin_payload_file("test", b"secret").expect("create temp payload file");
-        let mode = std::fs::metadata(&guard.path)
-            .expect("read temp payload metadata")
-            .permissions()
-            .mode();
-        assert_eq!(mode & 0o777, 0o600);
+    fn spawn_and_pipe_writes_payload_through_anonymous_stdin_pipe() {
+        let (program, args) = stdin_drain_command();
+        match spawn_and_pipe(
+            "stdin-drain",
+            &program,
+            &args,
+            b"<xml>hello</xml>".to_vec(),
+            false,
+        ) {
+            Ok(()) => {}
+            Err(error) => panic!("stdin drain helper failed: {}", error.into_message()),
+        }
     }
 
+    fn stdin_drain_command() -> (PathBuf, Vec<&'static str>) {
+        #[cfg(target_os = "windows")]
+        {
+            (
+                windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe"),
+                vec!["/C", "more > NUL"],
+            )
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            (
+                trusted_helper("cat", &["/bin/cat", "/usr/bin/cat"])
+                    .expect("resolve stdin-draining cat helper"),
+                vec![],
+            )
+        }
+    }
+
+    // Landed-defense contract pin (Unix-only semantics): helper_is_usable's
+    // exec-bit requirement could otherwise loosen silently with the suite green.
     #[cfg(unix)]
     #[test]
     fn helper_is_usable_rejects_a_file_without_an_exec_bit() {
