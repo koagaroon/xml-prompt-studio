@@ -30,15 +30,13 @@ export default tseslint.config(
       ]
     }
   },
-  // Plain-JS coverage: public/theme-bootstrap.js (runs in the webview)
-  // and this config file itself (runs under Node) — union the globals.
-  // `npm run lint:js` is `eslint .` so root-level files are in scope.
+  // Node-run config and maintenance scripts.
   {
     extends: [js.configs.recommended],
-    files: ["**/*.js"],
+    files: ["eslint.config.js", "scripts/**/*.{mjs,js}"],
     languageOptions: {
       ecmaVersion: "latest",
-      globals: { ...globals.browser, ...globals.node }
+      globals: globals.node
     }
   },
   // public/ scripts execute in the webview EXACTLY as written — no
@@ -47,6 +45,7 @@ export default tseslint.config(
   // at lint time: a newer construct (the lookbehind-regex class) would
   // otherwise pass lint and fail only at parse time on old engines.
   {
+    extends: [js.configs.recommended],
     files: ["public/**/*.js"],
     languageOptions: {
       ecmaVersion: 2019,
