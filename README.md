@@ -175,8 +175,9 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 
 ### 前置条件 | Prerequisites
 
-- [Node.js](https://nodejs.org/) satisfying `^20.19.0 || ^22.13.0 || >=24`
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.88+
+- [Node.js](https://nodejs.org/) satisfying `^22.13.0 || ^24.0.0 || ^26.0.0`
+- npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库由 `rust-toolchain.toml` 选择已测试的 1.97.1 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.97.1 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
@@ -184,13 +185,13 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 ### 开发 | Development
 
 ```powershell
-npm install
+npm ci
 npm run tauri dev
 ```
 
-如果看到 `'tauri' is not recognized`，通常是还没有运行 `npm install`。
+如果看到 `'tauri' is not recognized`，通常是还没有运行 `npm ci`。
 
-If you see `'tauri' is not recognized`, `npm install` was probably skipped.
+If you see `'tauri' is not recognized`, `npm ci` was probably skipped.
 
 ### 构建 | Production Build
 
@@ -215,8 +216,9 @@ src-tauri/target/release/xml-prompt-studio.exe
 ```powershell
 npm run lint
 npm run test
+npm run typecheck:all
 npm run build
-cargo check --manifest-path src-tauri/Cargo.toml
+cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
 ```
 
 拆分命令：
@@ -229,7 +231,13 @@ npm run lint:css
 npm run lint:rs
 npm run test:js
 npm run test:rs
+npm run typecheck:ts7
+npm run typecheck:ts6
 ```
+
+发布构建使用原生 TypeScript 7 进行类型检查；ESLint 和 `typescript-eslint` 通过官方 `@typescript/typescript6` 兼容包继续使用 TypeScript 6 的程序化 API。请使用上面的 `npm run typecheck:*` 脚本，不要依赖裸 `tsc` 或 `npx tsc` 的解析顺序。
+
+Release builds use native TypeScript 7 for type-checking. ESLint and `typescript-eslint` continue to use TypeScript 6's programmatic API through the official `@typescript/typescript6` compatibility package. Use the `npm run typecheck:*` scripts above instead of relying on bare `tsc` or `npx tsc` resolution order.
 
 ---
 
@@ -314,7 +322,7 @@ The tables below list the main direct dependencies and bundled assets; for the f
 
 | 组件 / Component | 许可证 / License | 用途 / Usage |
 | --- | --- | --- |
-| [TypeScript](https://www.typescriptlang.org/) | Apache-2.0 | 类型检查 / Type checking |
+| [TypeScript](https://www.typescriptlang.org/) | Apache-2.0 | TypeScript 7 发布检查 + TypeScript 6 API 兼容层 / TS7 release gate + TS6 API compatibility layer |
 | [Vite](https://vite.dev/) | MIT | 前端构建工具 / Frontend build tool |
 | [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | MIT | Vite React 支持 / React support for Vite |
 | [Tauri CLI](https://tauri.app/) | MIT OR Apache-2.0 | Tauri 构建入口 / Tauri build entry point |
