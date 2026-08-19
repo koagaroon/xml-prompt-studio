@@ -22,10 +22,7 @@
     theme = stored;
   } else {
     try {
-      if (
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: light)").matches
-      ) {
+      if (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) {
         theme = "light";
       }
     } catch {

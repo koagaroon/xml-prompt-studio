@@ -9,26 +9,23 @@ import tseslint from "typescript-eslint";
 export default tseslint.config(
   // Generated outputs and external sources we don't lint.
   {
-    ignores: ["dist", "src-tauri/target", "src-tauri/gen", "node_modules"]
+    ignores: ["dist", "src-tauri/target", "src-tauri/gen", "node_modules"],
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: "latest",
-      globals: globals.browser
+      globals: globals.browser,
     },
     plugins: {
       "react-hooks": reactHooks,
-      "react-refresh": reactRefresh
+      "react-refresh": reactRefresh,
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
-      "react-refresh/only-export-components": [
-        "warn",
-        { allowConstantExport: true }
-      ]
-    }
+      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+    },
   },
   // Node-run config and maintenance scripts.
   {
@@ -36,8 +33,8 @@ export default tseslint.config(
     files: ["eslint.config.js", "scripts/**/*.{mjs,js}"],
     languageOptions: {
       ecmaVersion: "latest",
-      globals: globals.node
-    }
+      globals: globals.node,
+    },
   },
   // public/ scripts execute in the webview EXACTLY as written — no
   // bundler, no transpilation — so their syntax floor is whatever the
@@ -49,7 +46,7 @@ export default tseslint.config(
     files: ["public/**/*.js"],
     languageOptions: {
       ecmaVersion: 2019,
-      globals: globals.browser
-    }
+      globals: globals.browser,
+    },
   }
 );

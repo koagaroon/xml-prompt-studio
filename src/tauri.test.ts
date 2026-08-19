@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { invokeMock, isTauriMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),
-  isTauriMock: vi.fn()
+  isTauriMock: vi.fn(),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: invokeMock,
-  isTauri: isTauriMock
+  isTauri: isTauriMock,
 }));
 
 import { MAX_XML_BYTES } from "./helpers";
@@ -20,15 +20,12 @@ function stubTauriWindow(): void {
 function stubBrowserClipboard(): { writeText: ReturnType<typeof vi.fn> } {
   const writeText = vi.fn().mockResolvedValue(undefined);
   vi.stubGlobal("navigator", {
-    clipboard: { writeText }
+    clipboard: { writeText },
   });
   return { writeText };
 }
 
-async function expectRejectedBeforeClipboardBranches(
-  xml: string,
-  message: string
-): Promise<void> {
+async function expectRejectedBeforeClipboardBranches(xml: string, message: string): Promise<void> {
   for (const tauri of [true, false]) {
     invokeMock.mockReset();
     isTauriMock.mockReset();
@@ -62,7 +59,7 @@ describe("copyXmlToClipboard", () => {
     await copyXmlToClipboard("<feedback/>");
 
     expect(invokeMock).toHaveBeenCalledWith("copy_xml_to_clipboard", {
-      xml: "<feedback/>"
+      xml: "<feedback/>",
     });
   });
 
@@ -81,16 +78,10 @@ describe("copyXmlToClipboard", () => {
   });
 
   it("rejects lone-surrogate payloads before both clipboard branches", async () => {
-    await expectRejectedBeforeClipboardBranches(
-      "<a>\uD800</a>",
-      "unpaired surrogate"
-    );
+    await expectRejectedBeforeClipboardBranches("<a>\uD800</a>", "unpaired surrogate");
   });
 
   it("rejects oversized payloads before both clipboard branches", async () => {
-    await expectRejectedBeforeClipboardBranches(
-      "x".repeat(MAX_XML_BYTES + 1),
-      "too large to copy"
-    );
+    await expectRejectedBeforeClipboardBranches("x".repeat(MAX_XML_BYTES + 1), "too large to copy");
   });
 });

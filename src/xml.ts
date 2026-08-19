@@ -38,7 +38,7 @@ export function buildPreview(roots: XmlNode[]): {
         text: "",
         nodeId: roots[index - 1].id,
         primary: false,
-        kind: "separator"
+        kind: "separator",
       });
     }
     lines.push(...renderNode(root, 0));
@@ -46,7 +46,7 @@ export function buildPreview(roots: XmlNode[]): {
 
   return {
     xml: lines.map((line) => line.text).join("\n"),
-    lines
+    lines,
   };
 }
 
@@ -94,8 +94,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
         text: `${indent}<${tagName}/>`,
         nodeId: node.id,
         primary: true,
-        kind: "self-closing"
-      }
+        kind: "self-closing",
+      },
     ];
   }
 
@@ -106,8 +106,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
         text: `${indent}<${tagName}>${textContent}</${tagName}>`,
         nodeId: node.id,
         primary: true,
-        kind: "single-line"
-      }
+        kind: "single-line",
+      },
     ];
   }
 
@@ -117,8 +117,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
       text: `${indent}<${tagName}>`,
       nodeId: node.id,
       primary: true,
-      kind: "open"
-    }
+      kind: "open",
+    },
   ];
 
   if (textContent !== "") {
@@ -126,7 +126,7 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
       text: `${indent}  ${textContent}`,
       nodeId: node.id,
       primary: false,
-      kind: "text"
+      kind: "text",
     });
   }
 
@@ -138,7 +138,7 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
     text: `${indent}</${tagName}>`,
     nodeId: node.id,
     primary: false,
-    kind: "close"
+    kind: "close",
   });
 
   return lines;
@@ -159,8 +159,7 @@ const NAME_START_CHAR =
   "\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD" +
   "\\u{10000}-\\u{EFFFF}";
 
-const NAME_CHAR =
-  NAME_START_CHAR + "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
+const NAME_CHAR = NAME_START_CHAR + "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040";
 
 // The combining-mark ranges (̀-ͯ, ‿-⁀) are mandated by
 // the W3C XML 1.0 §2.3 NameChar production. ESLint warns because such

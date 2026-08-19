@@ -17,7 +17,7 @@ import {
   nextSelectionAfterDelete,
   salvagePresetChips,
   truncate,
-  validatePresetName
+  validatePresetName,
 } from "./helpers";
 import type { XmlNode } from "./types";
 
@@ -31,20 +31,12 @@ describe("nextAvailableSuffix", () => {
   });
 
   it("fills the lowest gap in the used set", () => {
-    expect(
-      nextAvailableSuffix(
-        siblings("feedback_1", "feedback_3"),
-        "feedback"
-      )
-    ).toBe(2);
+    expect(nextAvailableSuffix(siblings("feedback_1", "feedback_3"), "feedback")).toBe(2);
   });
 
   it("advances past a contiguous run", () => {
     expect(
-      nextAvailableSuffix(
-        siblings("feedback_1", "feedback_2", "feedback_3"),
-        "feedback"
-      )
+      nextAvailableSuffix(siblings("feedback_1", "feedback_2", "feedback_3"), "feedback")
     ).toBe(4);
   });
 
@@ -87,30 +79,18 @@ describe("validatePresetName", () => {
   });
 
   it("rejects names over the codepoint cap, at-limit passes", () => {
-    expect(
-      validatePresetName("a".repeat(MAX_PRESET_NAME_LENGTH), chips, -1)
-    ).toBeNull();
-    expect(
-      validatePresetName("a".repeat(MAX_PRESET_NAME_LENGTH + 1), chips, -1)
-    ).toBe(`Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`);
+    expect(validatePresetName("a".repeat(MAX_PRESET_NAME_LENGTH), chips, -1)).toBeNull();
+    expect(validatePresetName("a".repeat(MAX_PRESET_NAME_LENGTH + 1), chips, -1)).toBe(
+      `Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`
+    );
   });
 
   it("counts supplementary-plane XML names by code point, not UTF-16 units", () => {
     const extBNameChar = "\u{20000}";
-    expect(
-      validatePresetName(
-        extBNameChar.repeat(MAX_PRESET_NAME_LENGTH),
-        chips,
-        -1
-      )
-    ).toBeNull();
-    expect(
-      validatePresetName(
-        extBNameChar.repeat(MAX_PRESET_NAME_LENGTH + 1),
-        chips,
-        -1
-      )
-    ).toBe(`Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`);
+    expect(validatePresetName(extBNameChar.repeat(MAX_PRESET_NAME_LENGTH), chips, -1)).toBeNull();
+    expect(validatePresetName(extBNameChar.repeat(MAX_PRESET_NAME_LENGTH + 1), chips, -1)).toBe(
+      `Chip name too long (limit ${MAX_PRESET_NAME_LENGTH} characters).`
+    );
   });
 
   it("rejects invalid XML names", () => {
@@ -219,10 +199,7 @@ describe("hasLoneSurrogate", () => {
 
 describe("salvagePresetChips", () => {
   it("returns a fully valid list as-is, order preserved", () => {
-    expect(salvagePresetChips(["feedback", "reply"])).toEqual([
-      "feedback",
-      "reply"
-    ]);
+    expect(salvagePresetChips(["feedback", "reply"])).toEqual(["feedback", "reply"]);
   });
 
   it("preserves a stored empty list — the user's deliberate empty state", () => {
@@ -236,16 +213,14 @@ describe("salvagePresetChips", () => {
   });
 
   it("skips invalid entries and keeps the valid subset in order", () => {
-    expect(salvagePresetChips(["feedback", "two words", 42, "reply"])).toEqual(
-      ["feedback", "reply"]
-    );
+    expect(salvagePresetChips(["feedback", "two words", 42, "reply"])).toEqual([
+      "feedback",
+      "reply",
+    ]);
   });
 
   it("drops case-insensitive duplicates of earlier accepted chips", () => {
-    expect(salvagePresetChips(["feedback", "FEEDBACK", "reply"])).toEqual([
-      "feedback",
-      "reply"
-    ]);
+    expect(salvagePresetChips(["feedback", "FEEDBACK", "reply"])).toEqual(["feedback", "reply"]);
   });
 
   it("returns null when a non-empty list salvages to nothing", () => {
@@ -256,15 +231,11 @@ describe("salvagePresetChips", () => {
     // A past app version with a HIGHER chip cap is exactly the salvage
     // rationale — over-count must trim, not discard the whole list.
     const stored = ["a", "b", "c", "d", "e", "f", "g", "h"];
-    expect(salvagePresetChips(stored)).toEqual(
-      stored.slice(0, MAX_PRESET_CHIPS)
-    );
+    expect(salvagePresetChips(stored)).toEqual(stored.slice(0, MAX_PRESET_CHIPS));
   });
 
   it("rejects entries over the UTF-16 pre-check bound", () => {
-    expect(
-      salvagePresetChips(["a".repeat(MAX_PRESET_NAME_LENGTH * 2 + 1)])
-    ).toBeNull();
+    expect(salvagePresetChips(["a".repeat(MAX_PRESET_NAME_LENGTH * 2 + 1)])).toBeNull();
   });
 });
 
@@ -294,11 +265,7 @@ describe("insertAfter", () => {
   it("inserts immediately after the anchor", () => {
     const [a, b] = siblings("a", "b");
     const fresh = createNode("fresh");
-    expect(insertAfter([a, b], a.id, fresh).map((n) => n.tagName)).toEqual([
-      "a",
-      "fresh",
-      "b"
-    ]);
+    expect(insertAfter([a, b], a.id, fresh).map((n) => n.tagName)).toEqual(["a", "fresh", "b"]);
   });
 
   it("inserts at the end when the anchor is the last element", () => {
@@ -306,19 +273,17 @@ describe("insertAfter", () => {
     // from the missing-anchor fallback below.
     const [a, b] = siblings("a", "b");
     const fresh = createNode("fresh");
-    expect(insertAfter([a, b], b.id, fresh).map((n) => n.tagName)).toEqual([
-      "a",
-      "b",
-      "fresh"
-    ]);
+    expect(insertAfter([a, b], b.id, fresh).map((n) => n.tagName)).toEqual(["a", "b", "fresh"]);
   });
 
   it("appends when the anchor is missing — the defensive fallback", () => {
     const [a, b] = siblings("a", "b");
     const fresh = createNode("fresh");
-    expect(
-      insertAfter([a, b], "missing", fresh).map((n) => n.tagName)
-    ).toEqual(["a", "b", "fresh"]);
+    expect(insertAfter([a, b], "missing", fresh).map((n) => n.tagName)).toEqual([
+      "a",
+      "b",
+      "fresh",
+    ]);
   });
 });
 
@@ -327,9 +292,7 @@ describe("collectSubtreeIds", () => {
     const grandchild = createNode("g");
     const child = { ...createNode("c"), children: [grandchild] };
     const root = { ...createNode("r"), children: [child] };
-    expect(collectSubtreeIds(root).sort()).toEqual(
-      [root.id, child.id, grandchild.id].sort()
-    );
+    expect(collectSubtreeIds(root).sort()).toEqual([root.id, child.id, grandchild.id].sort());
   });
 });
 
@@ -339,37 +302,27 @@ describe("nextSelectionAfterDelete", () => {
 
   it("prefers the previous sibling", () => {
     const [a, b, c] = siblings("a", "b", "c");
-    expect(nextSelectionAfterDelete([a, b, c], b.id, parentId, fallbackId)).toBe(
-      a.id
-    );
+    expect(nextSelectionAfterDelete([a, b, c], b.id, parentId, fallbackId)).toBe(a.id);
   });
 
   it("falls to the next sibling when deleting the first", () => {
     const [a, b] = siblings("a", "b");
-    expect(nextSelectionAfterDelete([a, b], a.id, parentId, fallbackId)).toBe(
-      b.id
-    );
+    expect(nextSelectionAfterDelete([a, b], a.id, parentId, fallbackId)).toBe(b.id);
   });
 
   it("falls to the parent when deleting an only child", () => {
     const [only] = siblings("only");
-    expect(nextSelectionAfterDelete([only], only.id, parentId, fallbackId)).toBe(
-      parentId
-    );
+    expect(nextSelectionAfterDelete([only], only.id, parentId, fallbackId)).toBe(parentId);
   });
 
   it("falls to fallbackId for an only child with no parent (null)", () => {
     const [only] = siblings("only");
-    expect(nextSelectionAfterDelete([only], only.id, null, fallbackId)).toBe(
-      fallbackId
-    );
+    expect(nextSelectionAfterDelete([only], only.id, null, fallbackId)).toBe(fallbackId);
   });
 
   it("returns fallbackId when the deleted id is not in the list", () => {
     const [a] = siblings("a");
-    expect(nextSelectionAfterDelete([a], "missing", parentId, fallbackId)).toBe(
-      fallbackId
-    );
+    expect(nextSelectionAfterDelete([a], "missing", parentId, fallbackId)).toBe(fallbackId);
   });
 });
 
@@ -382,11 +335,9 @@ describe("buildElementLabel", () => {
   it("passes a preview exactly at the cap through unchanged", () => {
     const node = {
       ...createNode("reply"),
-      textContent: "x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH)
+      textContent: "x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH),
     };
-    expect(buildElementLabel(node)).toBe(
-      `<reply> ${"x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH)}`
-    );
+    expect(buildElementLabel(node)).toBe(`<reply> ${"x".repeat(ELEMENT_LABEL_PREVIEW_LENGTH)}`);
   });
 
   it("truncates an over-cap preview to the cap with an ellipsis", () => {
@@ -428,7 +379,7 @@ describe("getCopyReadiness", () => {
     previewPending: false,
     validationIssueCount: 0,
     xml: "<feedback/>",
-    maxBytes: 100
+    maxBytes: 100,
   };
 
   it("refuses stale preview before considering validation or payload size", () => {
@@ -437,7 +388,7 @@ describe("getCopyReadiness", () => {
         ...readyInput,
         previewPending: true,
         validationIssueCount: 1,
-        xml: "x".repeat(101)
+        xml: "x".repeat(101),
       })
     ).toEqual({ ready: false, reason: "preview-pending" });
   });
@@ -447,18 +398,19 @@ describe("getCopyReadiness", () => {
       getCopyReadiness({
         ...readyInput,
         copyInFlight: true,
-        previewPending: true
+        previewPending: true,
       })
     ).toEqual({ ready: false, reason: "busy" });
   });
 
   it("refuses validation issues and oversize payloads after preview is current", () => {
-    expect(
-      getCopyReadiness({ ...readyInput, validationIssueCount: 1 })
-    ).toEqual({ ready: false, reason: "validation" });
+    expect(getCopyReadiness({ ...readyInput, validationIssueCount: 1 })).toEqual({
+      ready: false,
+      reason: "validation",
+    });
     expect(getCopyReadiness({ ...readyInput, xml: "x".repeat(101) })).toEqual({
       ready: false,
-      reason: "too-large"
+      reason: "too-large",
     });
   });
 
@@ -469,7 +421,7 @@ describe("getCopyReadiness", () => {
       getCopyReadiness({
         ...readyInput,
         validationIssueCount: 1,
-        xml: "x".repeat(101)
+        xml: "x".repeat(101),
       })
     ).toEqual({ ready: false, reason: "validation" });
   });
@@ -478,17 +430,18 @@ describe("getCopyReadiness", () => {
     const omitted = {
       copyInFlight: false,
       previewPending: false,
-      validationIssueCount: 0
+      validationIssueCount: 0,
     };
     expect(getCopyReadiness({ ...omitted, xml: "<feedback/>" })).toEqual({
-      ready: true
+      ready: true,
     });
     // The over-limit counter-fixture pins that the default is the real
     // shared cap, not something looser (e.g. MAX_SAFE_INTEGER). One
     // 50 MB ASCII string, single-shot — acceptable test cost.
-    expect(
-      getCopyReadiness({ ...omitted, xml: "x".repeat(MAX_XML_BYTES + 1) })
-    ).toEqual({ ready: false, reason: "too-large" });
+    expect(getCopyReadiness({ ...omitted, xml: "x".repeat(MAX_XML_BYTES + 1) })).toEqual({
+      ready: false,
+      reason: "too-large",
+    });
   });
 
   it("allows copy only when no guard blocks it", () => {

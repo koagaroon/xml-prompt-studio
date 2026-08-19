@@ -90,9 +90,7 @@ export function exceedsByteCap(value: string, cap: number): boolean {
 // formats its size errors the same way; change both or neither.
 export function formatMegabytes(bytes: number): string {
   const tenths = Math.ceil(bytes / 100_000);
-  return tenths % 10 === 0
-    ? `${tenths / 10} MB`
-    : `${(tenths / 10).toFixed(1)} MB`;
+  return tenths % 10 === 0 ? `${tenths / 10} MB` : `${(tenths / 10).toFixed(1)} MB`;
 }
 
 // Escape regex metacharacters. Both `[` and `]` are explicitly escaped
@@ -117,10 +115,7 @@ function escapeForRegex(value: string): string {
 //
 // Suffix regex requires `[1-9]\d*` to reject leading zeros, so e.g.
 // `feedback_001` does NOT collide with `feedback_1` in the used set.
-export function nextAvailableSuffix(
-  siblings: XmlNode[],
-  baseName: string
-): number {
+export function nextAvailableSuffix(siblings: XmlNode[], baseName: string): number {
   const escaped = escapeForRegex(baseName);
   const re = new RegExp(`^${escaped}_([1-9]\\d*)$`);
   const used = new Set<number>();
@@ -276,11 +271,7 @@ export function getCopyReadiness(input: {
 // the anchor isn't found (defensive — callers pass the active node's id,
 // which is always in the list). Shared by both addSibling levels: a
 // parent's children array and the top-level roots array.
-export function insertAfter(
-  list: XmlNode[],
-  anchorId: string,
-  node: XmlNode
-): XmlNode[] {
+export function insertAfter(list: XmlNode[], anchorId: string, node: XmlNode): XmlNode[] {
   const index = list.findIndex((item) => item.id === anchorId);
   const insertAt = index === -1 ? list.length : index + 1;
   return [...list.slice(0, insertAt), node, ...list.slice(insertAt)];
@@ -345,8 +336,6 @@ export function buildElementLabel(node: XmlNode): string {
   const trimmedTag = node.tagName.trim();
   const tagLabel = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
   const previewText = node.textContent.trim();
-  const suffix = previewText
-    ? ` ${truncate(previewText, ELEMENT_LABEL_PREVIEW_LENGTH)}`
-    : "";
+  const suffix = previewText ? ` ${truncate(previewText, ELEMENT_LABEL_PREVIEW_LENGTH)}` : "";
   return `${tagLabel}${suffix}`;
 }

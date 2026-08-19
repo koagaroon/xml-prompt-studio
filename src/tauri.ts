@@ -5,12 +5,7 @@
 // `__TAURI_INTERNALS__` object) by hand with a local global declaration.
 
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import {
-  MAX_XML_BYTES,
-  exceedsByteCap,
-  formatMegabytes,
-  hasLoneSurrogate
-} from "./helpers";
+import { MAX_XML_BYTES, exceedsByteCap, formatMegabytes, hasLoneSurrogate } from "./helpers";
 
 function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
@@ -71,9 +66,7 @@ export function requestMainWindowShowAfterFirstPaint(): void {
       })
       .catch((error: unknown) => {
         logStartup(
-          `show command failed: ${
-            error instanceof Error ? error.message : String(error)
-          }`
+          `show command failed: ${error instanceof Error ? error.message : String(error)}`
         );
       });
   });
