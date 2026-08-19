@@ -8,24 +8,22 @@ version = "0.1.0"
 description = "A lightweight XML prompt authoring desktop app"
 authors = ["koagaroon"]
 edition = "2021"
-# Floor set by `unsafe extern` blocks (1.82); Mutex::clear_poison needs
-# 1.77. An older toolchain should fail with cargo's clear MSRV message,
-# not a bare syntax error mid-build.
-rust-version = "1.82"
+# Minimum supported by the locked Tauri dependency graph. CI validates this
+# floor separately from the pinned development toolchain.
+rust-version = "1.88"
 
 [lib]
 name = "xml_prompt_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.6.3", features = [] }
 
 # Tauri major upgrade checklist (only triggers when WE choose to bump from
 # `^2` to `^3`; SemVer pin prevents silent jumps):
-#   1. Audit `tauri = { version, features }` below — list ONLY the features
-#      the app actually uses and add `default-features = false`. Tauri 2's
-#      defaults pull a plugin set we never touch; trimming shrinks the
-#      attack surface.
+#   1. Re-audit `tauri = { version, features }` below and its default-feature
+#      behavior. Disable defaults only after confirming that the desktop
+#      runtime and production build retain the functionality they need.
 #   2. Re-check `src-tauri/tauri.conf.json` CSP `connect-src` — currently
 #      `'self' ipc: http://ipc.localhost https://ipc.localhost`; the IPC
 #      scheme set can change across Tauri majors. Mismatch silently
@@ -39,4 +37,4 @@ tauri-build = { version = "2", features = [] }
 arboard = { version = "3.6.1", default-features = false, features = [
     "wayland-data-control",
 ] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2.11.5", features = [] }
