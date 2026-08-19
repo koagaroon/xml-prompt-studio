@@ -11,11 +11,6 @@
   "allowScripts": {
     "fsevents@2.3.3": true
   },
-  "overrides": {
-    "vite": {
-      "rolldown": "1.2.4"
-    }
-  },
   "scripts": {
     "dev": "vite",
     "build": "npm run typecheck:ts7 && vite build",
@@ -32,7 +27,8 @@
     "typecheck:versions": "node scripts/verify-typescript-toolchains.mjs",
     "typecheck:ts6": "node ./node_modules/typescript/bin/tsc6 --project tsconfig.json && node ./node_modules/typescript/bin/tsc6 --project tsconfig.node.json",
     "typecheck:ts7": "node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.json && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.node.json",
-    "typecheck:all": "npm run typecheck:versions && npm run typecheck:ts7 && npm run typecheck:ts6"
+    "typecheck:all": "npm run typecheck:versions && npm run typecheck:ts7 && npm run typecheck:ts6",
+    "check:dependency-currency": "node scripts/check-dependency-currency.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",

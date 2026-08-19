@@ -4,7 +4,6 @@ import packageLock from "../package-lock.json";
 
 const SUPPORTED_NODE_RANGE = "^22.13.0 || ^24.0.0 || ^26.0.0";
 const PINNED_PACKAGE_MANAGER = "npm@11.19.0";
-const COMPATIBLE_ROLLDOWN_VERSION = "1.2.4";
 type LockPackageMetadata = {
   hasInstallScript?: boolean;
   version?: string;
@@ -32,22 +31,6 @@ describe("package metadata", () => {
     );
     expect(packageLock.packages["node_modules/@typescript/native"].version).toMatch(/^7\./u);
     expect(packageLock.packages["node_modules/typescript"].version).toMatch(/^6\./u);
-  });
-
-  it("holds Rolldown at the latest release with a complete native package set", () => {
-    expect(packageJson.overrides.vite.rolldown).toBe(COMPATIBLE_ROLLDOWN_VERSION);
-    const lockedRolldownVersions = Object.entries(lockPackages)
-      .filter(([packagePath]) => packageNameFromLockPath(packagePath) === "rolldown")
-      .map(([packagePath, metadata]) => {
-        if (!metadata.version) {
-          throw new Error(`Lockfile package ${packagePath} has no version`);
-        }
-
-        return metadata.version;
-      });
-    const uniqueRolldownVersions = [...new Set(lockedRolldownVersions)].sort();
-
-    expect(uniqueRolldownVersions).toEqual([COMPATIBLE_ROLLDOWN_VERSION]);
   });
 
   it("allows exactly the install scripts present in the lockfile", () => {

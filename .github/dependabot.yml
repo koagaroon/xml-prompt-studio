@@ -1,0 +1,38 @@
+version: 2
+
+# Routine version-update PRs stay disabled so dependency maintenance can be
+# reviewed on one human branch. Security updates use separate repository settings.
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      routine-npm-patches:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      routine-cargo-patches:
+        patterns:
+          - "*"
+        update-types:
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      github-actions:
+        patterns:
+          - "*"
