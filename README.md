@@ -176,7 +176,7 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 ### 前置条件 | Prerequisites
 
 - [Node.js](https://nodejs.org/) satisfying `^20.19.0 || ^22.13.0 || >=24`
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.82+
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.88+
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
