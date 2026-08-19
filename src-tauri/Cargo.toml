@@ -7,6 +7,8 @@ name = "xml-prompt-studio"
 version = "0.1.0"
 description = "A lightweight XML prompt authoring desktop app"
 authors = ["koagaroon"]
+license = "MIT"
+repository = "https://github.com/koagaroon/xml-prompt-studio"
 edition = "2021"
 # Minimum supported by the locked Tauri dependency graph. CI validates this
 # floor separately from the pinned development toolchain.

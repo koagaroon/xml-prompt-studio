@@ -6,7 +6,7 @@ import {
   findNode,
   findParent,
   moveNode,
-  updateNode
+  updateNode,
 } from "./document";
 import type { XmlNode } from "./types";
 
@@ -48,7 +48,7 @@ describe("updateNode", () => {
     const { roots, beta } = fixtureForest();
     const next = updateNode(roots, beta.id, (node) => ({
       ...node,
-      tagName: "renamed"
+      tagName: "renamed",
     }));
     expect(findNode(next, beta.id)?.tagName).toBe("renamed");
   });
@@ -57,7 +57,7 @@ describe("updateNode", () => {
     const { roots, grandchild, childA } = fixtureForest();
     const next = updateNode(roots, grandchild.id, (node) => ({
       ...node,
-      textContent: "hello"
+      textContent: "hello",
     }));
     expect(findNode(next, grandchild.id)?.textContent).toBe("hello");
     expect(findNode(next, childA.id)?.textContent).toBe("");
@@ -70,7 +70,7 @@ describe("updateNode", () => {
     const { roots } = fixtureForest();
     const next = updateNode(roots, "missing-id", (node) => ({
       ...node,
-      tagName: "never-applied"
+      tagName: "never-applied",
     }));
     expect(next).not.toBe(roots);
     expect(next[0]).not.toBe(roots[0]);
@@ -93,9 +93,7 @@ describe("deleteNode", () => {
     expect(findNode(next, grandchild.id)).toBeNull();
     // Survivor integrity: only the targeted subtree disappears.
     expect(next.map((root) => root.id)).toEqual([alpha.id, beta.id]);
-    expect(findNode(next, alpha.id)?.children.map((child) => child.id)).toEqual(
-      [childA.id]
-    );
+    expect(findNode(next, alpha.id)?.children.map((child) => child.id)).toEqual([childA.id]);
   });
 
   it("returns a fully cloned structural no-op when the id matches nothing", () => {
@@ -146,20 +144,14 @@ describe("moveNode", () => {
     const { roots, alpha, childA, childB } = fixtureForest();
     const next = moveNode(roots, childB.id, -1);
     const movedParent = findNode(next, alpha.id);
-    expect(movedParent?.children.map((child) => child.id)).toEqual([
-      childB.id,
-      childA.id
-    ]);
+    expect(movedParent?.children.map((child) => child.id)).toEqual([childB.id, childA.id]);
   });
 
   it("reorders nested siblings downward (+1)", () => {
     const { roots, alpha, childA, childB } = fixtureForest();
     const next = moveNode(roots, childA.id, 1);
     const movedParent = findNode(next, alpha.id);
-    expect(movedParent?.children.map((child) => child.id)).toEqual([
-      childB.id,
-      childA.id
-    ]);
+    expect(movedParent?.children.map((child) => child.id)).toEqual([childB.id, childA.id]);
   });
 
   it("returns a fully cloned structural no-op when the id matches nothing", () => {

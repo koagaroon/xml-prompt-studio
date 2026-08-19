@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   createBlankDocument,
   createNode,
@@ -13,7 +6,7 @@ import {
   findNode,
   findParent,
   moveNode,
-  updateNode
+  updateNode,
 } from "./document";
 import {
   MAX_PRESET_CHIPS,
@@ -29,24 +22,16 @@ import {
   nextAvailableSuffix,
   nextSelectionAfterDelete,
   salvagePresetChips,
-  validatePresetName
+  validatePresetName,
 } from "./helpers";
-import {
-  copyXmlToClipboard,
-  requestMainWindowShowAfterFirstPaint
-} from "./tauri";
+import { copyXmlToClipboard, requestMainWindowShowAfterFirstPaint } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
 import { buildPreview, validateDocument } from "./xml";
 
 // Default preset chip list. Becomes the starting state, and the target of
 // the Reset action. The list is editable at runtime in the UI (cog button
 // → edit mode), persisted to localStorage between sessions.
-const DEFAULT_PRESET_CHIPS = [
-  "feedback",
-  "question",
-  "instruction",
-  "extra"
-] as const;
+const DEFAULT_PRESET_CHIPS = ["feedback", "question", "instruction", "extra"] as const;
 
 // MAX_PRESET_CHIPS lives in helpers.ts with the salvage logic that
 // enforces it on the storage read path.
@@ -264,17 +249,13 @@ export default function App() {
   // open with the given title/description/buttons. Destructive replace/reset
   // actions surface their confirm dialog through this single primitive
   // rather than each owning a separate showFoo flag.
-  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(
-    null
-  );
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
   // User-customizable preset chip list, persisted to localStorage. The
   // initial value is read from storage (with shape validation); a useEffect
   // below writes back on every change.
-  const [presetChips, setPresetChips] = useState<string[]>(
-    readInitialPresetChips
-  );
+  const [presetChips, setPresetChips] = useState<string[]>(readInitialPresetChips);
 
   useEffect(() => {
     requestMainWindowShowAfterFirstPaint();
@@ -299,22 +280,16 @@ export default function App() {
   // is rejected (empty / too long / invalid XML name / case-insensitive
   // duplicate) or a typing-time truncation occurs — see ChipEditMessage
   // for the severity split. Cleared on successful commit or cancel.
-  const [chipEditMessage, setChipEditMessage] = useState<ChipEditMessage | null>(
-    null
-  );
+  const [chipEditMessage, setChipEditMessage] = useState<ChipEditMessage | null>(null);
 
   // Field-level message attached to the Tag Name input. Scoping and
   // render-time gating semantics live on the FieldMessage type.
-  const [tagNameMessage, setTagNameMessage] = useState<FieldMessage | null>(
-    null
-  );
+  const [tagNameMessage, setTagNameMessage] = useState<FieldMessage | null>(null);
 
   // Field-level message for the preset chip row. Today carries one
   // case: the user clicked an already-applied chip (lastApplied lock),
   // which is a no-op — the warning explains why nothing happened.
-  const [presetMessage, setPresetMessage] = useState<FieldMessage | null>(
-    null
-  );
+  const [presetMessage, setPresetMessage] = useState<FieldMessage | null>(null);
 
   // In-flight guard for Copy XML. Without it, rapid clicks queue concurrent
   // IPC calls and arboard's global Windows clipboard handle races between
@@ -445,7 +420,7 @@ export default function App() {
     setStripMessage({
       text: `Couldn't save your ${what} — the change works for this session but will reset on next launch (storage unavailable).`,
       severity: "warning",
-      forNodeId: null
+      forNodeId: null,
     });
   }, []);
 
@@ -464,10 +439,7 @@ export default function App() {
       return;
     }
     try {
-      localStorage.setItem(
-        PRESET_CHIPS_STORAGE_KEY,
-        JSON.stringify(presetChips)
-      );
+      localStorage.setItem(PRESET_CHIPS_STORAGE_KEY, JSON.stringify(presetChips));
     } catch {
       // Storage failure must not break chip editing, but it must not be
       // silent either — the edit looks successful and then reverts next
@@ -494,10 +466,7 @@ export default function App() {
     [roots, selectedNodeId]
   );
 
-  const validationIssues = useMemo(
-    () => validateDocument(roots),
-    [roots]
-  );
+  const validationIssues = useMemo(() => validateDocument(roots), [roots]);
 
   const issueNodeIds = useMemo(
     () => new Set(validationIssues.map((issue) => issue.nodeId)),
@@ -509,10 +478,7 @@ export default function App() {
   // otherwise the live-roots validation could pass while deferredRoots is
   // briefly invalid in a transient frame, and renderNode would emit
   // malformed lines like `<>...</>`.
-  const deferredValidationIssues = useMemo(
-    () => validateDocument(deferredRoots),
-    [deferredRoots]
-  );
+  const deferredValidationIssues = useMemo(() => validateDocument(deferredRoots), [deferredRoots]);
 
   // Single buildPreview call serves the on-screen preview lines. Uses
   // deferredRoots so heavy text content doesn't block typing — the input
@@ -546,11 +512,7 @@ export default function App() {
   // clearMessage + clearFieldMessages unconditionally; the render-time
   // forNodeId gates stay as pure defense.
   const selectNode = (nodeId: string) => {
-    if (
-      stripMessage &&
-      stripMessage.forNodeId !== null &&
-      stripMessage.forNodeId !== nodeId
-    ) {
+    if (stripMessage && stripMessage.forNodeId !== null && stripMessage.forNodeId !== nodeId) {
       clearMessage();
     }
     if (tagNameMessage && tagNameMessage.forNodeId !== nodeId) {
@@ -574,10 +536,7 @@ export default function App() {
     setPresetMessage(null);
   };
 
-  const elementOutline = useMemo(
-    () => createElementOutline(roots),
-    [roots]
-  );
+  const elementOutline = useMemo(() => createElementOutline(roots), [roots]);
 
   // The tag-name field-level message, gated on the element it was
   // raised for. Every selection-changing path clears field messages for
@@ -586,34 +545,21 @@ export default function App() {
   // can never show against the wrong element. If the user comes back
   // and is still at the cap, typing a key fires a fresh message.
   const activeTagNameMessage =
-    tagNameMessage && tagNameMessage.forNodeId === activeNode.id
-      ? tagNameMessage
-      : null;
+    tagNameMessage && tagNameMessage.forNodeId === activeNode.id ? tagNameMessage : null;
   const activePresetMessage =
-    presetMessage && presetMessage.forNodeId === activeNode.id
-      ? presetMessage
-      : null;
+    presetMessage && presetMessage.forNodeId === activeNode.id ? presetMessage : null;
   const activeStripMessage =
-    stripMessage &&
-    (stripMessage.forNodeId === null ||
-      stripMessage.forNodeId === activeNode.id)
+    stripMessage && (stripMessage.forNodeId === null || stripMessage.forNodeId === activeNode.id)
       ? stripMessage
       : null;
 
   // null parent = top-level section; its sibling list is the forest
   // itself, so Move / Add Sibling / Delete work uniformly at every level.
-  const activeParent = useMemo(
-    () => findParent(roots, activeNode.id),
-    [activeNode.id, roots]
-  );
+  const activeParent = useMemo(() => findParent(roots, activeNode.id), [activeNode.id, roots]);
   const activeSiblings = activeParent ? activeParent.children : roots;
-  const activeSiblingIndex = activeSiblings.findIndex(
-    (child) => child.id === activeNode.id
-  );
+  const activeSiblingIndex = activeSiblings.findIndex((child) => child.id === activeNode.id);
   const canMoveUp = activeSiblingIndex > 0;
-  const canMoveDown =
-    activeSiblingIndex >= 0 &&
-    activeSiblingIndex < activeSiblings.length - 1;
+  const canMoveDown = activeSiblingIndex >= 0 && activeSiblingIndex < activeSiblings.length - 1;
   // Invalid XML names are the only element issue: same-name sibling tags
   // are normal Claude prompt structure and do not surface warnings.
   const tagNameHasIssue = issueNodeIds.has(activeNode.id);
@@ -627,9 +573,7 @@ export default function App() {
   // depth guard. The "Element nesting depth limit reached" message in
   // that path is technically misleading, but the alternative is unbounded
   // recursion if the invariant ever breaks.
-  const activeDepth =
-    elementOutline.find((item) => item.id === activeNode.id)?.depth ??
-    MAX_DEPTH;
+  const activeDepth = elementOutline.find((item) => item.id === activeNode.id)?.depth ?? MAX_DEPTH;
 
   const closeConfirm = () => {
     setConfirmRequest(null);
@@ -659,16 +603,14 @@ export default function App() {
         // memory map so it doesn't accumulate orphan entries across many
         // "new blank" cycles.
         presetMemoryRef.current.clear();
-      }
+      },
     });
   };
 
   const requestResetPresets = () => {
     setConfirmRequest({
       title: "Restore default preset chips?",
-      description: `This will replace your current chips with ${DEFAULT_PRESET_CHIPS.join(
-        " / "
-      )}.`,
+      description: `This will replace your current chips with ${DEFAULT_PRESET_CHIPS.join(" / ")}.`,
       confirmLabel: "Restore",
       onConfirm: () => {
         setPresetChips([...DEFAULT_PRESET_CHIPS]);
@@ -683,7 +625,7 @@ export default function App() {
         // "feedback") carrying pre-reset history would restore stale
         // suffixes. Resetting the chip system resets its memory.
         presetMemoryRef.current.clear();
-      }
+      },
     });
   };
 
@@ -740,7 +682,7 @@ export default function App() {
     setEditingChip({
       index: presetChips.length,
       draft: "",
-      isNew: true
+      isNew: true,
     });
     setChipEditMessage(null);
   };
@@ -749,7 +691,7 @@ export default function App() {
     setEditingChip({
       index,
       draft: presetChips[index],
-      isNew: false
+      isNew: false,
     });
     setChipEditMessage(null);
   };
@@ -767,13 +709,13 @@ export default function App() {
       capped !== draft
         ? {
             text: `Chip name reached the ${MAX_PRESET_NAME_LENGTH}-character limit.`,
-            severity: "warning"
+            severity: "warning",
           }
         : null
     );
     setEditingChip({
       ...editingChip,
-      draft: capped
+      draft: capped,
     });
   };
 
@@ -809,9 +751,7 @@ export default function App() {
         forgetPresetMemoryForChip(previousName);
         forgetPresetMemoryForChip(trimmed);
       }
-      setPresetChips((chips) =>
-        chips.map((c, i) => (i === editingChip.index ? trimmed : c))
-      );
+      setPresetChips((chips) => chips.map((c, i) => (i === editingChip.index ? trimmed : c)));
     }
     setEditingChip(null);
     setChipEditMessage(null);
@@ -821,10 +761,7 @@ export default function App() {
   const addChild = () => {
     // Soft depth guard — refuse rather than risk stack overflow on render.
     if (activeDepth >= MAX_DEPTH) {
-      showError(
-        `Element nesting depth limit reached (${MAX_DEPTH}).`,
-        activeNode.id
-      );
+      showError(`Element nesting depth limit reached (${MAX_DEPTH}).`, activeNode.id);
       return;
     }
     // Sibling-count guard, symmetric with addSibling. Add Child grows
@@ -841,7 +778,7 @@ export default function App() {
     setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({
         ...node,
-        children: [...node.children, child]
+        children: [...node.children, child],
       }))
     );
     setSelectedNodeId(child.id);
@@ -865,7 +802,7 @@ export default function App() {
       setRoots((current) =>
         updateNode(current, parentId, (node) => ({
           ...node,
-          children: insertAfter(node.children, activeNode.id, sibling)
+          children: insertAfter(node.children, activeNode.id, sibling),
         }))
       );
     } else {
@@ -897,7 +834,7 @@ export default function App() {
           // Every old node ID is gone — wipe the whole memory map, same as
           // the New Blank path.
           presetMemoryRef.current.clear();
-        }
+        },
       });
       return;
     }
@@ -957,13 +894,11 @@ export default function App() {
     // the alert is about THIS field, so the cue lives next to it.
     const tagName = capCodePoints(rawTagName, MAX_TAG_NAME_LENGTH);
     const truncated = tagName !== rawTagName;
-    setRoots((current) =>
-      updateNode(current, activeNode.id, (node) => ({ ...node, tagName }))
-    );
+    setRoots((current) => updateNode(current, activeNode.id, (node) => ({ ...node, tagName })));
     if (truncated) {
       setTagNameMessage({
         text: `Tag name reached the ${MAX_TAG_NAME_LENGTH}-character limit.`,
-        forNodeId: activeNode.id
+        forNodeId: activeNode.id,
       });
     } else {
       setTagNameMessage(null);
@@ -981,9 +916,7 @@ export default function App() {
       );
       return;
     }
-    setRoots((current) =>
-      updateNode(current, activeNode.id, (node) => ({ ...node, textContent }))
-    );
+    setRoots((current) => updateNode(current, activeNode.id, (node) => ({ ...node, textContent })));
     clearMessage();
   };
 
@@ -998,7 +931,7 @@ export default function App() {
     if (memory.lastApplied === chipName) {
       setPresetMessage({
         text: `"${chipName}" is already applied to this element — clicking it won't change the tag name.`,
-        forNodeId: activeNode.id
+        forNodeId: activeNode.id,
       });
       return;
     }
@@ -1031,7 +964,7 @@ export default function App() {
     setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({
         ...node,
-        tagName: nameToApply
+        tagName: nameToApply,
       }))
     );
 
@@ -1060,7 +993,7 @@ export default function App() {
       previewPending,
       validationIssueCount: validationIssues.length,
       xml: xmlPreview,
-      maxBytes: MAX_XML_BYTES
+      maxBytes: MAX_XML_BYTES,
     });
 
     if (!copyReadiness.ready) {
@@ -1161,9 +1094,7 @@ export default function App() {
     // there on close. Falls back to null if active element is something
     // other than HTMLElement (e.g., SVG elements aren't focusable here).
     const previouslyFocused =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     cancelButtonRef.current?.focus();
     const ribbon = ribbonRef.current;
     const body = bodyRef.current;
@@ -1203,12 +1134,7 @@ export default function App() {
             All ribbon buttons carry `tabIndex={-1}` so the keyboard tab
             cycle is just Tag Name ↔ Text Content (per user spec). They
             stay mouse-clickable as before. */}
-        <button
-          type="button"
-          className="new-blank-button"
-          tabIndex={-1}
-          onClick={requestNewBlank}
-        >
+        <button type="button" className="new-blank-button" tabIndex={-1} onClick={requestNewBlank}>
           New Blank
         </button>
 
@@ -1257,23 +1183,12 @@ export default function App() {
             className="theme-toggle"
             tabIndex={-1}
             onClick={toggleTheme}
-            aria-label={
-              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
-            }
-            title={
-              theme === "dark"
-                ? "Switch to light mode"
-                : "Switch to dark mode"
-            }
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           >
             {theme === "dark" ? <SunIcon /> : <MoonIcon />}
           </button>
-          <button
-            type="button"
-            className="copy-button"
-            tabIndex={-1}
-            onClick={copyPreview}
-          >
+          <button type="button" className="copy-button" tabIndex={-1} onClick={copyPreview}>
             Copy XML
           </button>
         </div>
@@ -1370,9 +1285,7 @@ export default function App() {
             <div className="preset-chip-list">
               {presetChips.map((name, index) => {
                 const isEditingThis =
-                  editingChip !== null &&
-                  !editingChip.isNew &&
-                  editingChip.index === index;
+                  editingChip !== null && !editingChip.isNew && editingChip.index === index;
                 if (isEditingThis) {
                   return (
                     <input
@@ -1388,9 +1301,7 @@ export default function App() {
                       // Active edits stay tabbable so a failed blur commit
                       // never leaves the keyboard user unable to return.
                       tabIndex={0}
-                      onChange={(event) =>
-                        updateEditingChipDraft(event.target.value)
-                      }
+                      onChange={(event) => updateEditingChipDraft(event.target.value)}
                       onBlur={commitChipEdit}
                       onKeyDown={(event) => {
                         if (event.key === "Enter") {
@@ -1460,9 +1371,7 @@ export default function App() {
                   placeholder="new chip name"
                   aria-label="Name the new preset chip"
                   tabIndex={0}
-                  onChange={(event) =>
-                    updateEditingChipDraft(event.target.value)
-                  }
+                  onChange={(event) => updateEditingChipDraft(event.target.value)}
                   onBlur={commitChipEdit}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {
@@ -1478,20 +1387,18 @@ export default function App() {
               {/* Hidden during ANY in-flight edit (add or rename) —
                   clicking + mid-rename would replace editingChip and
                   silently discard the rename's draft and error state. */}
-              {editMode &&
-                !editingChip &&
-                presetChips.length < MAX_PRESET_CHIPS && (
-                  <button
-                    type="button"
-                    className="chip-add"
-                    aria-label="Add preset chip"
-                    title="Add preset chip"
-                    tabIndex={-1}
-                    onClick={startAddChip}
-                  >
-                    +
-                  </button>
-                )}
+              {editMode && !editingChip && presetChips.length < MAX_PRESET_CHIPS && (
+                <button
+                  type="button"
+                  className="chip-add"
+                  aria-label="Add preset chip"
+                  title="Add preset chip"
+                  tabIndex={-1}
+                  onClick={startAddChip}
+                >
+                  +
+                </button>
+              )}
             </div>
             <div className="preset-controls">
               {editMode && (
@@ -1508,13 +1415,9 @@ export default function App() {
                 type="button"
                 className={cx("preset-cog", editMode && "is-active")}
                 onClick={toggleEditMode}
-                aria-label={
-                  editMode ? "Exit chip edit mode" : "Edit preset chips"
-                }
+                aria-label={editMode ? "Exit chip edit mode" : "Edit preset chips"}
                 aria-pressed={editMode}
-                title={
-                  editMode ? "Exit chip edit mode" : "Edit preset chips"
-                }
+                title={editMode ? "Exit chip edit mode" : "Edit preset chips"}
                 tabIndex={-1}
               >
                 <CogIcon />
@@ -1522,10 +1425,7 @@ export default function App() {
             </div>
           </div>
           {editMode && chipEditMessage && (
-            <div
-              className={`field-message is-${chipEditMessage.severity}`}
-              role="alert"
-            >
+            <div className={`field-message is-${chipEditMessage.severity}`} role="alert">
               {chipEditMessage.text}
             </div>
           )}
@@ -1572,8 +1472,7 @@ export default function App() {
                   // Separator lines carry the preceding section's id only
                   // for React-key stability — they belong to no section
                   // visually, so they never paint as active.
-                  const isActive =
-                    line.kind !== "separator" && line.nodeId === activeNode.id;
+                  const isActive = line.kind !== "separator" && line.nodeId === activeNode.id;
                   // Stable per-(node, kind) key — each node produces at most
                   // three lines (open / text / close) or a single self-closing
                   // / single-line, all with distinct kinds. So nodeId+kind is
@@ -1592,9 +1491,7 @@ export default function App() {
                   );
                 })
               ) : (
-                <div className="preview-empty">
-                  Fix validation issues to see the preview.
-                </div>
+                <div className="preview-empty">Fix validation issues to see the preview.</div>
               )}
             </div>
             {previewPending && (
@@ -1605,13 +1502,7 @@ export default function App() {
             {/* Key on copyToken forces this overlay to remount on each copy,
                 replaying the bloom animation. Pointer-events: none ensures it
                 doesn't intercept clicks. */}
-            {copyToken > 0 && (
-              <div
-                key={copyToken}
-                className="bloom-overlay"
-                aria-hidden="true"
-              />
-            )}
+            {copyToken > 0 && <div key={copyToken} className="bloom-overlay" aria-hidden="true" />}
           </div>
         </section>
       </main>
@@ -1653,20 +1544,12 @@ export default function App() {
             <h3 id="confirm-title">{confirmRequest.title}</h3>
             <p id="confirm-desc">{confirmRequest.description}</p>
             <div className="dialog-buttons">
-              <button
-                type="button"
-                ref={cancelButtonRef}
-                onClick={closeConfirm}
-              >
+              <button type="button" ref={cancelButtonRef} onClick={closeConfirm}>
                 Cancel
               </button>
               <button
                 type="button"
-                className={
-                  confirmRequest.confirmKind === "danger"
-                    ? "danger-button"
-                    : undefined
-                }
+                className={confirmRequest.confirmKind === "danger" ? "danger-button" : undefined}
                 onClick={handleConfirm}
               >
                 {confirmRequest.confirmLabel}
@@ -1686,7 +1569,7 @@ function createElementOutline(roots: XmlNode[]): NodeOutlineItem[] {
     items.push({
       id: node.id,
       depth,
-      label: buildElementLabel(node)
+      label: buildElementLabel(node),
     });
     node.children.forEach((child) => walk(child, depth + 1));
   };

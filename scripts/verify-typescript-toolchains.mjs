@@ -11,32 +11,26 @@ const toolchains = [
     alias: "@typescript/native",
     dependencySpec: "npm:typescript@~7.0.2",
     label: "release",
-    packageUrl: new URL(
-      "../node_modules/@typescript/native/package.json",
-      import.meta.url
-    ),
+    packageUrl: new URL("../node_modules/@typescript/native/package.json", import.meta.url),
     expectedPackageName: "typescript",
     expectedBinName: "tsc",
     expectedBinPath: "bin/tsc",
     expectedMajor: 7,
     getEffectiveVersion: () => undefined,
-    expectedEffectiveMajor: null
+    expectedEffectiveMajor: null,
   },
   {
     alias: "typescript",
     dependencySpec: "npm:@typescript/typescript6@6.0.2",
     label: "API compatibility",
-    packageUrl: new URL(
-      "../node_modules/typescript/package.json",
-      import.meta.url
-    ),
+    packageUrl: new URL("../node_modules/typescript/package.json", import.meta.url),
     expectedPackageName: "@typescript/typescript6",
     expectedBinName: "tsc6",
     expectedBinPath: "bin/tsc6",
     expectedMajor: 6,
     getEffectiveVersion: () => require("typescript").version,
-    expectedEffectiveMajor: 6
-  }
+    expectedEffectiveMajor: 6,
+  },
 ];
 
 for (const toolchain of toolchains) {
@@ -76,9 +70,7 @@ for (const toolchain of toolchains) {
 
   if (toolchain.expectedEffectiveMajor !== null) {
     const effectiveMajor =
-      typeof effectiveVersion === "string"
-        ? Number.parseInt(effectiveVersion, 10)
-        : Number.NaN;
+      typeof effectiveVersion === "string" ? Number.parseInt(effectiveVersion, 10) : Number.NaN;
 
     if (effectiveMajor !== toolchain.expectedEffectiveMajor) {
       throw new Error(
@@ -88,8 +80,6 @@ for (const toolchain of toolchains) {
   }
 
   const versionSummary =
-    effectiveVersion === undefined
-      ? version
-      : `wrapper ${version}, engine ${effectiveVersion}`;
+    effectiveVersion === undefined ? version : `wrapper ${version}, engine ${effectiveVersion}`;
   console.log(`TypeScript ${toolchain.label}: ${versionSummary}`);
 }

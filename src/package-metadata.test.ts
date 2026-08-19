@@ -9,10 +9,7 @@ type LockPackageMetadata = {
   hasInstallScript?: boolean;
   version?: string;
 };
-const lockPackages = packageLock.packages as Record<
-  string,
-  LockPackageMetadata
->;
+const lockPackages = packageLock.packages as Record<string, LockPackageMetadata>;
 
 function packageNameFromLockPath(packagePath: string): string {
   const packageSegments = packagePath.split("node_modules/");
@@ -33,22 +30,14 @@ describe("package metadata", () => {
     expect(packageLock.packages[""].devDependencies.typescript).toBe(
       packageJson.devDependencies.typescript
     );
-    expect(
-      packageLock.packages["node_modules/@typescript/native"].version
-    ).toMatch(/^7\./u);
-    expect(packageLock.packages["node_modules/typescript"].version).toMatch(
-      /^6\./u
-    );
+    expect(packageLock.packages["node_modules/@typescript/native"].version).toMatch(/^7\./u);
+    expect(packageLock.packages["node_modules/typescript"].version).toMatch(/^6\./u);
   });
 
   it("holds Rolldown at the latest release with a complete native package set", () => {
-    expect(packageJson.overrides.vite.rolldown).toBe(
-      COMPATIBLE_ROLLDOWN_VERSION
-    );
+    expect(packageJson.overrides.vite.rolldown).toBe(COMPATIBLE_ROLLDOWN_VERSION);
     const lockedRolldownVersions = Object.entries(lockPackages)
-      .filter(
-        ([packagePath]) => packageNameFromLockPath(packagePath) === "rolldown"
-      )
+      .filter(([packagePath]) => packageNameFromLockPath(packagePath) === "rolldown")
       .map(([packagePath, metadata]) => {
         if (!metadata.version) {
           throw new Error(`Lockfile package ${packagePath} has no version`);
@@ -63,9 +52,7 @@ describe("package metadata", () => {
 
   it("allows exactly the install scripts present in the lockfile", () => {
     const lockedInstallScripts = Object.entries(lockPackages)
-      .filter(([packagePath, metadata]) =>
-        Boolean(packagePath && metadata.hasInstallScript)
-      )
+      .filter(([packagePath, metadata]) => Boolean(packagePath && metadata.hasInstallScript))
       .map(([packagePath, metadata]) => {
         if (!metadata.version) {
           throw new Error(`Lockfile package ${packagePath} has no version`);

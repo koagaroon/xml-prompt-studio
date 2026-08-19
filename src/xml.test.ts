@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createNode } from "./document";
 import type { XmlNode } from "./types";
-import {
-  buildPreview,
-  isValidXmlName,
-  validateDocument
-} from "./xml";
+import { buildPreview, isValidXmlName, validateDocument } from "./xml";
 
 function node(tagName: string, overrides: Partial<XmlNode> = {}): XmlNode {
   return { ...createNode(tagName), ...overrides };
@@ -40,10 +36,7 @@ describe("buildPreview — forest rendering", () => {
     const roots = [node("a"), node("b"), node("c")];
     const { lines } = buildPreview(roots);
     const separators = lines.filter((line) => line.kind === "separator");
-    expect(separators.map((line) => line.nodeId)).toEqual([
-      roots[0].id,
-      roots[1].id
-    ]);
+    expect(separators.map((line) => line.nodeId)).toEqual([roots[0].id, roots[1].id]);
     expect(separators.every((line) => !line.primary)).toBe(true);
   });
 
@@ -53,9 +46,9 @@ describe("buildPreview — forest rendering", () => {
     const roots = [
       node("outer", {
         textContent: "mixed",
-        children: [node("inner", { textContent: "leaf" }), node("empty")]
+        children: [node("inner", { textContent: "leaf" }), node("empty")],
       }),
-      node("solo")
+      node("solo"),
     ];
     const { lines } = buildPreview(roots);
     const keys = lines.map((line) => `${line.nodeId}-${line.kind}`);
@@ -74,9 +67,9 @@ describe("buildPreview — forest rendering", () => {
         textContent: "lead",
         children: [
           node("inner", { textContent: "leaf" }),
-          node("deep", { children: [node("empty")] })
-        ]
-      })
+          node("deep", { children: [node("empty")] }),
+        ],
+      }),
     ];
     expect(buildPreview(roots).xml).toBe(
       [
@@ -86,7 +79,7 @@ describe("buildPreview — forest rendering", () => {
         "  <deep>",
         "    <empty/>",
         "  </deep>",
-        "</outer>"
+        "</outer>",
       ].join("\n")
     );
   });
@@ -101,26 +94,22 @@ describe("validateDocument — forest walk", () => {
   it("flags invalid names in any tree, including non-first roots", () => {
     const bad = node("");
     const roots = [node("ok"), bad];
-    expect(validateDocument(roots).map((issue) => issue.nodeId)).toEqual([
-      bad.id
-    ]);
+    expect(validateDocument(roots).map((issue) => issue.nodeId)).toEqual([bad.id]);
   });
 
   it("flags an invalid name nested under valid ancestors — pins the recursive failure path", () => {
     const bad = node("two words");
     const roots = [node("ok", { children: [node("mid", { children: [bad] })] })];
-    expect(validateDocument(roots).map((issue) => issue.nodeId)).toEqual([
-      bad.id
-    ]);
+    expect(validateDocument(roots).map((issue) => issue.nodeId)).toEqual([bad.id]);
   });
 
   it("accepts same-name sibling tags as valid prompt structure", () => {
     const roots = [
       node("examples", {
-        children: [node("example"), node("example")]
+        children: [node("example"), node("example")],
       }),
       node("document"),
-      node("document")
+      node("document"),
     ];
     expect(validateDocument(roots)).toEqual([]);
   });

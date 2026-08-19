@@ -20,9 +20,7 @@ function createId(prefix: string): string {
     // successful degradation at debug, but this path existing at all is
     // the anomaly being reported — and debug output is invisible exactly
     // where the regression would need to surface.
-    console.warn(
-      "createId: crypto.randomUUID unavailable; using Math.random fallback"
-    );
+    console.warn("createId: crypto.randomUUID unavailable; using Math.random fallback");
   }
   return `${prefix}-${Math.random().toString(36).slice(2, 10)}`;
 }
@@ -35,7 +33,7 @@ export function createNode(tagName = ""): XmlNode {
     id: createId("node"),
     tagName,
     textContent: "",
-    children: []
+    children: [],
   };
 }
 
@@ -67,9 +65,7 @@ function updateNodeInTree(
 
   return {
     ...node,
-    children: node.children.map((child) =>
-      updateNodeInTree(child, targetId, updater)
-    )
+    children: node.children.map((child) => updateNodeInTree(child, targetId, updater)),
   };
 }
 
@@ -88,15 +84,11 @@ function deleteNodeInTree(node: XmlNode, targetId: string): XmlNode {
     ...node,
     children: node.children
       .filter((child) => child.id !== targetId)
-      .map((child) => deleteNodeInTree(child, targetId))
+      .map((child) => deleteNodeInTree(child, targetId)),
   };
 }
 
-export function moveNode(
-  roots: XmlNode[],
-  targetId: string,
-  direction: -1 | 1
-): XmlNode[] {
+export function moveNode(roots: XmlNode[], targetId: string, direction: -1 | 1): XmlNode[] {
   // Target is a top-level section — reorder the forest itself.
   const topIndex = roots.findIndex((root) => root.id === targetId);
   if (topIndex !== -1) {
@@ -110,11 +102,7 @@ export function moveNode(
   return roots.map((root) => moveNodeInTree(root, targetId, direction));
 }
 
-function moveNodeInTree(
-  node: XmlNode,
-  targetId: string,
-  direction: -1 | 1
-): XmlNode {
+function moveNodeInTree(node: XmlNode, targetId: string, direction: -1 | 1): XmlNode {
   // First check if the target is a direct child — common case. If so, swap
   // locally and return without recursing into grandchildren, saving a tree
   // walk per move.
@@ -126,16 +114,14 @@ function moveNodeInTree(
     }
     return {
       ...node,
-      children: reordered
+      children: reordered,
     };
   }
 
   // Target is not a direct child — recurse into descendants.
   return {
     ...node,
-    children: node.children.map((child) =>
-      moveNodeInTree(child, targetId, direction)
-    )
+    children: node.children.map((child) => moveNodeInTree(child, targetId, direction)),
   };
 }
 
