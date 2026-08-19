@@ -1,0 +1,48 @@
+name: Dependency Watch
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-watch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ordinary-updates:
+    name: Ordinary dependency updates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "26"
+          check-latest: true
+
+      - name: Install the declared npm version
+        shell: pwsh
+        run: |
+          $npmVersion = node -p "require('./package.json').packageManager.split('@').at(-1)"
+          npm install --global "npm@$npmVersion"
+          if ((npm --version) -ne $npmVersion) {
+            throw "Expected npm $npmVersion, received $(npm --version)"
+          }
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Check dependency currency
+        run: npm run check:dependency-currency
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
