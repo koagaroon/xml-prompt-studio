@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import packageJson from "../package.json";
 import packageLock from "../package-lock.json";
+import tsconfigJson from "../tsconfig.json";
+import tsconfigNodeJson from "../tsconfig.node.json";
+import tsconfigTestJson from "../tsconfig.test.json";
 
 const SUPPORTED_NODE_RANGE = "^22.13.0 || ^24.0.0 || ^26.0.0";
 const PINNED_PACKAGE_MANAGER = "npm@11.19.0";
@@ -31,6 +34,23 @@ describe("package metadata", () => {
     );
     expect(packageLock.packages["node_modules/@typescript/native"].version).toMatch(/^7\./u);
     expect(packageLock.packages["node_modules/typescript"].version).toMatch(/^6\./u);
+  });
+
+  it("keeps browser, test, and Node type environments separate", () => {
+    expect(tsconfigJson.compilerOptions.types).toEqual(["vite/client"]);
+    expect(tsconfigJson.exclude).toEqual([
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "src/**/*.spec.ts",
+      "src/**/*.spec.tsx",
+    ]);
+    expect(tsconfigTestJson.compilerOptions.types).toEqual(["vite/client", "node"]);
+    expect(tsconfigTestJson.include).toContain("src/**/*.test.ts");
+    expect(tsconfigTestJson.include).toContain("src/vite-env.d.ts");
+    expect(tsconfigTestJson.exclude).toEqual([]);
+    expect(tsconfigNodeJson.compilerOptions.types).toEqual(["node"]);
+    expect(packageJson.scripts["typecheck:ts6"]).toContain("--project tsconfig.test.json");
+    expect(packageJson.scripts["typecheck:ts7"]).toContain("--project tsconfig.ts7.test.json");
   });
 
   it("allows exactly the install scripts present in the lockfile", () => {
