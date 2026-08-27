@@ -80,6 +80,7 @@ describe("application icon assets", () => {
     expect(icon.readUInt16LE(2)).toBe(1);
 
     const frames = readIcoFrames(icon);
+    expect(frames[0]).toMatchObject({ width: 32, height: 32 });
     expect(frames.map((frame) => frame.width).sort((left, right) => left - right)).toEqual([
       16, 24, 32, 48, 64, 256,
     ]);
