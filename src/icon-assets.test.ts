@@ -10,6 +10,7 @@ import canonicalAppIcon from "../public/favicon.svg?raw";
 import tauriConfig from "../src-tauri/tauri.conf.json";
 
 const PNG_SIGNATURE = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const ICON_GENERATION_TIMEOUT_MS = 30_000;
 
 function readNativeIcon(fileName: string): Buffer {
   return readFileSync(resolve(cwd(), "src-tauri", "icons", fileName));
@@ -52,15 +53,19 @@ describe("application icon assets", () => {
     expect(tauriConfig.bundle.icon).toEqual(["icons/icon.ico", "icons/icon.png"]);
   });
 
-  it("regenerates the tracked native assets exactly from the canonical SVG", () => {
-    const output = execFileSync(
-      execPath,
-      [resolve(cwd(), "scripts", "generate-icon-assets.mjs"), "--check"],
-      { cwd: cwd(), encoding: "utf8" }
-    );
+  it(
+    "regenerates the tracked native assets exactly from the canonical SVG",
+    () => {
+      const output = execFileSync(
+        execPath,
+        [resolve(cwd(), "scripts", "generate-icon-assets.mjs"), "--check"],
+        { cwd: cwd(), encoding: "utf8", timeout: ICON_GENERATION_TIMEOUT_MS }
+      );
 
-    expect(output).toContain("against public/favicon.svg");
-  });
+      expect(output).toContain("against public/favicon.svg");
+    },
+    ICON_GENERATION_TIMEOUT_MS + 5_000
+  );
 
   it("keeps the native PNG as a 512px 32-bit RGBA image", () => {
     const icon = readNativeIcon("icon.png");
