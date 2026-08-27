@@ -84,9 +84,10 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   // a per-line index to kind).
   const textContent = node.textContent;
 
-  // Spec §3.1 distinguishes three forms — empty-element tag, start+end-tag
-  // pair around char data, and start+end-tag pair around child elements.
-  // Don't merge these branches; they're semantically distinct in XML.
+  // XML 1.0 §3.1 allows an empty element to use either `<x/>` or `<x></x>`.
+  // Keep these branches separate because the app deliberately emits `<x/>`
+  // only for nodes without text or children; this is a stable prompt-formatting
+  // contract, not a semantic distinction between the two empty XML forms.
   if (node.children.length === 0 && textContent === "") {
     // Empty-element tag (production [44]): `<x/>`
     return [
