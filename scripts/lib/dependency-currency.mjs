@@ -3,6 +3,10 @@ const SEMVER_PATTERN =
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/u;
 const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/iu;
 const ACTION_TAG_PATTERN = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/u;
+const CRATES_IO_SOURCE_IDS = new Set([
+  "registry+https://github.com/rust-lang/crates.io-index",
+  "sparse+https://index.crates.io/",
+]);
 
 export class MonitorError extends Error {
   constructor(message) {
@@ -249,104 +253,6 @@ export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
   return locked;
 }
 
-function stripTomlComment(line) {
-  let quoted = false;
-  let escaped = false;
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (quoted && character === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (character === '"') quoted = !quoted;
-    if (!quoted && character === "#") return line.slice(0, index);
-  }
-  return line;
-}
-
-function delimiterBalance(text) {
-  let balance = 0;
-  let quoted = false;
-  let escaped = false;
-  for (const character of text) {
-    if (escaped) {
-      escaped = false;
-      continue;
-    }
-    if (quoted && character === "\\") {
-      escaped = true;
-      continue;
-    }
-    if (character === '"') quoted = !quoted;
-    if (quoted) continue;
-    if (character === "{" || character === "[") balance += 1;
-    if (character === "}" || character === "]") balance -= 1;
-  }
-  return balance;
-}
-
-export function parseCargoManifest(text) {
-  if (typeof text !== "string") throw new MonitorError("Cargo.toml is not text.");
-  const lines = text.split(/\r?\n/u);
-  const targets = [];
-  let section = "";
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = stripTomlComment(lines[index]).trim();
-    const sectionMatch = /^\[([^\]]+)\]$/u.exec(line);
-    if (sectionMatch !== null) {
-      section = sectionMatch[1];
-      if (
-        /^(?:dependencies|dev-dependencies|build-dependencies)\./u.test(section) ||
-        /^target\..+\.(?:dependencies|dev-dependencies|build-dependencies)\./u.test(section)
-      ) {
-        throw new MonitorError(
-          `Cargo dependency table syntax [${section}] is unsupported; use an inline dependency declaration.`
-        );
-      }
-      continue;
-    }
-    const monitoredSection =
-      section === "dependencies" ||
-      section === "dev-dependencies" ||
-      section === "build-dependencies" ||
-      /^target\..+\.(?:dependencies|dev-dependencies|build-dependencies)$/u.test(section);
-    if (!monitoredSection || line.length === 0) continue;
-    const declarationMatch = /^([A-Za-z0-9_-]+)\s*=\s*(.+)$/u.exec(line);
-    if (declarationMatch === null) {
-      throw new MonitorError(
-        `Cargo dependency syntax in [${section}] is unsupported; use an unquoted package key.`
-      );
-    }
-
-    let declaration = declarationMatch[2];
-    let balance = delimiterBalance(declaration);
-    while (balance > 0 && index + 1 < lines.length) {
-      index += 1;
-      const continuation = stripTomlComment(lines[index]).trim();
-      declaration += ` ${continuation}`;
-      balance += delimiterBalance(continuation);
-    }
-    const declaredName = declarationMatch[1];
-    const shortVersion = /^"([^"]+)"$/u.exec(declaration)?.[1];
-    const inlineVersion = /(?:^|[,\s{])version\s*=\s*"([^"]+)"/u.exec(declaration)?.[1];
-    const renamedPackage = /(?:^|[,\s{])package\s*=\s*"([^"]+)"/u.exec(declaration)?.[1];
-    const requested = shortVersion ?? inlineVersion;
-    if (requested === undefined) {
-      throw new MonitorError(`Direct Cargo dependency ${declaredName} has no crates.io version.`);
-    }
-    const registryName = renamedPackage ?? declaredName;
-    if (!/^[A-Za-z0-9_-]{1,64}$/u.test(registryName)) {
-      throw new MonitorError(`Invalid direct Cargo dependency name: ${registryName}.`);
-    }
-    targets.push({ declaredName, registryName, requested, section });
-  }
-  return targets.sort((left, right) => left.declaredName.localeCompare(right.declaredName));
-}
-
 export function parseRustVersion(value) {
   if (typeof value !== "string") return null;
   const match = /^(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:\.(0|[1-9]\d*))?$/u.exec(value);
@@ -415,31 +321,149 @@ export function satisfiesNpmRequirement(version, requirement) {
   return compareSemver(candidate, base) >= 0 && compareSemver(candidate, upper) < 0;
 }
 
-export function collectCargoTargets(manifestText, lockText) {
-  if (typeof lockText !== "string") throw new MonitorError("Cargo.lock is not text.");
-  const lockedPackages = [];
-  for (const block of lockText.split(/^\[\[package\]\]\s*$/mu).slice(1)) {
-    const name = /^name\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
-    const version = /^version\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
-    const source = /^source\s*=\s*"([^"]+)"\s*$/mu.exec(block)?.[1];
-    if (name !== undefined && version !== undefined && source?.includes("crates.io")) {
-      lockedPackages.push({ name, version });
-    }
+export function collectCargoTargets(metadata) {
+  if (
+    !isRecord(metadata) ||
+    metadata.version !== 1 ||
+    !Array.isArray(metadata.packages) ||
+    !isRecord(metadata.resolve) ||
+    typeof metadata.resolve.root !== "string" ||
+    !Array.isArray(metadata.resolve.nodes)
+  ) {
+    throw new MonitorError("cargo metadata returned an invalid format-version 1 document.");
   }
 
-  return parseCargoManifest(manifestText).map((target) => {
-    const candidates = lockedPackages.filter(
-      (entry) =>
-        entry.name.toLowerCase() === target.registryName.toLowerCase() &&
-        satisfiesCargoRequirement(entry.version, target.requested)
-    );
-    if (candidates.length !== 1) {
+  const packageById = new Map();
+  for (const packageEntry of metadata.packages) {
+    if (!isRecord(packageEntry) || typeof packageEntry.id !== "string") {
+      throw new MonitorError("cargo metadata returned an invalid package entry.");
+    }
+    packageById.set(packageEntry.id, packageEntry);
+  }
+
+  const rootPackage = packageById.get(metadata.resolve.root);
+  const rootNode = metadata.resolve.nodes.find(
+    (node) => isRecord(node) && node.id === metadata.resolve.root
+  );
+  if (
+    !isRecord(rootPackage) ||
+    !Array.isArray(rootPackage.dependencies) ||
+    !isRecord(rootNode) ||
+    !Array.isArray(rootNode.deps)
+  ) {
+    throw new MonitorError("cargo metadata is missing the root package or its resolve node.");
+  }
+
+  const declarationsByRegistryName = new Map();
+  for (const dependency of rootPackage.dependencies) {
+    if (!isRecord(dependency)) {
+      throw new MonitorError("cargo metadata returned an invalid dependency declaration.");
+    }
+    if (typeof dependency.source !== "string") {
       throw new MonitorError(
-        `Cargo.lock did not identify exactly one direct version for ${target.declaredName}.`
+        `Direct Cargo dependency ${String(dependency.name)} is not a registry dependency.`
       );
     }
-    return { ...target, locked: candidates[0].version };
-  });
+    if (!CRATES_IO_SOURCE_IDS.has(dependency.source)) {
+      throw new MonitorError(
+        `Direct Cargo dependency ${String(dependency.name)} is not from crates.io.`
+      );
+    }
+    if (dependency.optional === true) {
+      throw new MonitorError(
+        `Optional Cargo dependency ${String(dependency.name)} has no guaranteed locked edge.`
+      );
+    }
+    if (
+      typeof dependency.name !== "string" ||
+      !/^[A-Za-z0-9_-]{1,64}$/u.test(dependency.name) ||
+      typeof dependency.req !== "string" ||
+      (dependency.rename !== null &&
+        dependency.rename !== undefined &&
+        typeof dependency.rename !== "string") ||
+      ![null, "build", "dev"].includes(dependency.kind)
+    ) {
+      throw new MonitorError("cargo metadata returned an invalid direct dependency.");
+    }
+    const declaredName = dependency.rename ?? dependency.name;
+    if (!/^[A-Za-z0-9_-]{1,64}$/u.test(declaredName)) {
+      throw new MonitorError("cargo metadata returned an invalid renamed dependency.");
+    }
+    const section =
+      dependency.kind === "build"
+        ? "build-dependencies"
+        : dependency.kind === "dev"
+          ? "dev-dependencies"
+          : "dependencies";
+    const existing = declarationsByRegistryName.get(dependency.name);
+    if (
+      existing !== undefined &&
+      (existing.declaredName !== declaredName ||
+        existing.requested !== dependency.req ||
+        existing.section !== section)
+    ) {
+      throw new MonitorError(
+        `Direct Cargo dependency ${dependency.name} has conflicting declarations.`
+      );
+    }
+    declarationsByRegistryName.set(dependency.name, {
+      declaredName,
+      registryName: dependency.name,
+      requested: dependency.req,
+      section,
+    });
+  }
+
+  const targetsByRegistryName = new Map();
+  for (const dependencyEdge of rootNode.deps) {
+    if (!isRecord(dependencyEdge) || typeof dependencyEdge.pkg !== "string") {
+      throw new MonitorError("cargo metadata returned an invalid direct dependency edge.");
+    }
+    const lockedPackage = packageById.get(dependencyEdge.pkg);
+    if (!isRecord(lockedPackage) || typeof lockedPackage.source !== "string") continue;
+    if (!CRATES_IO_SOURCE_IDS.has(lockedPackage.source)) {
+      throw new MonitorError(
+        `Resolved Cargo dependency ${String(lockedPackage.name)} is not from crates.io.`
+      );
+    }
+    if (
+      typeof lockedPackage.name !== "string" ||
+      typeof lockedPackage.version !== "string" ||
+      parseStableSemver(lockedPackage.version) === null
+    ) {
+      throw new MonitorError("cargo metadata returned an invalid locked direct crate.");
+    }
+    const declaration = declarationsByRegistryName.get(lockedPackage.name);
+    if (declaration === undefined) {
+      throw new MonitorError(
+        `Resolved Cargo dependency ${lockedPackage.name} has no root declaration.`
+      );
+    }
+    if (!satisfiesCargoRequirement(lockedPackage.version, declaration.requested)) {
+      throw new MonitorError(
+        `Resolved Cargo dependency ${lockedPackage.name} does not satisfy its root declaration.`
+      );
+    }
+    const existing = targetsByRegistryName.get(lockedPackage.name);
+    if (existing !== undefined && existing.locked !== lockedPackage.version) {
+      throw new MonitorError(
+        `Direct Cargo dependency ${lockedPackage.name} resolves to multiple versions.`
+      );
+    }
+    targetsByRegistryName.set(lockedPackage.name, {
+      ...declaration,
+      locked: lockedPackage.version,
+    });
+  }
+
+  for (const registryName of declarationsByRegistryName.keys()) {
+    if (!targetsByRegistryName.has(registryName)) {
+      throw new MonitorError(`Direct Cargo dependency ${registryName} has no locked root edge.`);
+    }
+  }
+  return [...targetsByRegistryName.values()].sort((left, right) =>
+    left.declaredName.localeCompare(right.declaredName)
+  );
 }
 
 export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {

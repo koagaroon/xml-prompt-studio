@@ -19,7 +19,6 @@ import {
   inspectRolldownRelease,
   newestStable,
   parseActionReferences,
-  parseCargoManifest,
   parseNpmAlias,
   parseProjectMsrv,
   parseStableSemver,
@@ -239,43 +238,6 @@ describe("npm dependency inspection", () => {
 });
 
 describe("Cargo dependency inspection", () => {
-  const manifest = `
-[build-dependencies]
-tauri-build = { version = "2.6.3", features = [] }
-
-[dependencies]
-arboard = { version = "3.6.1", default-features = false, features = [
-  "wayland-data-control",
-] }
-desktop-runtime = { package = "tauri", version = "2.11.5" }
-`;
-
-  it("parses normal, multiline, renamed, and build dependencies", () => {
-    assert.deepEqual(
-      parseCargoManifest(manifest).map(({ declaredName, registryName, requested }) => ({
-        declaredName,
-        registryName,
-        requested,
-      })),
-      [
-        { declaredName: "arboard", registryName: "arboard", requested: "3.6.1" },
-        { declaredName: "desktop-runtime", registryName: "tauri", requested: "2.11.5" },
-        { declaredName: "tauri-build", registryName: "tauri-build", requested: "2.6.3" },
-      ]
-    );
-  });
-
-  it("fails closed on Cargo dependency tables and quoted dependency keys", () => {
-    assert.throws(
-      () => parseCargoManifest('[dependencies.foo]\nversion = "1.2.3"\n'),
-      /dependency table syntax/u
-    );
-    assert.throws(
-      () => parseCargoManifest('[dependencies]\n"foo" = "1.2.3"\n'),
-      /dependency syntax/u
-    );
-  });
-
   it("implements the Cargo caret, tilde, and exact ranges used by direct dependencies", () => {
     assert.equal(satisfiesCargoRequirement("2.99.0", "2.11.5"), true);
     assert.equal(satisfiesCargoRequirement("3.0.0", "2.11.5"), false);
@@ -286,28 +248,80 @@ desktop-runtime = { package = "tauri", version = "2.11.5" }
     assert.equal(satisfiesCargoRequirement("1.2.3", "=1.2.3"), true);
   });
 
-  it("maps each direct manifest dependency to one crates.io lock entry", () => {
-    const lock = `
-[[package]]
-name = "arboard"
-version = "3.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "tauri"
-version = "2.11.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-
-[[package]]
-name = "tauri-build"
-version = "2.6.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-`;
+  it("uses root dependency edges when two compatible versions are locked", () => {
+    const source = "registry+https://github.com/rust-lang/crates.io-index";
+    const metadata = {
+      version: 1,
+      packages: [
+        {
+          id: "root",
+          dependencies: [
+            {
+              name: "arboard",
+              rename: null,
+              req: "^3.6.1",
+              kind: null,
+              optional: false,
+              source,
+            },
+            {
+              name: "tauri",
+              rename: "desktop-runtime",
+              req: "^2.11.5",
+              kind: null,
+              optional: false,
+              source,
+            },
+            {
+              name: "tauri-build",
+              rename: null,
+              req: "^2.6.3",
+              kind: "build",
+              optional: false,
+              source,
+            },
+          ],
+        },
+        { id: "arboard-direct", name: "arboard", version: "3.6.1", source },
+        { id: "tauri-transitive", name: "tauri", version: "2.11.5", source },
+        { id: "tauri-direct", name: "tauri", version: "2.12.0", source },
+        { id: "tauri-build-direct", name: "tauri-build", version: "2.6.3", source },
+      ],
+      resolve: {
+        root: "root",
+        nodes: [
+          {
+            id: "root",
+            deps: [
+              {
+                name: "arboard",
+                pkg: "arboard-direct",
+                dep_kinds: [{ kind: null, target: null }],
+              },
+              {
+                name: "desktop_runtime",
+                pkg: "tauri-direct",
+                dep_kinds: [{ kind: null, target: null }],
+              },
+              {
+                name: "tauri_build",
+                pkg: "tauri-build-direct",
+                dep_kinds: [{ kind: "build", target: null }],
+              },
+            ],
+          },
+          { id: "arboard-direct", deps: [] },
+          { id: "tauri-transitive", deps: [] },
+          { id: "tauri-direct", deps: [] },
+          { id: "tauri-build-direct", deps: [] },
+        ],
+      },
+    };
     assert.deepEqual(
-      collectCargoTargets(manifest, lock).map((target) => [target.declaredName, target.locked]),
+      collectCargoTargets(metadata).map((target) => [target.declaredName, target.locked]),
       [
         ["arboard", "3.6.1"],
-        ["desktop-runtime", "2.11.5"],
+        ["desktop-runtime", "2.12.0"],
         ["tauri-build", "2.6.3"],
       ]
     );

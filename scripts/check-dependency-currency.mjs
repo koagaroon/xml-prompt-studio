@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { appendFile, readFile, readdir } from "node:fs/promises";
 import { relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -177,11 +178,37 @@ async function checkNpm(packageJson, lockfile, npmrc) {
   return rows;
 }
 
-async function checkCargo(manifestText, lockText) {
+function runCargoMetadata(manifestPath) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "cargo",
+      ["metadata", "--format-version", "1", "--locked", "--manifest-path", manifestPath],
+      {
+        cwd: projectRoot,
+        encoding: "utf8",
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: 240_000,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error !== null) {
+          rejectPromise(
+            new MonitorError("cargo metadata failed; the direct dependency graph is unavailable.")
+          );
+          return;
+        }
+        resolvePromise(stdout);
+      }
+    );
+  });
+}
+
+async function checkCargo(manifestText, manifestPath) {
   let targets;
   let projectMsrv;
   try {
-    targets = collectCargoTargets(manifestText, lockText);
+    const metadataText = await runCargoMetadata(manifestPath);
+    targets = collectCargoTargets(JSON.parse(metadataText));
     projectMsrv = parseProjectMsrv(manifestText);
   } catch (error) {
     return [errorRow("Cargo", "direct dependency graph", "unknown", error)];
@@ -350,20 +377,17 @@ async function main() {
     packageLock: resolve(projectRoot, "package-lock.json"),
     npmrc: resolve(projectRoot, ".npmrc"),
     cargoManifest: resolve(projectRoot, "src-tauri", "Cargo.toml"),
-    cargoLock: resolve(projectRoot, "src-tauri", "Cargo.lock"),
   };
   let packageJson;
   let lockfile;
   let npmrc;
   let cargoManifest;
-  let cargoLock;
   try {
-    [packageJson, lockfile, npmrc, cargoManifest, cargoLock] = await Promise.all([
+    [packageJson, lockfile, npmrc, cargoManifest] = await Promise.all([
       readJson(paths.packageJson),
       readJson(paths.packageLock),
       readText(paths.npmrc),
       readText(paths.cargoManifest),
-      readText(paths.cargoLock),
     ]);
   } catch (error) {
     const rows = [errorRow("Monitor", "local project metadata", "unknown", error)];
@@ -375,7 +399,7 @@ async function main() {
   const rows = (
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc),
-      checkCargo(cargoManifest, cargoLock),
+      checkCargo(cargoManifest, paths.cargoManifest),
       checkActions(),
       checkRolldown(lockfile),
     ])
