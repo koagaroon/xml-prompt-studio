@@ -177,7 +177,7 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 
 - [Node.js](https://nodejs.org/) satisfying `^22.13.0 || ^24.0.0 || ^26.0.0`
 - npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库由 `rust-toolchain.toml` 选择已测试的 1.97.1 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.97.1 toolchain
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库由 `rust-toolchain.toml` 选择已测试的 1.98.0 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
