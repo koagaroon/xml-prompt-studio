@@ -2,11 +2,11 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 
-> **XML Prompt Studio 是一款桌面工具，用于编写、预览和复制 XML 风格的大语言模型（LLM）提示词。** 你可以把 `<instructions>`、`<context>`、`<input>`、`<example>` 等片段组织成清晰的标签结构，然后一键复制到 Claude Code 或其他 CLI / chat 工具中。
+> **XML Prompt Studio 是一款桌面工具，用于编写、预览和复制面向大语言模型（LLM）工作流的 XML 风格提示词。** 你可以把 `<instructions>`、`<context>`、`<input>`、`<example>` 等片段组织成清晰的标签结构，然后复制到 Claude Code 或其他 CLI / chat 工具中。
 >
 > _XML Prompt Studio is a desktop app for writing, previewing, and copying XML-style prompts for large language model (LLM) workflows._ You can organize sections such as `<instructions>`, `<context>`, `<input>`, and `<example>` into a clear tag structure, then copy them into Claude Code or another CLI/chat tool.
 
-这款应用有意保持聚焦：它是一个 XML 提示词创作工具，而不是通用的 XML IDE。它只使用元素标记提示词、允许多个顶层 section、支持同名标签重复出现、允许 Unicode 标签名，并原样输出文本内容（所见即所得，WYSIWYG）。
+这款应用有意保持聚焦：它是一个 XML 提示词创作工具，而不是通用的 XML IDE。它采用仅含元素的提示词标记，允许多个顶层 section，支持同名标签重复出现，允许 Unicode 标签名，并原样输出文本内容（所见即所得，WYSIWYG）。
 
 This app is intentionally focused: it is an XML prompt authoring tool, not a general-purpose XML IDE. It uses element-only prompt markup, allows multiple top-level sections, supports repeated same-name tags, accepts Unicode tag names, and outputs text content exactly as written (WYSIWYG).
 
@@ -50,9 +50,9 @@ macOS / Linux users, see "Build from Source" below.
 | 功能 / Feature                                        | 说明 / Description                                                                                                                                                                                                                                |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **三栏编辑界面 / Three-column editor**                | 左侧元素列表，中间编辑当前元素，右侧实时预览 / Element outline on the left, focused element editor in the middle, live preview on the right                                                                                                       |
-| **多顶层提示词结构 / Multiple top-level sections**    | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，不会强制包进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root                                                                                   |
+| **多顶层提示词结构 / Multiple top-level sections**    | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，无需包裹进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root                                                                                     |
 | **嵌套元素编辑 / Nested element editing**             | 添加子元素、同级元素，上移 / 下移，删除元素 / Add children, add siblings, move elements up/down, and delete elements                                                                                                                              |
-| **同名标签有效 / Same-name tags are valid**           | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会报错 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings                                                |
+| **同名标签有效 / Same-name tags are valid**           | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会产生警告 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings                                            |
 | **XML Name 校验 / XML Name validation**               | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names                         |
 | **可编辑预设标签 / Editable preset chips**            | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage`                                                    |
 | **预览内容 = 剪贴板内容 / Preview matches clipboard** | 右侧预览就是实际复制到剪贴板的文本 / The right-side preview is the text copied to the clipboard                                                                                                                                                   |
@@ -68,7 +68,7 @@ macOS / Linux users, see "Build from Source" below.
 
 ## 支持范围 | Supported Scope
 
-XML Prompt Studio 输出的是提示词标记，而不是严格给 XML 解析器消费的数据文件。这个边界是产品设计的一部分。
+XML Prompt Studio 输出的是提示词标记，而不是供 XML 解析器使用的严格数据文件。这个边界是产品设计的一部分。
 
 XML Prompt Studio outputs prompt markup, not strict data files meant for XML parsers. This boundary is intentional.
 
@@ -77,8 +77,8 @@ XML Prompt Studio outputs prompt markup, not strict data files meant for XML par
 | 文档形态 / Document shape                           | 非空森林模型：多个顶层元素并列存在 / Non-empty forest model: multiple top-level elements can sit side by side                   |
 | 元素结构 / Element structure                        | 只有元素名、文本内容、子元素 / Element name, text content, and child elements only                                              |
 | 文本内容 / Text content                             | WYSIWYG：`<`、`>`、`&` 会原样输出，不自动转义 / WYSIWYG: `<`, `>`, and `&` are emitted literally, not escaped                   |
-| 标签名 / Tag names                                  | 对修剪后的标签名应用 XML 1.0 `Name` 校验 / XML 1.0 `Name` validation is applied to trimmed tag names                            |
-| 顶层分隔 / Top-level separators                     | 顶层 section 之间复制一个空行，与预览一致 / One blank line is copied between top-level sections, matching the preview           |
+| 标签名 / Tag names                                  | 对去除首尾空白后的标签名应用 XML 1.0 `Name` 校验 / XML 1.0 `Name` validation is applied to trimmed tag names                    |
+| 顶层分隔 / Top-level separators                     | 复制时顶层 section 之间用一个空行分隔，与预览一致 / One blank line is copied between top-level sections, matching the preview   |
 | 属性 / Attributes                                   | 不支持 / Not supported                                                                                                          |
 | 命名空间 / Namespaces                               | `:` 可作为 XML Name 字符，但不会解析 namespace 语义 / `:` is allowed by XML Name syntax, but namespace semantics are not parsed |
 | DTD / XSD / Schema                                  | 不支持 / Not supported                                                                                                          |
@@ -138,7 +138,7 @@ The example below shows multiple top-level sections emitted side by side, separa
 
 ## 预览与复制机制 | Preview and Copy Contract
 
-预览区是信任界面：用户看到什么，复制出去的就应该是什么。
+预览区是信任面：用户看到什么，复制出去的就应该是什么。
 
 The preview is the trust surface: what you see should be what gets copied.
 
@@ -177,7 +177,7 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 
 - [Node.js](https://nodejs.org/) satisfying `^22.13.0 || ^24.0.0 || ^26.0.0`
 - npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库由 `rust-toolchain.toml` 选择已测试的 1.98.0 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.98.0 工具链 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
@@ -221,7 +221,7 @@ npm run build
 cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
 ```
 
-拆分命令：
+拆分后的命令：
 
 Split commands:
 
@@ -288,7 +288,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 ### 捆绑字体 | Bundled Fonts
 
-`public/fonts/` 中的字体会随应用一起分发，并使用各自的 SIL Open Font License (OFL) Version 1.1，而不是项目的 MIT License。完整许可证文本已随字体文件一起包含。
+`public/fonts/` 中的字体会随应用一起分发，并按各自的 SIL Open Font License (OFL) Version 1.1 授权，而不是项目的 MIT License。完整许可证文本已随字体文件一并提供。
 
 The fonts in `public/fonts/` ship with the application and are licensed under their own SIL Open Font License (OFL) Version 1.1, not under the project's MIT License. The full license texts are included alongside the font files.
 
@@ -297,7 +297,7 @@ The fonts in `public/fonts/` ship with the application and are licensed under th
 | [Inter](https://rsms.me/inter/)                      | [SIL Open Font License 1.1](public/fonts/Inter-LICENSE.txt)     | UI 正文、标签和控件 / UI body, labels, and controls                             |
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) | [SIL Open Font License 1.1](public/fonts/JetBrainsMono-OFL.txt) | XML 预览、标签名和等宽 UI 文本 / XML preview, tag names, and monospaced UI text |
 
-更多简短归属索引见 [public/fonts/LICENSES.md](public/fonts/LICENSES.md) 和 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
+简短归属索引见 [public/fonts/LICENSES.md](public/fonts/LICENSES.md) 和 [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)。
 
 See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) for the short attribution index.
 
