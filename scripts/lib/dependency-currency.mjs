@@ -568,6 +568,84 @@ export function classifyCargoCurrency(locked, inspection, projectMsrv) {
   };
 }
 
+/** @param {string} key */
+function isYamlUsesKey(key) {
+  if (key === "uses" || key === "'uses'") return true;
+  if (!key.startsWith('"') || !key.endsWith('"')) return false;
+  let position = 1;
+  for (const expected of "uses") {
+    if (key[position] === expected) {
+      position += 1;
+      continue;
+    }
+    // YAML hex escapes can spell a mapping key. Recognize only the four
+    // characters we need to refuse unsupported uses syntax, not all YAML.
+    const escape = /^\\(?:x([0-9a-fA-F]{2})|u([0-9a-fA-F]{4})|U([0-9a-fA-F]{8}))/u.exec(
+      key.slice(position)
+    );
+    if (
+      escape === null ||
+      parseInt(escape[1] ?? escape[2] ?? escape[3], 16) !== expected.charCodeAt(0)
+    )
+      return false;
+    position += escape[0].length;
+  }
+  return position === key.length - 1;
+}
+
+/** @param {string} line @param {number} position */
+function isYamlMappingKeyPosition(line, position) {
+  let previous = position - 1;
+  while (previous >= 0 && /\s/u.test(line[previous])) previous -= 1;
+  if (line[previous] === "?") {
+    previous -= 1;
+    while (previous >= 0 && /\s/u.test(line[previous])) previous -= 1;
+  }
+  if (previous < 0 || line[previous] === "{" || line[previous] === ",") return true;
+  return line[previous] === "-" && line.slice(0, previous).trim() === "";
+}
+
+/** @param {string} line @param {string | null} initialQuote */
+function scanYamlLine(line, initialQuote = null) {
+  let quote = initialQuote;
+  let hasUsesKey = false;
+  for (let position = 0; position < line.length; position += 1) {
+    const character = line[position];
+    if (quote === '"' && character === "\\") {
+      position += 1;
+      continue;
+    }
+    if (quote !== null) {
+      if (character === quote) {
+        if (quote === "'" && line[position + 1] === "'") position += 1;
+        else quote = null;
+      }
+      continue;
+    }
+    if (character === "#" && (position === 0 || /\s/u.test(line[position - 1]))) break;
+    if (
+      (character === "u" || character === '"' || character === "'") &&
+      isYamlMappingKeyPosition(line, position)
+    ) {
+      const mappingKey = /^(uses|"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')\s*:/u.exec(line.slice(position));
+      if (mappingKey !== null && isYamlUsesKey(mappingKey[1])) hasUsesKey = true;
+    }
+    if (character === '"' || character === "'") {
+      let previous = position - 1;
+      while (previous >= 0 && /\s/u.test(line[previous])) previous -= 1;
+      // Quotes embedded in plain text (for example John's) are ordinary data.
+      if (
+        isYamlMappingKeyPosition(line, position) ||
+        line[previous] === ":" ||
+        line[previous] === "["
+      ) {
+        quote = character;
+      }
+    }
+  }
+  return { quote, hasUsesKey };
+}
+
 export function parseActionReferences(sources) {
   const actions = new Map();
   const errors = [];
@@ -577,59 +655,65 @@ export function parseActionReferences(sources) {
     }
     const lines = source.content.split(/\r?\n/u);
     let blockScalarParentIndent = null;
+    /** @type {string | null} */
+    let quote = null;
+    /** @param {number} offset */
+    const unsupportedUses = (offset) => {
+      errors.push({
+        dependency: "unsupported uses syntax",
+        location: `${source.path}:${offset + 1}`,
+        reason: "A uses key could not be parsed safely.",
+      });
+    };
     for (const [offset, line] of lines.entries()) {
       const lineIndent = /^\s*/u.exec(line)?.[0].length ?? 0;
       if (blockScalarParentIndent !== null) {
         if (line.trim() === "" || lineIndent > blockScalarParentIndent) continue;
         blockScalarParentIndent = null;
       }
-      if (/^\s*(?:-\s*)?[A-Za-z0-9_-]+:\s*[|>][+-]?\s*(?:#.*)?$/u.test(line)) {
-        blockScalarParentIndent = lineIndent;
+      const explicitKey =
+        quote === null
+          ? /^\s*(?:-\s*)?\?\s+(uses|"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')\s*(?::|#|$)/u.exec(line)
+          : null;
+      if (explicitKey !== null && isYamlUsesKey(explicitKey[1])) {
+        unsupportedUses(offset);
+        continue;
+      }
+      /** @type {RegExpExecArray | null} */
+      const scalarEntry =
+        quote === null
+          ? /^(\s*(?:-\s*)?)([A-Za-z0-9_-]+|"[^"]+"|'[^']+')\s*:\s*(.*)$/u.exec(line)
+          : null;
+      const isUsesEntry = scalarEntry !== null && isYamlUsesKey(scalarEntry[2]);
+      /** @type {string | undefined} */
+      const scalarValue = scalarEntry?.[3].replace(/^(?:[!&]\S+\s+)*/u, "");
+      if (
+        scalarEntry !== null &&
+        scalarValue !== undefined &&
+        /^[|>](?:[1-9][+-]?|[+-][1-9]?)?\s*(?:#.*)?$/u.test(scalarValue)
+      ) {
+        // The sequence marker is outside the key's indentation; a sibling key
+        // on the next line is not part of a preceding `- run: |` value.
+        blockScalarParentIndent = scalarEntry[1].length;
+        if (isUsesEntry) unsupportedUses(offset);
+        continue;
+      }
+      // A plain/quoted scalar such as `run: echo ...` is not a flow mapping.
+      // Braces and uses-like text inside that scalar must remain ordinary data.
+      if (scalarEntry !== null && !isUsesEntry && !/^(?:\{|\[)/u.test(scalarValue ?? "")) {
+        if (/^["']/u.test(scalarValue ?? "")) quote = scanYamlLine(scalarValue ?? "").quote;
         continue;
       }
       const match =
-        /^\s*(?:-\s*)?uses:\s*(?:"([^"]+)"|'([^']+)'|([^\s#]+))\s*(?:#\s*(\S+))?\s*$/u.exec(line);
+        quote === null
+          ? /^\s*(?:-\s*)?uses:\s*(?:"([^"]+)"|'([^']+)'|([^\s#"']+))\s*(?:#\s*(\S+))?\s*$/u.exec(
+              line
+            )
+          : null;
       if (match === null) {
-        let unquotedUsesKey = false;
-        let singleQuoted = false;
-        let doubleQuoted = false;
-        for (let position = 0; position < line.length; position += 1) {
-          const character = line[position];
-          if (doubleQuoted && character === "\\") {
-            position += 1;
-            continue;
-          }
-          if (!doubleQuoted && character === "'") {
-            if (singleQuoted && line[position + 1] === "'") {
-              position += 1;
-              continue;
-            }
-            singleQuoted = !singleQuoted;
-            continue;
-          }
-          if (!singleQuoted && character === '"') {
-            doubleQuoted = !doubleQuoted;
-            continue;
-          }
-          if (singleQuoted || doubleQuoted) continue;
-          if (character === "#") break;
-          if (line.slice(position, position + 4) !== "uses") continue;
-          const before = line.slice(0, position).trim();
-          const after = line.slice(position + 4);
-          if (!/^\s*:/u.test(after)) continue;
-          if (before === "" || before === "-" || before.endsWith("{") || before.endsWith(",")) {
-            unquotedUsesKey = true;
-            break;
-          }
-        }
-        const quotedUsesKey = /^\s*(?:-\s*)?(?:"uses"|'uses')\s*:/u.test(line);
-        if (unquotedUsesKey || quotedUsesKey) {
-          errors.push({
-            dependency: "unsupported uses syntax",
-            location: `${source.path}:${offset + 1}`,
-            reason: "A uses key could not be parsed safely.",
-          });
-        }
+        const scanned = scanYamlLine(line, quote);
+        quote = scanned.quote;
+        if (scanned.hasUsesKey) unsupportedUses(offset);
         continue;
       }
       const reference = match[1] ?? match[2] ?? match[3];
@@ -673,6 +757,13 @@ export function parseActionReferences(sources) {
         pin: pin.toLowerCase(),
         declaredTag,
         locations: [...(existing?.locations ?? []), location],
+      });
+    }
+    if (quote !== null) {
+      errors.push({
+        dependency: "unsupported workflow syntax",
+        location: source.path,
+        reason: "An unterminated quoted scalar prevents safe action inspection.",
       });
     }
   }

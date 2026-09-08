@@ -12,12 +12,14 @@
     "fsevents@2.3.3": true
   },
   "scripts": {
-    "dev": "vite",
-    "build": "npm run typecheck:ts7 && vite build",
+    "dev": "npm run notices:generate && vite",
+    "build": "npm run typecheck:ts7 && npm run notices:generate && vite build && npm run notices:check",
     "preview": "vite preview",
     "tauri": "tauri",
     "icons:generate": "node scripts/generate-icon-assets.mjs",
     "icons:check": "node scripts/generate-icon-assets.mjs --check",
+    "notices:generate": "node scripts/generate-frontend-notices.mjs",
+    "notices:check": "node scripts/generate-frontend-notices.mjs --check-dist",
     "test": "npm run test:js && npm run test:rs",
     "test:js": "vitest run",
     "test:rs": "cargo test --locked --manifest-path src-tauri/Cargo.toml",
@@ -53,7 +55,7 @@
     "stylelint": "^17.15.0",
     "stylelint-config-standard": "^40.0.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "^8.69.0",
+    "typescript-eslint": "^8.70.0",
     "vite": "^8.2.2",
     "vitest": "^5.0.0"
   }
