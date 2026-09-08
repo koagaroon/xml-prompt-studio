@@ -4,4 +4,6 @@ src-tauri/target
 src-tauri/gen
 src-tauri/icons
 public/fonts
+public/licenses
+public/third-party-notices.txt
 package-lock.json

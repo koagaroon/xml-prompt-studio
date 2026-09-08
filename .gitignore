@@ -2,6 +2,7 @@
 target/
 dist/
 *.tsbuildinfo
+public/third-party-notices.txt
 
 # Dependencies
 node_modules/

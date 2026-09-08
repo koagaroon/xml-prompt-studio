@@ -307,23 +307,30 @@ See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICE
 
 The tables below list the main direct dependencies and bundled assets; for the full transitive dependency graph, see `package-lock.json` and `src-tauri/Cargo.lock`.
 
+应用中的 **Licenses** 按钮可离线查看完整的前端运行时许可证、捆绑字体许可证和图标归属。构建会从已锁定的 npm 包生成文本，并核对分发目录中的副本。该自动清单不代表已完整收集 Rust 传递依赖的许可证；详见 [Third-Party Notices](THIRD-PARTY-NOTICES.md)。
+
+The **Licenses** button opens the full frontend runtime licenses, bundled font licenses, and icon attribution offline. The build generates the text from locked npm packages and verifies its packaged copy. This automated inventory does not claim complete license collection for native Rust transitive dependencies; see [Third-Party Notices](THIRD-PARTY-NOTICES.md).
+
 #### 运行时依赖（随应用分发）| Runtime (shipped with the application)
 
-| 组件 / Component                                       | 许可证 / License  | 用途 / Usage                                            |
-| ------------------------------------------------------ | ----------------- | ------------------------------------------------------- |
-| [Tauri](https://tauri.app/)                            | MIT OR Apache-2.0 | 桌面应用框架 / Desktop app framework                    |
-| [@tauri-apps/api](https://github.com/tauri-apps/tauri) | MIT OR Apache-2.0 | 前端到 Rust 的 IPC bridge / Frontend-to-Rust IPC bridge |
-| [React](https://react.dev/) / React DOM                | MIT               | UI 框架 / UI framework                                  |
-| [arboard](https://github.com/1Password/arboard)        | MIT OR Apache-2.0 | 跨平台剪贴板访问 / Cross-platform clipboard access      |
-| [Inter](https://rsms.me/inter/)                        | SIL OFL 1.1       | 捆绑 UI 字体 / Bundled UI font                          |
-| [JetBrains Mono](https://www.jetbrains.com/lp/mono/)   | SIL OFL 1.1       | 捆绑等宽字体 / Bundled monospace font                   |
+| 组件 / Component                                                                  | 许可证 / License  | 用途 / Usage                                                                |
+| --------------------------------------------------------------------------------- | ----------------- | --------------------------------------------------------------------------- |
+| [Tauri](https://tauri.app/)                                                       | MIT OR Apache-2.0 | 桌面应用框架 / Desktop app framework                                        |
+| [@tauri-apps/api](https://github.com/tauri-apps/tauri)                            | MIT OR Apache-2.0 | 前端到 Rust 的 IPC bridge / Frontend-to-Rust IPC bridge                     |
+| [React](https://react.dev/) / React DOM                                           | MIT               | UI 框架 / UI framework                                                      |
+| [Scheduler](https://github.com/facebook/react/tree/main/packages/scheduler)       | MIT               | React DOM 的调度依赖 / React DOM scheduling dependency                      |
+| [Vite runtime helpers](https://vite.dev/config/build-options#build-modulepreload) | MIT               | 构建时注入的模块预加载辅助代码 / Module preload helper emitted by the build |
+| [Feather](https://github.com/feathericons/feather)                                | MIT               | 月亮图标的保守归属说明 / Conservative attribution for the moon icon         |
+| [arboard](https://github.com/1Password/arboard)                                   | MIT OR Apache-2.0 | 跨平台剪贴板访问 / Cross-platform clipboard access                          |
+| [Inter](https://rsms.me/inter/)                                                   | SIL OFL 1.1       | 捆绑 UI 字体 / Bundled UI font                                              |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/)                              | SIL OFL 1.1       | 捆绑等宽字体 / Bundled monospace font                                       |
 
 #### 构建时依赖（不随应用分发）| Build-time only (not shipped)
 
 | 组件 / Component                                                    | 许可证 / License  | 用途 / Usage                                                                                                      |
 | ------------------------------------------------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------- |
 | [TypeScript](https://www.typescriptlang.org/)                       | Apache-2.0        | TypeScript 7 发布检查 + TypeScript 6 API 兼容层 / TS7 release gate + TS6 API compatibility layer                  |
-| [Vite](https://vite.dev/)                                           | MIT               | 前端构建工具 / Frontend build tool                                                                                |
+| [Vite](https://vite.dev/)                                           | MIT               | 前端构建工具；随应用分发的辅助代码见上表 / Frontend build tool; emitted runtime helpers are listed above          |
 | [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react) | MIT               | Vite React 支持 / React support for Vite                                                                          |
 | [Tauri CLI](https://tauri.app/)                                     | MIT OR Apache-2.0 | Tauri 构建入口 / Tauri build entry point                                                                          |
 | [tauri-build](https://github.com/tauri-apps/tauri)                  | MIT OR Apache-2.0 | Tauri Rust 构建脚本 helper / Tauri Rust build script helper                                                       |

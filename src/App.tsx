@@ -250,6 +250,10 @@ export default function App() {
   // actions surface their confirm dialog through this single primitive
   // rather than each owning a separate showFoo flag.
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [noticesOpen, setNoticesOpen] = useState(false);
+  const [noticesText, setNoticesText] = useState<string | null>(null);
+  const [noticesError, setNoticesError] = useState(false);
+  const noticesLoadingRef = useRef(false);
   const [theme, setTheme] = useState<Theme>(readInitialTheme);
 
   // User-customizable preset chip list, persisted to localStorage. The
@@ -577,6 +581,25 @@ export default function App() {
 
   const closeConfirm = () => {
     setConfirmRequest(null);
+    setNoticesOpen(false);
+  };
+
+  const openNotices = async () => {
+    setNoticesOpen(true);
+    if (noticesText !== null || noticesLoadingRef.current) return;
+    noticesLoadingRef.current = true;
+    setNoticesError(false);
+    try {
+      const response = await fetch("./third-party-notices.txt");
+      if (!response.ok) throw new Error("Bundled notices unavailable");
+      const text = await response.text();
+      if (!text.trim()) throw new Error("Bundled notices are empty");
+      setNoticesText(text);
+    } catch {
+      setNoticesError(true);
+    } finally {
+      noticesLoadingRef.current = false;
+    }
   };
 
   const handleConfirm = () => {
@@ -1087,7 +1110,7 @@ export default function App() {
   // overlay, screen readers don't announce the dialog, and on close the
   // keyboard user lands on <body> with no anchor back to where they were.
   useEffect(() => {
-    if (!confirmRequest) {
+    if (!confirmRequest && !noticesOpen) {
       return;
     }
     // Capture the element that triggered the modal so focus can return
@@ -1121,7 +1144,7 @@ export default function App() {
         document.getElementById(TAG_NAME_INPUT_ID)?.focus();
       }
     };
-  }, [confirmRequest]);
+  }, [confirmRequest, noticesOpen]);
 
   return (
     <div className="app-shell">
@@ -1174,6 +1197,9 @@ export default function App() {
         </div>
 
         <div className="ribbon-right">
+          <button type="button" onClick={openNotices} aria-label="Third-party licenses">
+            Licenses
+          </button>
           {/* Theme toggle is a meta/settings control, not a document action,
               so it sits with the Copy XML anchor on the right. The icon
               shown is the destination (sun = "click to go light", moon =
@@ -1304,6 +1330,10 @@ export default function App() {
                       onChange={(event) => updateEditingChipDraft(event.target.value)}
                       onBlur={commitChipEdit}
                       onKeyDown={(event) => {
+                        // Enter/Escape can belong to the IME candidate window.
+                        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                          return;
+                        }
                         if (event.key === "Enter") {
                           event.preventDefault();
                           commitChipEdit();
@@ -1374,6 +1404,10 @@ export default function App() {
                   onChange={(event) => updateEditingChipDraft(event.target.value)}
                   onBlur={commitChipEdit}
                   onKeyDown={(event) => {
+                    // Some IMEs end composition before the final keydown (229).
+                    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+                      return;
+                    }
                     if (event.key === "Enter") {
                       event.preventDefault();
                       commitChipEdit();
@@ -1507,7 +1541,7 @@ export default function App() {
         </section>
       </main>
 
-      {confirmRequest && (
+      {(confirmRequest || noticesOpen) && (
         // Overlay has no explicit role — the inner div carries
         // role="dialog" + aria-modal="true". Keeping a click handler on
         // the overlay for click-outside-to-cancel; AT users have Escape
@@ -1535,25 +1569,48 @@ export default function App() {
           }}
         >
           <div
-            className="confirm-dialog"
+            className={cx("confirm-dialog", noticesOpen && "notices-dialog")}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
             aria-describedby="confirm-desc"
           >
-            <h3 id="confirm-title">{confirmRequest.title}</h3>
-            <p id="confirm-desc">{confirmRequest.description}</p>
+            <h3 id="confirm-title">
+              {noticesOpen ? "Third-party licenses" : confirmRequest?.title}
+            </h3>
+            <p id="confirm-desc">
+              {noticesOpen
+                ? "License texts for bundled JavaScript, fonts, and icons. Available offline."
+                : confirmRequest?.description}
+            </p>
+            {noticesOpen &&
+              (noticesText !== null ? (
+                <pre className="license-text" role="region" aria-label="License texts" tabIndex={0}>
+                  {noticesText}
+                </pre>
+              ) : noticesError ? (
+                <p role="alert">The bundled license texts could not be loaded. Please try again.</p>
+              ) : (
+                <p role="status">Loading license texts...</p>
+              ))}
             <div className="dialog-buttons">
+              {noticesOpen && noticesError && (
+                <button type="button" onClick={openNotices}>
+                  Retry
+                </button>
+              )}
               <button type="button" ref={cancelButtonRef} onClick={closeConfirm}>
-                Cancel
+                {noticesOpen ? "Close" : "Cancel"}
               </button>
-              <button
-                type="button"
-                className={confirmRequest.confirmKind === "danger" ? "danger-button" : undefined}
-                onClick={handleConfirm}
-              >
-                {confirmRequest.confirmLabel}
-              </button>
+              {confirmRequest && (
+                <button
+                  type="button"
+                  className={confirmRequest.confirmKind === "danger" ? "danger-button" : undefined}
+                  onClick={handleConfirm}
+                >
+                  {confirmRequest.confirmLabel}
+                </button>
+              )}
             </div>
           </div>
         </div>
