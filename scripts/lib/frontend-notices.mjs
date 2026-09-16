@@ -1,10 +1,22 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+/**
+ * @typedef {{ version?: string, license?: string, dev?: boolean, dependencies?: Record<string, string> }} NpmLockEntry
+ * @typedef {{ lockfileVersion: number, packages: Record<string, NpmLockEntry> }} NpmLockfile
+ * @typedef {{ name: string, text: string }} NoticeFile
+ * @typedef {{ metadata: Record<string, unknown>, files: NoticeFile[] }} PackageNotices
+ */
+
+/** @param {string} text */
 const normalizeNewlines = (text) => text.replace(/\r\n/gu, "\n");
 const licenseName = /^(?:licen[cs]e|copying)(?:$|[._-])/iu;
 const noticeName = /^(?:licen[cs]e|copying|notice)(?:$|[._-])/iu;
 
+/**
+ * @param {NpmLockfile} lockfile
+ * @param {(location: string) => PackageNotices} readPackage
+ */
 export function collectNpmNotices(lockfile, readPackage) {
   if (lockfile.lockfileVersion !== 3 || !lockfile.packages?.[""]?.dependencies) {
     throw new Error("Runtime notices require an npm v3 lockfile with root dependencies.");
@@ -48,8 +60,11 @@ export function collectNpmNotices(lockfile, readPackage) {
   });
 }
 
+/** @param {string} root */
 export function buildFrontendNotices(root) {
+  /** @param {string} relative */
   const readText = (relative) => normalizeNewlines(readFileSync(join(root, relative), "utf8"));
+  /** @type {NpmLockfile} */
   const lockfile = JSON.parse(readText("package-lock.json"));
   const packages = collectNpmNotices(lockfile, (location) => ({
     metadata: JSON.parse(readText(`${location}/package.json`)),

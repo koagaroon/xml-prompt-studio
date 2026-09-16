@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
 import { buildFrontendNotices, collectNpmNotices } from "./frontend-notices.mjs";
 
+/** @type {import("./frontend-notices.mjs").NpmLockfile} */
 const lockfile = {
   lockfileVersion: 3,
   packages: {
@@ -14,6 +15,10 @@ const lockfile = {
     "node_modules/vitest": { version: "5.0.0", license: "MIT", dev: true },
   },
 };
+/**
+ * @param {string} location
+ * @returns {import("./frontend-notices.mjs").PackageNotices}
+ */
 function readPackage(location) {
   const entry = lockfile.packages[location];
   return {
