@@ -5,6 +5,7 @@ import {
   MonitorError,
   classifyActionCurrency,
   classifyCargoCurrency,
+  classifyNpmCurrency,
   classifyRolldownCurrency,
   classifyVersion,
   collectCargoTargets,
@@ -48,7 +49,10 @@ describe("stable semantic versions", () => {
   });
 
   it("compares and selects stable releases without admitting prereleases", () => {
-    assert.equal(compareSemver(parseStableSemver("2.0.0"), parseStableSemver("1.99.99")), 1);
+    const newer = parseStableSemver("2.0.0");
+    const older = parseStableSemver("1.99.99");
+    assert.ok(newer !== null && older !== null);
+    assert.equal(compareSemver(newer, older), 1);
     assert.equal(newestStable(["2.0.0-beta.1", "1.9.0", "1.10.0"]), "1.10.0");
     assert.equal(newestStable(["6.0.3", "7.0.2", "6.1.0"], 6), "6.1.0");
   });
@@ -234,6 +238,193 @@ describe("npm dependency inspection", () => {
         ),
       /must enable/u
     );
+  });
+});
+
+describe("Node type compatibility policy", () => {
+  const manifest = { engines: { node: "^26.0.0 || ^22.13.0 || ^24.0.0" } };
+  /** @type {import("./dependency-currency.mjs").NpmTarget} */
+  const target = {
+    declaredName: "@types/node",
+    registryName: "@types/node",
+    requested: "~22.13.17",
+    locked: "22.13.17",
+    kind: "development",
+    major: null,
+  };
+  /** @param {string[]} versions @param {string} latest */
+  const metadata = (versions, latest) => ({
+    name: "@types/node",
+    "dist-tags": { latest },
+    versions: Object.fromEntries(
+      versions.map((version) => [version, { name: "@types/node", version }])
+    ),
+  });
+
+  it("accepts the current API line and holds the immediately newer minor", () => {
+    const current = metadata(["22.13.17"], "22.13.17");
+    assert.equal(classifyNpmCurrency(target, current, manifest).status, "current");
+    const held = classifyNpmCurrency(
+      target,
+      metadata(["22.13.17", "22.14.0"], "22.14.0"),
+      manifest
+    );
+    assert.equal(held.status, "hold");
+    assert.equal(held.latest, "22.14.0");
+    assert.match(held.reason, /Node 22\.13\.0/u);
+    assert.equal(reportExitCode([held]), 0);
+  });
+
+  it.each(["~22.13.17", "22.13.17"])(
+    "reports an eligible patch for %s even when a newer major is held",
+    (requested) => {
+      const result = classifyNpmCurrency(
+        { ...target, requested },
+        metadata(["22.13.17", "22.13.18", "26.6.1"], "26.6.1"),
+        manifest
+      );
+      assert.equal(result.status, "actionable");
+      assert.equal(result.latest, "22.13.18");
+      assert.match(result.reason, /held/u);
+      assert.equal(reportExitCode([result]), 1);
+    }
+  );
+
+  it("does not confuse runtime patch numbers with type-package patch numbers", () => {
+    const result = classifyNpmCurrency(target, metadata(["22.13.17"], "22.13.17"), {
+      engines: { node: "^22.13.99" },
+    });
+    assert.equal(result.status, "current");
+  });
+
+  it("selects published API-line patches independently of latest tag ordering", () => {
+    const releases = metadata(
+      ["22.13.16", "22.13.17", "22.13.18", "22.13.19-rc.1", "22.13.20"],
+      "22.13.16"
+    );
+    const inspected = {
+      ...releases,
+      versions: {
+        ...releases.versions,
+        "22.13.20": { name: "@types/node", version: "22.13.20", deprecated: "withdrawn" },
+      },
+    };
+    const result = classifyNpmCurrency(target, inspected, manifest);
+    assert.equal(result.status, "actionable");
+    assert.equal(result.latest, "22.13.18");
+  });
+
+  it.each([
+    { requested: "^22.13.17", locked: "22.13.17" },
+    { requested: "~22.14.0", locked: "22.14.0" },
+    { requested: "~22.13.17", locked: "22.14.0" },
+    { requested: "~22.13.18", locked: "22.13.17" },
+  ])("refuses a declaration or lock that escapes the supported line: %j", (change) => {
+    assert.throws(
+      () =>
+        classifyNpmCurrency(
+          { ...target, ...change },
+          metadata(["22.13.17", "22.14.0"], "22.14.0"),
+          manifest
+        ),
+      /exact or tilde 22\.13\.x/u
+    );
+  });
+
+  it("keeps a lock newer than published compatible metadata as an error", () => {
+    const result = classifyNpmCurrency(
+      { ...target, locked: "22.13.18" },
+      metadata(["22.13.17", "26.6.1"], "26.6.1"),
+      manifest
+    );
+    assert.equal(result.status, "error");
+    assert.equal(reportExitCode([result]), 2);
+  });
+
+  it("does not hide invalid registry metadata behind a held release", () => {
+    const releases = metadata(["22.13.17", "22.13.18", "26.6.1"], "26.6.1");
+    assert.throws(
+      () => classifyNpmCurrency(target, { ...releases, "dist-tags": {} }, manifest),
+      MonitorError
+    );
+    assert.throws(
+      () =>
+        classifyNpmCurrency(
+          target,
+          {
+            ...releases,
+            versions: {
+              ...releases.versions,
+              "22.13.18": { name: "wrong-package", version: "22.13.18" },
+            },
+          },
+          manifest
+        ),
+      /range metadata is unusable/u
+    );
+    assert.throws(
+      () => classifyNpmCurrency(target, metadata(["26.6.1"], "26.6.1"), manifest),
+      /no stable @types\/node release/u
+    );
+  });
+
+  it("refuses package aliases that would bypass the Node type policy", () => {
+    assert.throws(
+      () => classifyNpmCurrency({ ...target, registryName: "other-types" }, {}, manifest),
+      /official Node type package/u
+    );
+    assert.throws(
+      () =>
+        classifyNpmCurrency(
+          { ...target, requested: "npm:@types/node@26.6.1" },
+          metadata(["26.6.1"], "26.6.1"),
+          manifest
+        ),
+      /exact or tilde/u
+    );
+  });
+
+  it.each([{}, { engines: { node: ">=22.13.0" } }, { engines: { node: "^22.13.0 || invalid" } }])(
+    "refuses a missing or unreviewed Node engine declaration: %j",
+    (invalidManifest) => {
+      assert.throws(
+        () => classifyNpmCurrency(target, metadata(["22.13.17"], "22.13.17"), invalidManifest),
+        MonitorError
+      );
+    }
+  );
+
+  it("requires a new type line when the minimum runtime changes", () => {
+    const changedManifest = { engines: { node: "^24.0.0 || ^26.0.0" } };
+    const releases = metadata(["22.13.17", "24.0.1", "26.6.1"], "26.6.1");
+    assert.throws(() => classifyNpmCurrency(target, releases, changedManifest), /24\.0\.x/u);
+    assert.equal(
+      classifyNpmCurrency(
+        { ...target, requested: "~24.0.1", locked: "24.0.1" },
+        releases,
+        changedManifest
+      ).status,
+      "hold"
+    );
+  });
+
+  it("preserves ordinary package latest-tag behavior without a Node policy", () => {
+    const ordinaryTarget = {
+      ...target,
+      registryName: "example",
+      declaredName: "example",
+      requested: "^1.5.0",
+      locked: "1.5.0",
+    };
+    const releases = {
+      name: "example",
+      "dist-tags": { latest: "1.5.0" },
+      versions: {
+        "1.5.0": { name: "example", version: "1.5.0" },
+        "1.6.0": { name: "example", version: "1.6.0" },
+      },
+    };
+    assert.equal(classifyNpmCurrency(ordinaryTarget, releases, {}).status, "current");
   });
 });
 
@@ -715,6 +906,7 @@ describe("Vite-scoped Rolldown safety gate", () => {
 });
 
 describe("deterministic reporting", () => {
+  /** @type {import("./dependency-currency.mjs").CurrencyRow[]} */
   const rows = [
     {
       ecosystem: "npm",

@@ -19,6 +19,7 @@ if (argumentsList.length > 0 && !checkOnly) {
 
 const generatedIconDirectory = await mkdtemp(join(tmpdir(), "xml-prompt-studio-icons-"));
 
+/** @returns {Promise<void>} */
 function generateIcons() {
   return new Promise((resolveGeneration, rejectGeneration) => {
     const child = spawn(

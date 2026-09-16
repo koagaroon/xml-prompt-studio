@@ -1,3 +1,16 @@
+/**
+ * @typedef {{ major: number, minor: number, patch: number }} Version
+ * @typedef {Version & { raw: string }} ParsedVersion
+ * @typedef {{ status: "current" | "actionable" | "hold" | "error", reason: string }} CurrencyResult
+ * @typedef {CurrencyResult & { ecosystem: string, dependency: string, locked: string, latest: string }} CurrencyRow
+ * @typedef {{ declaredName: string, registryName: string, requested: string, locked: string, kind: string, major: number | null }} NpmTarget
+ * @typedef {{ declaredName: string, registryName: string, requested: string, section: string }} CargoDeclaration
+ * @typedef {CargoDeclaration & { locked: string }} CargoTarget
+ * @typedef {{ latest: string, compatibleLatest: string, latestRustVersion: string | null, candidateRustVersion: string | null }} CargoInspection
+ * @typedef {{ path: string, content: string }} ActionSource
+ * @typedef {{ identifier: string, repository: string, pin: string, declaredTag: string, locations: string[] }} ActionReference
+ */
+
 const SEMVER_PATTERN =
   /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/u;
@@ -9,16 +22,19 @@ const CRATES_IO_SOURCE_IDS = new Set([
 ]);
 
 export class MonitorError extends Error {
+  /** @param {string} message */
   constructor(message) {
     super(message);
     this.name = "MonitorError";
   }
 }
 
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
 export function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** @param {unknown} value @returns {ParsedVersion | null} */
 export function parseStableSemver(value) {
   if (typeof value !== "string" || value.length > 128) return null;
   const match = SEMVER_PATTERN.exec(value);
@@ -28,13 +44,15 @@ export function parseStableSemver(value) {
   return { raw: value, major: parts[0], minor: parts[1], patch: parts[2] };
 }
 
+/** @param {Version} left @param {Version} right */
 export function compareSemver(left, right) {
-  for (const key of ["major", "minor", "patch"]) {
+  for (const key of /** @type {const} */ (["major", "minor", "patch"])) {
     if (left[key] !== right[key]) return left[key] < right[key] ? -1 : 1;
   }
   return 0;
 }
 
+/** @param {unknown[]} versions @param {number | null} major */
 export function newestStable(versions, major = null) {
   let newest = null;
   for (const value of versions) {
@@ -45,6 +63,7 @@ export function newestStable(versions, major = null) {
   return newest?.raw ?? null;
 }
 
+/** @param {unknown} value */
 export function parseNpmAlias(value) {
   if (typeof value !== "string" || !value.startsWith("npm:")) return null;
   const target = value.slice(4);
@@ -58,6 +77,7 @@ export function parseNpmAlias(value) {
   return { registryName, range };
 }
 
+/** @param {string} path @param {Record<string, unknown>} metadata */
 function lockPackageName(path, metadata) {
   if (typeof metadata.name === "string") return metadata.name;
   const marker = "node_modules/";
@@ -65,6 +85,7 @@ function lockPackageName(path, metadata) {
   return index === -1 ? path : path.slice(index + marker.length);
 }
 
+/** @param {unknown} packageJson @param {unknown} lockfile */
 export function collectNpmTargets(packageJson, lockfile) {
   if (!isRecord(packageJson) || !isRecord(lockfile) || !isRecord(lockfile.packages)) {
     throw new MonitorError("package.json or package-lock.json has an invalid shape.");
@@ -72,6 +93,7 @@ export function collectNpmTargets(packageJson, lockfile) {
   const lockRoot = lockfile.packages[""];
   if (!isRecord(lockRoot)) throw new MonitorError("package-lock.json has no root package entry.");
 
+  /** @type {Map<string, NpmTarget>} */
   const targetsByName = new Map();
   for (const [section, kind] of [
     ["dependencies", "runtime"],
@@ -161,6 +183,7 @@ export function collectNpmTargets(packageJson, lockfile) {
   return targets.sort((left, right) => left.declaredName.localeCompare(right.declaredName));
 }
 
+/** @param {unknown} metadata @param {string} expectedName @param {number | null} major */
 export function inspectNpmMetadata(metadata, expectedName, major = null) {
   if (
     !isRecord(metadata) ||
@@ -194,6 +217,7 @@ export function inspectNpmMetadata(metadata, expectedName, major = null) {
   return latest;
 }
 
+/** @param {string} locked @param {string} latest @param {string} currentReason @returns {CurrencyResult} */
 export function classifyVersion(locked, latest, currentReason = "Current stable release.") {
   const lockedVersion = parseStableSemver(locked);
   const latestVersion = parseStableSemver(latest);
@@ -209,6 +233,84 @@ export function classifyVersion(locked, latest, currentReason = "Current stable 
   return { status: "current", reason: currentReason };
 }
 
+/** @param {unknown} packageJson */
+function minimumNodeVersion(packageJson) {
+  if (
+    !isRecord(packageJson) ||
+    !isRecord(packageJson.engines) ||
+    typeof packageJson.engines.node !== "string"
+  ) {
+    throw new MonitorError(
+      "package.json has no Node engine range for the type compatibility policy."
+    );
+  }
+  let minimum = null;
+  for (const clause of packageJson.engines.node.split("||")) {
+    const match = /^\^(\d+\.\d+\.\d+)$/u.exec(clause.trim());
+    const version = parseStableSemver(match?.[1]);
+    if (version === null) {
+      throw new MonitorError(
+        "Unsupported Node engine range; review the Node type compatibility policy."
+      );
+    }
+    if (minimum === null || compareSemver(version, minimum) < 0) minimum = version;
+  }
+  if (minimum === null) throw new MonitorError("The Node engine range has no minimum version.");
+  return minimum;
+}
+
+/** @param {NpmTarget} target @param {unknown} metadata @param {unknown} packageJson @returns {CurrencyResult & { latest: string }} */
+export function classifyNpmCurrency(target, metadata, packageJson) {
+  if (target.declaredName === "@types/node" && target.registryName !== "@types/node") {
+    throw new MonitorError("@types/node must resolve to the official Node type package.");
+  }
+  const latest = inspectNpmMetadata(metadata, target.registryName, target.major);
+  if (target.registryName !== "@types/node") {
+    return { latest, ...classifyVersion(target.locked, latest) };
+  }
+
+  const minimum = minimumNodeVersion(packageJson);
+  const line = `${minimum.major}.${minimum.minor}`;
+  const requested = parseStableSemver(/^(?:~)?(\d+\.\d+\.\d+)$/u.exec(target.requested)?.[1]);
+  const locked = parseStableSemver(target.locked);
+  if (
+    requested === null ||
+    requested.major !== minimum.major ||
+    requested.minor !== minimum.minor ||
+    locked === null ||
+    locked.major !== minimum.major ||
+    locked.minor !== minimum.minor ||
+    !satisfiesNpmRequirement(target.locked, target.requested)
+  ) {
+    throw new MonitorError(
+      `@types/node must use an exact or tilde ${line}.x requirement and matching lock to preserve Node ${minimum.raw} compatibility.`
+    );
+  }
+
+  // Type-package patches are independent of runtime patches; select the whole API line.
+  const compatibleLatest = inspectNpmRangeMetadata(metadata, target.registryName, `~${line}.0`);
+  const result = classifyVersion(
+    target.locked,
+    compatibleLatest,
+    `Current stable Node ${line} type definitions for the Node ${minimum.raw} minimum.`
+  );
+  if (result.status === "error") return { latest: compatibleLatest, ...result };
+  const newerOutsideLine =
+    !satisfiesNpmRequirement(latest, `~${line}.0`) &&
+    classifyVersion(compatibleLatest, latest).status === "actionable";
+  const holdReason = `Newer Node type definitions are held to preserve the Node ${minimum.raw} API minimum.`;
+  if (result.status === "actionable") {
+    return {
+      latest: compatibleLatest,
+      status: "actionable",
+      reason: `A newer stable ${line}.x type patch is available.${newerOutsideLine ? ` ${holdReason}` : ""}`,
+    };
+  }
+  if (newerOutsideLine) return { latest, status: "hold", reason: holdReason };
+  return { latest: compatibleLatest, ...result };
+}
+
+/** @param {unknown} packageJson @param {unknown} lockfile @param {unknown} npmrc */
 export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
   if (!isRecord(packageJson) || !isRecord(packageJson.allowScripts)) {
     throw new MonitorError("package.json must contain an allowScripts object.");
@@ -253,6 +355,7 @@ export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
   return locked;
 }
 
+/** @param {unknown} value @returns {ParsedVersion | null} */
 export function parseRustVersion(value) {
   if (typeof value !== "string") return null;
   const match = /^(0|[1-9]\d*)(?:\.(0|[1-9]\d*))?(?:\.(0|[1-9]\d*))?$/u.exec(value);
@@ -262,6 +365,7 @@ export function parseRustVersion(value) {
   return { raw: value, major: parts[0], minor: parts[1], patch: parts[2] };
 }
 
+/** @param {unknown} manifestText */
 export function parseProjectMsrv(manifestText) {
   if (typeof manifestText !== "string") throw new MonitorError("Cargo.toml is not text.");
   const packageStart = /^\[package\]\s*$/mu.exec(manifestText);
@@ -281,6 +385,7 @@ export function parseProjectMsrv(manifestText) {
   return parsed;
 }
 
+/** @param {Version} base @param {string} operator */
 function cargoUpperBound(base, operator) {
   if (operator === "~") return { major: base.major, minor: base.minor + 1, patch: 0 };
   if (base.major > 0) return { major: base.major + 1, minor: 0, patch: 0 };
@@ -288,6 +393,7 @@ function cargoUpperBound(base, operator) {
   return { major: 0, minor: 0, patch: base.patch + 1 };
 }
 
+/** @param {unknown} version @param {unknown} requirement */
 export function satisfiesCargoRequirement(version, requirement) {
   const candidate = parseStableSemver(version);
   if (candidate === null || typeof requirement !== "string") return false;
@@ -304,6 +410,7 @@ export function satisfiesCargoRequirement(version, requirement) {
   return compareSemver(candidate, base) >= 0 && compareSemver(candidate, upper) < 0;
 }
 
+/** @param {unknown} version @param {unknown} requirement */
 export function satisfiesNpmRequirement(version, requirement) {
   const candidate = parseStableSemver(version);
   if (candidate === null || typeof requirement !== "string") return false;
@@ -321,6 +428,7 @@ export function satisfiesNpmRequirement(version, requirement) {
   return compareSemver(candidate, base) >= 0 && compareSemver(candidate, upper) < 0;
 }
 
+/** @param {unknown} metadata */
 export function collectCargoTargets(metadata) {
   if (
     !isRecord(metadata) ||
@@ -333,6 +441,7 @@ export function collectCargoTargets(metadata) {
     throw new MonitorError("cargo metadata returned an invalid format-version 1 document.");
   }
 
+  /** @type {Map<string, Record<string, unknown>>} */
   const packageById = new Map();
   for (const packageEntry of metadata.packages) {
     if (!isRecord(packageEntry) || typeof packageEntry.id !== "string") {
@@ -341,10 +450,9 @@ export function collectCargoTargets(metadata) {
     packageById.set(packageEntry.id, packageEntry);
   }
 
-  const rootPackage = packageById.get(metadata.resolve.root);
-  const rootNode = metadata.resolve.nodes.find(
-    (node) => isRecord(node) && node.id === metadata.resolve.root
-  );
+  const rootId = metadata.resolve.root;
+  const rootPackage = packageById.get(rootId);
+  const rootNode = metadata.resolve.nodes.find((node) => isRecord(node) && node.id === rootId);
   if (
     !isRecord(rootPackage) ||
     !Array.isArray(rootPackage.dependencies) ||
@@ -354,6 +462,7 @@ export function collectCargoTargets(metadata) {
     throw new MonitorError("cargo metadata is missing the root package or its resolve node.");
   }
 
+  /** @type {Map<string, CargoDeclaration>} */
   const declarationsByRegistryName = new Map();
   for (const dependency of rootPackage.dependencies) {
     if (!isRecord(dependency)) {
@@ -381,7 +490,7 @@ export function collectCargoTargets(metadata) {
       (dependency.rename !== null &&
         dependency.rename !== undefined &&
         typeof dependency.rename !== "string") ||
-      ![null, "build", "dev"].includes(dependency.kind)
+      (dependency.kind !== null && dependency.kind !== "build" && dependency.kind !== "dev")
     ) {
       throw new MonitorError("cargo metadata returned an invalid direct dependency.");
     }
@@ -414,6 +523,7 @@ export function collectCargoTargets(metadata) {
     });
   }
 
+  /** @type {Map<string, CargoTarget>} */
   const targetsByRegistryName = new Map();
   for (const dependencyEdge of rootNode.deps) {
     if (!isRecord(dependencyEdge) || typeof dependencyEdge.pkg !== "string") {
@@ -466,6 +576,7 @@ export function collectCargoTargets(metadata) {
   );
 }
 
+/** @param {unknown} metadata @param {string} expectedName @param {ParsedVersion | null} projectMsrv @returns {CargoInspection} */
 export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
   if (!isRecord(metadata) || !isRecord(metadata.crate) || !Array.isArray(metadata.versions)) {
     throw new MonitorError(`crates.io returned invalid metadata for ${expectedName}.`);
@@ -473,7 +584,7 @@ export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
   if (String(metadata.crate.id).toLowerCase() !== expectedName.toLowerCase()) {
     throw new MonitorError(`crates.io returned the wrong crate for ${expectedName}.`);
   }
-  if (parseRustVersion(projectMsrv?.raw) === null) {
+  if (projectMsrv === null || parseRustVersion(projectMsrv.raw) === null) {
     throw new MonitorError("The project MSRV is invalid.");
   }
   if (metadata.versions.length === 0 || metadata.versions.length > 10_000) {
@@ -522,6 +633,7 @@ export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
   };
 }
 
+/** @param {string} locked @param {CargoInspection} inspection @param {string} projectMsrv @returns {CurrencyResult & { latest: string }} */
 export function classifyCargoCurrency(locked, inspection, projectMsrv) {
   const lockedVersion = parseStableSemver(locked);
   const candidate = parseStableSemver(inspection.compatibleLatest);
@@ -646,8 +758,11 @@ function scanYamlLine(line, initialQuote = null) {
   return { quote, hasUsesKey };
 }
 
+/** @param {ActionSource[]} sources */
 export function parseActionReferences(sources) {
+  /** @type {Map<string, ActionReference>} */
   const actions = new Map();
+  /** @type {{ dependency: string, location: string, reason: string }[]} */
   const errors = [];
   for (const source of [...sources].sort((left, right) => left.path.localeCompare(right.path))) {
     if (typeof source.path !== "string" || typeof source.content !== "string") {
@@ -773,6 +888,7 @@ export function parseActionReferences(sources) {
   return { targets, errors };
 }
 
+/** @param {unknown} releases */
 export function inspectGitHubReleases(releases) {
   if (!Array.isArray(releases) || releases.length === 0 || releases.length > 100) {
     throw new MonitorError("GitHub returned invalid release metadata.");
@@ -797,6 +913,7 @@ export function inspectGitHubReleases(releases) {
   return `v${latestVersion}`;
 }
 
+/** @param {Pick<ActionReference, "pin" | "declaredTag">} action @param {string} declaredSha @param {string} latestTag @param {string} latestSha @returns {CurrencyResult} */
 export function classifyActionCurrency(action, declaredSha, latestTag, latestSha) {
   if (!FULL_SHA_PATTERN.test(declaredSha) || !FULL_SHA_PATTERN.test(latestSha)) {
     return { status: "error", reason: "GitHub did not resolve an action tag to a commit SHA." };
@@ -828,6 +945,7 @@ export function classifyActionCurrency(action, declaredSha, latestTag, latestSha
   return { status: "current", reason: "Current stable action tag and commit." };
 }
 
+/** @param {unknown} lockfile */
 export function findRolldownLock(lockfile) {
   if (!isRecord(lockfile) || !isRecord(lockfile.packages)) {
     throw new MonitorError("package-lock.json has no packages map.");
@@ -854,8 +972,12 @@ export function findRolldownLock(lockfile) {
   return { locked, requested };
 }
 
+/** @param {unknown} metadata @param {string} expectedName @param {string} requirement */
 export function inspectNpmRangeMetadata(metadata, expectedName, requirement) {
   inspectNpmMetadata(metadata, expectedName);
+  if (!isRecord(metadata) || !isRecord(metadata.versions)) {
+    throw new MonitorError(`npm returned invalid versions for ${expectedName}.`);
+  }
   const candidates = Object.entries(metadata.versions)
     .filter(
       ([version, entry]) =>
@@ -876,6 +998,7 @@ export function inspectNpmRangeMetadata(metadata, expectedName, requirement) {
   return latest;
 }
 
+/** @param {unknown} metadata @param {string} version */
 export function inspectRolldownRelease(metadata, version) {
   if (!isRecord(metadata) || metadata.name !== "rolldown" || !isRecord(metadata.versions)) {
     throw new MonitorError("npm returned invalid Rolldown metadata.");
@@ -899,6 +1022,7 @@ export function inspectRolldownRelease(metadata, version) {
   return nativeBindings;
 }
 
+/** @param {unknown} metadata @param {string} expectedIdentity */
 export function inspectPublishedBinding(metadata, expectedIdentity) {
   const separator = expectedIdentity.lastIndexOf("@");
   const expectedName = expectedIdentity.slice(0, separator);
@@ -913,6 +1037,7 @@ export function inspectPublishedBinding(metadata, expectedIdentity) {
   );
 }
 
+/** @param {{ locked: string, latest: string, lockedBindings: string[], latestBindings: string[], publishedBindings: string[] }} options @returns {CurrencyResult} */
 export function classifyRolldownCurrency({
   locked,
   latest,
@@ -940,12 +1065,14 @@ export function classifyRolldownCurrency({
   return base;
 }
 
+/** @param {Pick<CurrencyResult, "status">[]} rows */
 export function reportExitCode(rows) {
   if (rows.some((row) => row.status === "error")) return 2;
   if (rows.some((row) => row.status === "actionable")) return 1;
   return 0;
 }
 
+/** @param {unknown} value */
 export function sanitizeReportField(value) {
   const flattened = String(value)
     .replace(/[\r\n]+/gu, " ")
@@ -960,6 +1087,7 @@ export function sanitizeReportField(value) {
   return flattened.length <= 240 ? flattened : `${flattened.slice(0, 239)}…`;
 }
 
+/** @param {CurrencyRow[]} rows */
 export function renderReport(rows) {
   if (!Array.isArray(rows) || rows.length > 100) {
     throw new MonitorError("Dependency report exceeds the 100-row safety limit.");
@@ -1000,6 +1128,7 @@ export function renderReport(rows) {
   return report;
 }
 
+/** @param {Response} response @param {number} maxBytes */
 export async function readBoundedResponse(response, maxBytes) {
   const declaredLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
@@ -1024,8 +1153,10 @@ export async function readBoundedResponse(response, maxBytes) {
   return text;
 }
 
+/** @template T, R @param {T[]} values @param {number} limit @param {(value: T, index: number) => Promise<R>} worker @returns {Promise<R[]>} */
 export async function mapWithConcurrency(values, limit, worker) {
   if (!Number.isInteger(limit) || limit < 1) throw new MonitorError("Invalid concurrency limit.");
+  /** @type {R[]} */
   const results = new Array(values.length);
   let next = 0;
   async function run() {

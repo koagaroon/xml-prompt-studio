@@ -239,6 +239,10 @@ npm run typecheck:ts6
 
 Release builds use native TypeScript 7 for type-checking. ESLint and `typescript-eslint` continue to use TypeScript 6's programmatic API through the official `@typescript/typescript6` compatibility package. Use the `npm run typecheck:*` scripts above instead of relying on bare `tsc` or `npx tsc` resolution order.
 
+Node 类型定义与 `package.json` 中最低支持的 Node 主版本和次版本保持一致。两套 TypeScript 检查均覆盖 Node 配置和维护脚本；Dependency Watch 会报告同一类型版本线内的补丁更新，并将较新的版本线标记为有意暂缓。
+
+Node type definitions track the major and minor version of the oldest supported Node runtime in `package.json`. Both TypeScript checks cover Node configuration and maintenance scripts. Dependency Watch reports type patches within that line and marks newer lines as intentionally held.
+
 ---
 
 ## 架构 | Architecture

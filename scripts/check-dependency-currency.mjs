@@ -7,14 +7,13 @@ import {
   MonitorError,
   classifyActionCurrency,
   classifyCargoCurrency,
+  classifyNpmCurrency,
   classifyRolldownCurrency,
-  classifyVersion,
   collectCargoTargets,
   collectNpmTargets,
   findRolldownLock,
   inspectCratesMetadata,
   inspectGitHubReleases,
-  inspectNpmMetadata,
   inspectNpmRangeMetadata,
   inspectPublishedBinding,
   inspectRolldownRelease,
@@ -30,8 +29,10 @@ import {
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const userAgent = "xml-prompt-studio-dependency-watch/1.0";
+/** @type {Map<string, Promise<unknown>>} */
 const responseCache = new Map();
 
+/** @param {string} ecosystem @param {string} dependency @param {string} locked @param {unknown} error @returns {import("./lib/dependency-currency.mjs").CurrencyRow} */
 function errorRow(ecosystem, dependency, locked, error) {
   return {
     ecosystem,
@@ -46,6 +47,7 @@ function errorRow(ecosystem, dependency, locked, error) {
   };
 }
 
+/** @param {string} path */
 async function readText(path) {
   try {
     return await readFile(path, "utf8");
@@ -54,6 +56,7 @@ async function readText(path) {
   }
 }
 
+/** @param {string} path @returns {Promise<unknown>} */
 async function readJson(path) {
   try {
     return JSON.parse(await readText(path));
@@ -63,10 +66,12 @@ async function readJson(path) {
   }
 }
 
+/** @param {number} milliseconds */
 function sleep(milliseconds) {
   return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 }
 
+/** @param {string} url @param {{ headers: Record<string, string>, maxBytes: number, allowNotFound?: boolean }} options @returns {Promise<unknown>} */
 async function requestJson(url, { headers, maxBytes, allowNotFound = false }) {
   const cacheKey = `${headers.Accept ?? ""}\n${url}`;
   if (responseCache.has(cacheKey)) return await responseCache.get(cacheKey);
@@ -113,6 +118,7 @@ const npmHeaders = {
   "User-Agent": userAgent,
 };
 const cratesHeaders = { Accept: "application/json", "User-Agent": userAgent };
+/** @type {Record<string, string>} */
 const githubHeaders = {
   Accept: "application/vnd.github+json",
   "X-GitHub-Api-Version": "2022-11-28",
@@ -122,11 +128,13 @@ if (typeof process.env.GITHUB_TOKEN === "string" && process.env.GITHUB_TOKEN.tri
   githubHeaders.Authorization = `Bearer ${process.env.GITHUB_TOKEN.trim()}`;
 }
 
+/** @param {string} packageName @param {string | null} version */
 function npmUrl(packageName, version = null) {
   const base = `https://registry.npmjs.org/${encodeURIComponent(packageName)}`;
   return version === null ? base : `${base}/${encodeURIComponent(version)}`;
 }
 
+/** @param {string} packageName */
 async function fetchNpmMetadata(packageName) {
   return await requestJson(npmUrl(packageName), {
     headers: npmHeaders,
@@ -134,6 +142,7 @@ async function fetchNpmMetadata(packageName) {
   });
 }
 
+/** @param {unknown} packageJson @param {unknown} lockfile @param {string} npmrc @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
 async function checkNpm(packageJson, lockfile, npmrc) {
   let targets;
   try {
@@ -149,13 +158,11 @@ async function checkNpm(packageJson, lockfile, npmrc) {
         : `${target.declaredName} -> ${target.registryName}`;
     try {
       const metadata = await fetchNpmMetadata(target.registryName);
-      const latest = inspectNpmMetadata(metadata, target.registryName, target.major);
       return {
         ecosystem: target.kind === "toolchain" ? "npm toolchain" : "npm",
         dependency,
         locked: target.locked,
-        latest,
-        ...classifyVersion(target.locked, latest),
+        ...classifyNpmCurrency(target, metadata, packageJson),
       };
     } catch (error) {
       return errorRow("npm", dependency, target.locked, error);
@@ -178,6 +185,7 @@ async function checkNpm(packageJson, lockfile, npmrc) {
   return rows;
 }
 
+/** @param {string} manifestPath @returns {Promise<string>} */
 function runCargoMetadata(manifestPath) {
   return new Promise((resolvePromise, rejectPromise) => {
     execFile(
@@ -203,6 +211,7 @@ function runCargoMetadata(manifestPath) {
   });
 }
 
+/** @param {string} manifestText @param {string} manifestPath @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
 async function checkCargo(manifestText, manifestPath) {
   let targets;
   let projectMsrv;
@@ -238,6 +247,7 @@ async function checkCargo(manifestText, manifestPath) {
   });
 }
 
+/** @param {string} directory @returns {Promise<import("./lib/dependency-currency.mjs").ActionSource[]>} */
 async function readActionSources(directory) {
   let entries;
   try {
@@ -261,6 +271,7 @@ async function readActionSources(directory) {
   return sources;
 }
 
+/** @param {string} path */
 async function fetchGitHubJson(path) {
   return await requestJson(`https://api.github.com${path}`, {
     headers: githubHeaders,
@@ -268,6 +279,7 @@ async function fetchGitHubJson(path) {
   });
 }
 
+/** @param {string} repository @param {string} tag */
 async function resolveGitHubCommit(repository, tag) {
   const metadata = await fetchGitHubJson(`/repos/${repository}/commits/${encodeURIComponent(tag)}`);
   if (!isRecord(metadata) || typeof metadata.sha !== "string") {
@@ -276,6 +288,7 @@ async function resolveGitHubCommit(repository, tag) {
   return metadata.sha;
 }
 
+/** @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
 async function checkActions() {
   let parsed;
   try {
@@ -328,6 +341,7 @@ async function checkActions() {
   return rows;
 }
 
+/** @param {unknown} lockfile @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
 async function checkRolldown(lockfile) {
   let locked = "unknown";
   try {
