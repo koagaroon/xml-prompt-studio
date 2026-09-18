@@ -1,6 +1,6 @@
 # XML Prompt Studio
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE) [![GitHub release](https://img.shields.io/github/v/release/koagaroon/xml-prompt-studio?include_prereleases)](https://github.com/koagaroon/xml-prompt-studio/releases) ![Tested platform: Windows](https://img.shields.io/badge/tested%20platform-Windows-blue)
 
 > **XML Prompt Studio 是一款桌面工具，用于编写、预览和复制面向大语言模型（LLM）工作流的 XML 风格提示词。** 你可以把 `<instructions>`、`<context>`、`<input>`、`<example>` 等片段组织成清晰的标签结构，然后复制到 Claude Code 或其他 CLI / chat 工具中。
 >
@@ -9,6 +9,10 @@
 这款应用有意保持聚焦：它是一个 XML 提示词创作工具，而不是通用的 XML IDE。它采用仅含元素的提示词标记，允许多个顶层 section，支持同名标签重复出现，允许 Unicode 标签名，并原样输出文本内容（所见即所得，WYSIWYG）。
 
 This app is intentionally focused: it is an XML prompt authoring tool, not a general-purpose XML IDE. It uses element-only prompt markup, allows multiple top-level sections, supports repeated same-name tags, accepts Unicode tag names, and outputs text content exactly as written (WYSIWYG).
+
+![XML Prompt Studio showing nested prompt sections, the selected text editor, and the matching preview](docs/images/editor.jpg)
+
+_在左侧组织提示词片段，在中间编辑内容，并在右侧预览输出。 / Organize prompt sections on the left, edit their content in the middle, and preview the output on the right._
 
 ---
 
