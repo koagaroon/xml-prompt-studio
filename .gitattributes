@@ -1,2 +1,6 @@
 # Prettier requires LF; keep text checkouts deterministic on every platform.
 * text=auto eol=lf
+
+# Preserve upstream notice whitespace; native inventory hashes verify integrity.
+licenses/native/texts/*.txt -whitespace
+licenses/native/sources/*.txt -whitespace

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
 import { buildFrontendNotices, collectNpmNotices } from "./frontend-notices.mjs";
+import { loadNativeInventory } from "./native-notices.mjs";
 
 /** @type {import("./frontend-notices.mjs").NpmLockfile} */
 const lockfile = {
@@ -101,6 +102,11 @@ describe("frontend runtime notice inventory", () => {
     for (const name of ["react", "react-dom", "scheduler", "@tauri-apps/api", "vite"]) {
       assert.ok(output.includes(`Locked location: node_modules/${name}\n`));
     }
+    const { texts } = loadNativeInventory(root);
+    for (const text of texts.values())
+      assert.ok(output.includes(text), "Missing full native notice text");
+    assert.ok(output.includes("Copyright (c) 2021 Bill Avery"));
+    assert.ok(output.includes("Microsoft WebView2 static loader 1.0.3650.58"));
     assert.ok(!output.includes(root));
   });
 });
