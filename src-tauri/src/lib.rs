@@ -1,4 +1,8 @@
 use arboard::Clipboard;
+mod clipboard_lifecycle;
+#[cfg(all(target_os = "linux", test))]
+mod linux_clipboard_tests;
+use clipboard_lifecycle::ClipboardLifecycle;
 #[cfg(target_os = "windows")]
 use std::ffi::OsString;
 use std::fs;
@@ -8,7 +12,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -33,6 +37,14 @@ const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
 const STDIN_WRITER_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
+#[cfg(target_os = "linux")]
+// One running copy can try both Linux helpers before releasing ownership.
+const CLIPBOARD_EXIT_TIMEOUT: Duration = FALLBACK_HELPER_TIMEOUT
+    .saturating_add(STDIN_WRITER_JOIN_TIMEOUT)
+    .saturating_mul(2)
+    .saturating_add(Duration::from_secs(3));
+#[cfg(any(target_os = "linux", test))]
+const WL_COPY_TEXT_ARGS: [&str; 2] = ["--type", "text/plain;charset=utf-8"];
 
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
@@ -126,6 +138,7 @@ async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     // The frontend mirrors both gates in the opposite order for its own
     // flow; the asymmetry is harmless — both must pass either way.
     check_payload_size(xml.len())?;
+    COPY_LIFECYCLE.ensure_open()?;
     tauri::async_runtime::spawn_blocking(move || copy_xml_blocking(&xml))
         .await
         .map_err(|error| format!("clipboard task failed: {error}"))?
@@ -185,7 +198,8 @@ fn set_text_persistent(xml: &str) -> Result<(), String> {
 // practice; this lock makes the Rust IPC boundary self-sufficient,
 // consistent with the NUL / size guards deliberately duplicated on both
 // sides.
-static COPY_LOCK: Mutex<()> = Mutex::new(());
+static COPY_LIFECYCLE: LazyLock<Arc<ClipboardLifecycle>> =
+    LazyLock::new(|| Arc::new(ClipboardLifecycle::new()));
 
 // NUL gate for copy_xml_to_clipboard, split out like check_payload_size
 // so the IPC-boundary guard is unit-testable without touching the real
@@ -204,11 +218,7 @@ fn check_no_nul(xml: &str) -> Result<(), String> {
 }
 
 fn copy_xml_blocking(xml: &str) -> Result<(), String> {
-    // Lock data is (), so poison carries no state worth respecting —
-    // recover unconditionally.
-    let _copy_guard = COPY_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _copy_guard = COPY_LIFECYCLE.lock_copy()?;
     // The NUL gate runs here (on the blocking pool) because the O(n)
     // scan over up to 50 MB belongs with the rest of the heavy work,
     // not on an async worker.
@@ -325,7 +335,7 @@ fn fallback_copy_native(xml: &str) -> Result<(), String> {
         let wl_err = match spawn_linux_helper(
             "wl-copy",
             &["/usr/bin/wl-copy", "/bin/wl-copy"],
-            &[],
+            &WL_COPY_TEXT_ARGS,
             xml.as_bytes(),
         ) {
             Ok(()) => return Ok(()),
@@ -376,6 +386,7 @@ fn windows_system_directory() -> Result<PathBuf, String> {
     }
 }
 
+#[cfg(any(target_os = "windows", target_os = "macos", test))]
 fn trusted_helper<I, P>(name: &str, candidates: I) -> Result<PathBuf, String>
 where
     I: IntoIterator<Item = P>,
@@ -516,11 +527,12 @@ enum HelperRunError {
     // The binary could not start (missing, EACCES, wrong architecture).
     Spawn(String),
     // The helper executed (non-zero exit, timeout) — or the environment
-    // failed in a candidate-independent way (temp-file plumbing).
+    // failed in a candidate-independent way (pipe plumbing).
     Ran(String),
 }
 
 impl HelperRunError {
+    #[cfg(any(target_os = "windows", target_os = "macos", test))]
     fn into_message(self) -> String {
         match self {
             HelperRunError::Spawn(message) | HelperRunError::Ran(message) => message,
@@ -530,10 +542,10 @@ impl HelperRunError {
 
 // Shared helper for "spawn a command with payload on stdin, surface
 // success/failure as a two-class HelperRunError". The payload is written
-// through an anonymous pipe on a writer thread, never through a named
-// temp path. The writer is checked after the child settles so a helper
-// that exits before consuming the full payload cannot be reported as a
-// successful clipboard write.
+// through an anonymous pipe on a writer thread; the app creates no named
+// payload file. A helper can create its own temporary files. The writer
+// is checked after the child settles so a failed write cannot be reported
+// as a successful clipboard write.
 //
 // `capture_stderr: false` is for tools that may fork a background
 // process inheriting stderr (wl-copy / xclip). Tools that run to
@@ -577,6 +589,8 @@ fn spawn_and_pipe(
         // prefix.
         command.env_remove("LC_ALL").env("LC_CTYPE", "en_US.UTF-8");
     }
+    #[cfg(target_os = "linux")]
+    configure_linux_helper_environment(&mut command);
     let mut child = command
         .spawn()
         .map_err(|error| HelperRunError::Spawn(format!("{cmd}: {}: {error}", program.display())))?;
@@ -628,6 +642,12 @@ fn spawn_and_pipe(
     } else {
         format!("{label}: {stderr}")
     }))
+}
+
+#[cfg(any(target_os = "linux", test))]
+fn configure_linux_helper_environment(command: &mut Command) {
+    // wl-copy starts nested tools by name even when its own path is absolute.
+    command.env("PATH", "/usr/bin:/bin");
 }
 
 fn spawn_stdin_writer(
@@ -843,8 +863,24 @@ pub fn run() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app, _event| {
+            #[cfg(target_os = "linux")]
+            if matches!(_event, tauri::RunEvent::Exit) {
+                // Tauri exits the process directly after this callback; static
+                // values do not drop, and queued copies must not reopen ownership.
+                if let Err(error) = COPY_LIFECYCLE.shutdown(CLIPBOARD_EXIT_TIMEOUT, || {
+                    let clipboard = CLIPBOARD
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .take();
+                    drop(clipboard);
+                }) {
+                    eprintln!("[clipboard] {error}");
+                }
+            }
+        });
 }
 
 #[cfg(test)]
@@ -1001,6 +1037,39 @@ mod tests {
         assert!(!error.contains(&helper_text));
 
         std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
+    }
+
+    #[test]
+    fn linux_helper_environment_replaces_path_and_preserves_session_overrides() {
+        use std::collections::BTreeMap;
+        use std::ffi::OsStr;
+
+        let mut command = Command::new("/usr/bin/wl-copy");
+        command
+            .args(WL_COPY_TEXT_ARGS)
+            .env("PATH", "/untrusted/helper-directory")
+            .env("WAYLAND_DISPLAY", "synthetic-wayland")
+            .env("XDG_RUNTIME_DIR", "/synthetic/runtime")
+            .env("DISPLAY", ":synthetic")
+            .env("DBUS_SESSION_BUS_ADDRESS", "synthetic-session-bus");
+        configure_linux_helper_environment(&mut command);
+        let overrides: BTreeMap<_, _> = command.get_envs().collect();
+        for (name, expected) in [
+            ("PATH", "/usr/bin:/bin"),
+            ("WAYLAND_DISPLAY", "synthetic-wayland"),
+            ("XDG_RUNTIME_DIR", "/synthetic/runtime"),
+            ("DISPLAY", ":synthetic"),
+            ("DBUS_SESSION_BUS_ADDRESS", "synthetic-session-bus"),
+        ] {
+            assert_eq!(
+                overrides.get(OsStr::new(name)),
+                Some(&Some(OsStr::new(expected)))
+            );
+        }
+        assert_eq!(
+            command.get_args().collect::<Vec<_>>(),
+            [OsStr::new("--type"), OsStr::new("text/plain;charset=utf-8")]
+        );
     }
 
     #[test]
