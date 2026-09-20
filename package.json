@@ -20,6 +20,7 @@
     "icons:check": "node scripts/generate-icon-assets.mjs --check",
     "notices:generate": "node scripts/generate-frontend-notices.mjs",
     "notices:check": "node scripts/generate-frontend-notices.mjs --check-dist",
+    "native-notices:check": "node scripts/check-native-notices.mjs",
     "test": "npm run test:js && npm run test:rs",
     "test:js": "vitest run",
     "test:rs": "cargo test --locked --manifest-path src-tauri/Cargo.toml",

@@ -29,7 +29,9 @@ describe("release configuration contract", () => {
   });
 
   it("keeps the portable Tauri build composition explicit", () => {
-    expect(tauriConfig.build.beforeBuildCommand).toBe("npm run build");
+    expect(tauriConfig.build.beforeBuildCommand).toBe(
+      "npm run native-notices:check && npm run build"
+    );
     expect(tauriConfig.bundle.active).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import {
   salvagePresetChips,
   validatePresetName,
 } from "./helpers";
+import { containModalTab } from "./modal-focus";
 import { copyXmlToClipboard, requestMainWindowShowAfterFirstPaint } from "./tauri";
 import type { NodeOutlineItem, XmlNode } from "./types";
 import { buildPreview, validateDocument } from "./xml";
@@ -302,6 +303,7 @@ export default function App() {
 
   // Cancel-button focus target for the New Blank confirmation modal.
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   // Whether the modal overlay's last mousedown / mouseup each landed on
   // the overlay itself (not inside the dialog) — consumed by the
@@ -1102,13 +1104,9 @@ export default function App() {
     }
   };
 
-  // Modal accessibility: focus the Cancel button when the confirmation
-  // dialog opens, mark the rest of the app inert so Tab focus is trapped
-  // inside the dialog, let Escape cancel, and restore focus to the
-  // triggering element on close. Without this the originating ribbon
-  // button keeps focus while the modal opens, Tab can escape behind the
-  // overlay, screen readers don't announce the dialog, and on close the
-  // keyboard user lands on <body> with no anchor back to where they were.
+  // Keep initial focus, background blocking, Escape, and focus restoration
+  // together. The modal key handler also wraps Tab: inert alone does not
+  // prevent keyboard focus from leaving the webview at the last control.
   useEffect(() => {
     if (!confirmRequest && !noticesOpen) {
       return;
@@ -1124,6 +1122,9 @@ export default function App() {
     if (ribbon) ribbon.inert = true;
     if (body) body.inert = true;
     const handleKey = (event: KeyboardEvent) => {
+      if (dialogRef.current) {
+        containModalTab(event, dialogRef.current);
+      }
       if (event.key === "Escape") {
         // Route through closeConfirm — the single close idiom shared
         // with Cancel and overlay-dismiss, so future close-time cleanup
@@ -1569,18 +1570,20 @@ export default function App() {
           }}
         >
           <div
+            ref={dialogRef}
             className={cx("confirm-dialog", noticesOpen && "notices-dialog")}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-title"
             aria-describedby="confirm-desc"
+            tabIndex={-1}
           >
             <h3 id="confirm-title">
               {noticesOpen ? "Third-party licenses" : confirmRequest?.title}
             </h3>
             <p id="confirm-desc">
               {noticesOpen
-                ? "License texts for bundled JavaScript, fonts, and icons. Available offline."
+                ? "License and attribution texts for bundled components. Available offline."
                 : confirmRequest?.description}
             </p>
             {noticesOpen &&

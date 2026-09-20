@@ -14,8 +14,8 @@ if (args[0] === "--check-dist") {
   if (packaged !== text) {
     throw new Error("Packaged runtime notices differ from the locked dependency/license inputs.");
   }
-  console.log("Packaged frontend and asset notices match every locked input.");
+  console.log("Packaged frontend, asset and reviewed native notices match their locked inputs.");
 } else {
   writeFileSync(join(root, "public", "third-party-notices.txt"), text, "utf8");
-  console.log("Generated frontend and asset notices from locked packages and bundled licenses.");
+  console.log("Generated frontend, asset and reviewed native notices from local license inputs.");
 }

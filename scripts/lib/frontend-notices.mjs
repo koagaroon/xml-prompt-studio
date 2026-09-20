@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { loadNativeInventory, renderNativeNotices } from "./native-notices.mjs";
 
 /**
  * @typedef {{ version?: string, license?: string, dev?: boolean, dependencies?: Record<string, string> }} NpmLockEntry
@@ -79,8 +80,8 @@ export function buildFrontendNotices(root) {
       "This inventory covers the locked JavaScript runtime packages, Vite's generated " +
       "runtime helpers, and the bundled fonts and icon attribution. Some included package " +
       "notices also describe code used only during development.\n" +
-      "Native Rust dependency attribution is listed separately in the project README; " +
-      "this is not a complete native dependency license inventory.\n",
+      "The reviewed Windows native dependency and Rust standard-library notices follow " +
+      "the frontend and asset notices. Native coverage for other targets is unverified.\n",
     `Application license\n\n${readText("LICENSE")}`,
   ];
   for (const entry of packages) {
@@ -106,5 +107,7 @@ export function buildFrontendNotices(root) {
   ]) {
     sections.push(`${name}\nSource: ${source}\n\n${readText(file)}`);
   }
+  const { inventory, texts } = loadNativeInventory(root);
+  sections.push(renderNativeNotices(inventory, texts));
   return sections.join("\n\n" + "=".repeat(72) + "\n\n") + "\n";
 }

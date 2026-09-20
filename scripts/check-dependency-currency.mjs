@@ -8,29 +8,24 @@ import {
   classifyActionCurrency,
   classifyCargoCurrency,
   classifyNpmCurrency,
-  classifyRolldownCurrency,
   collectCargoTargets,
   collectNpmTargets,
-  findRolldownLock,
   inspectCratesMetadata,
   inspectGitHubReleases,
-  inspectNpmRangeMetadata,
-  inspectPublishedBinding,
-  inspectRolldownRelease,
   isRecord,
   mapWithConcurrency,
   parseActionReferences,
   parseProjectMsrv,
-  readBoundedResponse,
   renderReport,
   reportExitCode,
   validateInstallScriptPolicy,
 } from "./lib/dependency-currency.mjs";
+import { createJsonRequester } from "./lib/dependency-requests.mjs";
+import { checkRolldown } from "./lib/dependency-rolldown.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const userAgent = "xml-prompt-studio-dependency-watch/1.0";
-/** @type {Map<string, Promise<unknown>>} */
-const responseCache = new Map();
+const requestJson = createJsonRequester();
 
 /** @param {string} ecosystem @param {string} dependency @param {string} locked @param {unknown} error @returns {import("./lib/dependency-currency.mjs").CurrencyRow} */
 function errorRow(ecosystem, dependency, locked, error) {
@@ -64,53 +59,6 @@ async function readJson(path) {
     if (error instanceof MonitorError) throw error;
     throw new MonitorError(`${relative(projectRoot, path)} contains invalid JSON.`);
   }
-}
-
-/** @param {number} milliseconds */
-function sleep(milliseconds) {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
-}
-
-/** @param {string} url @param {{ headers: Record<string, string>, maxBytes: number, allowNotFound?: boolean }} options @returns {Promise<unknown>} */
-async function requestJson(url, { headers, maxBytes, allowNotFound = false }) {
-  const cacheKey = `${headers.Accept ?? ""}\n${url}`;
-  if (responseCache.has(cacheKey)) return await responseCache.get(cacheKey);
-
-  const request = (async () => {
-    let lastStatus = null;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        const response = await fetch(url, {
-          headers,
-          redirect: "error",
-          signal: AbortSignal.timeout(20_000),
-        });
-        lastStatus = response.status;
-        if (allowNotFound && response.status === 404) return null;
-        if (!response.ok) {
-          if ((response.status === 429 || response.status >= 500) && attempt < 3) {
-            await sleep(attempt * 300);
-            continue;
-          }
-          throw new MonitorError(`Remote metadata request returned HTTP ${response.status}.`);
-        }
-        const text = await readBoundedResponse(response, maxBytes);
-        try {
-          return JSON.parse(text);
-        } catch {
-          throw new MonitorError("Remote metadata was not valid JSON.");
-        }
-      } catch (error) {
-        if (error instanceof MonitorError) throw error;
-        if (attempt === 3) break;
-        await sleep(attempt * 300);
-      }
-    }
-    const suffix = lastStatus === null ? "" : ` (HTTP ${lastStatus})`;
-    throw new MonitorError(`Remote metadata request failed${suffix}.`);
-  })();
-  responseCache.set(cacheKey, request);
-  return await request;
 }
 
 const npmHeaders = {
@@ -341,50 +289,6 @@ async function checkActions() {
   return rows;
 }
 
-/** @param {unknown} lockfile @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
-async function checkRolldown(lockfile) {
-  let locked = "unknown";
-  try {
-    const resolution = findRolldownLock(lockfile);
-    locked = resolution.locked;
-    const metadata = await fetchNpmMetadata("rolldown");
-    const latest = inspectNpmRangeMetadata(metadata, "rolldown", resolution.requested);
-    const lockedBindings = inspectRolldownRelease(metadata, locked);
-    const latestBindings = inspectRolldownRelease(metadata, latest);
-    const bindingsToCheck = [...new Set([...lockedBindings, ...latestBindings])].sort();
-    const publishedBindings = await mapWithConcurrency(bindingsToCheck, 6, async (binding) => {
-      const separator = binding.lastIndexOf("@");
-      const packageName = binding.slice(0, separator);
-      const version = binding.slice(separator + 1);
-      const packageMetadata = await requestJson(npmUrl(packageName, version), {
-        headers: { ...npmHeaders, Accept: "application/json" },
-        maxBytes: 2 * 1024 * 1024,
-        allowNotFound: true,
-      });
-      return packageMetadata !== null && inspectPublishedBinding(packageMetadata, binding)
-        ? binding
-        : null;
-    });
-    return [
-      {
-        ecosystem: "npm / Vite",
-        dependency: "rolldown native package set",
-        locked,
-        latest,
-        ...classifyRolldownCurrency({
-          locked,
-          latest,
-          lockedBindings,
-          latestBindings,
-          publishedBindings: publishedBindings.filter((binding) => binding !== null),
-        }),
-      },
-    ];
-  } catch (error) {
-    return [errorRow("npm / Vite", "rolldown native package set", locked, error)];
-  }
-}
-
 async function main() {
   const paths = {
     packageJson: resolve(projectRoot, "package.json"),
@@ -415,7 +319,15 @@ async function main() {
       checkNpm(packageJson, lockfile, npmrc),
       checkCargo(cargoManifest, paths.cargoManifest),
       checkActions(),
-      checkRolldown(lockfile),
+      checkRolldown(lockfile, {
+        fetchMetadata: () => fetchNpmMetadata("rolldown"),
+        fetchBinding: (name, version) =>
+          requestJson(npmUrl(name, version), {
+            headers: { ...npmHeaders, Accept: "application/json" },
+            maxBytes: 2 * 1024 * 1024,
+            allowNotFound: true,
+          }),
+      }),
     ])
   ).flat();
   const report = renderReport(rows);

@@ -1,0 +1,51 @@
+name: Linux clipboard contracts
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-clipboard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  clipboard:
+    name: Compile Linux paths and test clipboard contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+      RUST_BACKTRACE: "1"
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Tauri Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install --profile minimal --component clippy --no-self-update
+          rustc --version --verbose
+
+      - name: Compile and lint every native Linux target
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -- -D warnings
+
+      # These tests use synthetic helper processes, never a desktop clipboard.
+      - name: Test process trust, payload preservation, and shutdown coordination
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --lib
