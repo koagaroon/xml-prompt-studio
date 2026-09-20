@@ -130,8 +130,8 @@ The example below shows multiple top-level sections emitted side by side, separa
 - 点击齿轮按钮进入编辑模式，可重命名、删除、添加或恢复默认预设
 - 最多 6 个预设，每个名称最多 24 个 Unicode 码位
 - 预设名称必须符合 XML 1.0 `Name` 规则，且在预设列表中唯一（不区分大小写）
-- 为当前元素首次选择某个预设时，会生成形如 `feedback_1`、`feedback_2` 的标签名，选择同级元素中最小可用的正整数后缀
-- 连续点击同一个预设不会改变标签名；切换到其他预设再切回来，会恢复该元素记住的名称。手动编辑标签名不会清除这段历史
+- 为当前元素首次选择某个预设时，会生成形如 `feedback_1`、`feedback_2` 的标签名，后缀取同级元素中最小可用的正整数
+- 连续点击同一个预设不会改变标签名；切换到其他预设再切回来，会恢复该元素记住的名称。手动编辑标签名不会清除这段历史记录
 
 - Default presets: `feedback`, `question`, `instruction`, `extra`
 - Click the cog button to enter edit mode, then rename, delete, add, or reset presets
@@ -175,7 +175,7 @@ Copy checks run in this priority order:
 
 If the preview is still updating, **Copy XML** refuses the copy and asks you to wait, preventing outdated content from being copied.
 
-Linux 源码构建会优先使用 `arboard`；如果失败，再尝试系统的 `wl-copy` / `xclip`。应用通过匿名管道传递文本，不自行创建包含提示词的具名临时文件；但外部 `wl-copy` 可暂存到私有临时文件，通常随后删除，异常中断时可能残留。Linux 正常退出时会等待剪贴板清理，最长 25 秒；退出后能否保留内容还取决于桌面环境及剪贴板管理器。
+Linux 源码构建会优先使用 `arboard`；如果失败，再尝试系统的 `wl-copy` / `xclip`。应用通过匿名管道传递文本，不自行创建包含提示词的具名临时文件；但外部 `wl-copy` 可暂存到私有临时文件，通常随后会被删除，异常中断时可能残留。Linux 正常退出时会等待剪贴板清理，最长 25 秒；退出后能否保留内容还取决于桌面环境及剪贴板管理器。
 
 Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers if needed. The app passes text through anonymous pipes and creates no named prompt file itself. External `wl-copy` can spool text to a private temporary file, normally deleted afterward; interruption can leave it behind. Orderly Linux exit waits up to 25 seconds for clipboard cleanup. Content surviving exit also depends on the desktop environment and clipboard manager.
 
@@ -326,7 +326,7 @@ See [public/fonts/LICENSES.md](public/fonts/LICENSES.md) and [THIRD-PARTY-NOTICE
 
 The tables below list the main direct dependencies and bundled assets; for the full transitive dependency graph, see `package-lock.json` and `src-tauri/Cargo.lock`.
 
-应用中的 **Licenses** 按钮可离线查看前端许可证、捆绑资产署名，以及已审核的 Windows 原生依赖、Rust 标准库和 WebView2 静态加载器声明。生成过程使用已锁定的 npm 包及版本化的原生清单，并核对分发目录中的副本。清单保守地包含相关构建依赖，不表示每个组件的所有代码都进入了可执行文件；详见 [Third-Party Notices](THIRD-PARTY-NOTICES.md)。
+应用中的 **Licenses** 按钮可离线查看前端许可证、捆绑资产署名，以及已审核的 Windows 原生依赖、Rust 标准库和 WebView2 静态加载器声明。生成过程使用已锁定的 npm 包及版本化的原生清单，并核对分发目录中的副本。清单从宽收录了相关构建依赖，不表示每个组件的所有代码都进入了可执行文件；详见 [Third-Party Notices](THIRD-PARTY-NOTICES.md)。
 
 The **Licenses** button opens frontend licenses, bundled asset attributions, and the reviewed Windows native dependency, Rust standard-library, and WebView2 static-loader notices offline. Generation uses locked npm packages and the versioned native inventory, then verifies the packaged copy. The inventory conservatively includes relevant build dependencies; it does not imply that every component's entire code appears in the executable. See [Third-Party Notices](THIRD-PARTY-NOTICES.md).
 
