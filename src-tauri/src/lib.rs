@@ -505,10 +505,10 @@ fn helper_is_usable(path: &Path) -> bool {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        return match fs::metadata(path) {
+        match fs::metadata(path) {
             Ok(metadata) => metadata.permissions().mode() & 0o111 != 0,
             Err(_) => false,
-        };
+        }
     }
     #[cfg(not(unix))]
     {
@@ -1210,7 +1210,7 @@ mod tests {
         #[cfg(not(target_os = "windows"))]
         {
             (
-                trusted_helper("cat", &["/bin/cat", "/usr/bin/cat"])
+                trusted_helper("cat", ["/bin/cat", "/usr/bin/cat"])
                     .expect("resolve stdin-draining cat helper"),
                 vec![],
             )
