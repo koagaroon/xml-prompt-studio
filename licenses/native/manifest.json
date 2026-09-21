@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "bfee3c5f68a191a7496567b01b75db3cda84fd31b7f79aad54a871802b77136d",
+  "inputFingerprint": "c3027f004d405267f7d6dbef096375ce1a62fdf78e487722d0c01163414d4344",
   "packages": [
     {
       "name": "adler2",
@@ -4280,7 +4280,7 @@
     },
     {
       "name": "tauri",
-      "version": "2.11.5",
+      "version": "2.11.6",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": [
@@ -4303,13 +4303,13 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE_APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri/2.11.5/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.11.6/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE_MIT",
-          "source": "https://crates.io/api/v1/crates/tauri/2.11.5/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.11.6/download"
         }
       ],
       "artifacts": []
