@@ -39,4 +39,4 @@ tauri-build = { version = "2.6.3", features = [] }
 arboard = { version = "3.6.1", default-features = false, features = [
     "wayland-data-control",
 ] }
-tauri = { version = "2.11.5", features = [] }
+tauri = { version = "2.11.6", features = [] }
