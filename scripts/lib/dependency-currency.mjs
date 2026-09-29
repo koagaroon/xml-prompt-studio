@@ -259,12 +259,108 @@ function minimumNodeVersion(packageJson) {
   return minimum;
 }
 
-/** @param {NpmTarget} target @param {unknown} metadata @param {unknown} packageJson @returns {CurrencyResult & { latest: string }} */
-export function classifyNpmCurrency(target, metadata, packageJson) {
+/** @param {NpmTarget} target @param {unknown} metadata @param {string} latest @param {CargoTarget[]} cargoTargets @returns {CurrencyResult & { latest: string }} */
+function classifyTauriNpmCurrency(target, metadata, latest, cargoTargets) {
+  const result = classifyVersion(target.locked, latest);
+  if (result.status === "error") return { latest, ...result };
+  const isApi = target.registryName === "@tauri-apps/api";
+  const nativeName = isApi ? "tauri" : "tauri-build";
+  const section = isApi ? "dependencies" : "build-dependencies";
+  const matches = cargoTargets.filter(
+    (entry) => entry.registryName === nativeName && entry.section === section
+  );
+  const native = matches.length === 1 ? matches[0] : null;
+  const nativeVersion = parseStableSemver(native?.locked);
+  const lockedVersion = parseStableSemver(target.locked);
+  const latestVersion = parseStableSemver(latest);
+  if (
+    native === null ||
+    nativeVersion === null ||
+    lockedVersion === null ||
+    latestVersion === null
+  ) {
+    throw new MonitorError(
+      `A resolved direct ${nativeName} dependency is required for Tauri compatibility.`
+    );
+  }
+  if (
+    nativeVersion.major === 2 &&
+    lockedVersion.major === 2 &&
+    (isApi
+      ? lockedVersion.minor > nativeVersion.minor
+      : nativeVersion.minor < 7 && lockedVersion.minor >= 12)
+  ) {
+    return {
+      latest,
+      status: "error",
+      reason: `The locked ${target.registryName} is outside the supported releases for ${nativeName} ${native.locked}.`,
+    };
+  }
+  if (nativeVersion.major !== 2 || lockedVersion.major !== 2 || latestVersion.major !== 2) {
+    return {
+      latest,
+      status: "actionable",
+      reason: "A different Tauri major version requires a coordinated compatibility review.",
+    };
+  }
+
+  // API and native minor versions must match: https://v2.tauri.app/develop/updating-dependencies/
+  // CLI 2.12 moves the Windows static-runtime default to tauri-build 2.7:
+  // https://github.com/tauri-apps/tauri/commit/f6c1eb253
+  if (!isApi && nativeVersion.minor >= 7) return { latest, ...result };
+  const requirement = isApi ? `~2.${nativeVersion.minor}.0` : "^2.0.0";
+  /** @param {string} version */
+  const isCompatible = (version) => isApi || Number(version.split(".")[1]) < 12;
+  const compatibleLatest = inspectNpmRangeMetadata(
+    metadata,
+    target.registryName,
+    requirement,
+    isCompatible
+  );
+  const compatibleResult = classifyVersion(target.locked, compatibleLatest);
+  if (compatibleResult.status === "error") {
+    return {
+      latest: compatibleLatest,
+      status: "error",
+      reason: `The locked ${target.registryName} is outside the supported releases for ${nativeName} ${native.locked}.`,
+    };
+  }
+  if (classifyVersion(compatibleLatest, latest).status === "error") {
+    throw new MonitorError(
+      `npm latest metadata is behind the compatible ${target.registryName} release.`
+    );
+  }
+  const held = !satisfiesNpmRequirement(latest, requirement) || !isCompatible(latest);
+  const holdReason = isApi
+    ? `Newer API minor versions are held to match locked tauri ${native.locked}; review Cargo updates for a coordinated upgrade.`
+    : `CLI 2.12+ is held with locked tauri-build ${native.locked}; portable Windows builds require tauri-build 2.7+ for the static-runtime default.`;
+  if (compatibleResult.status === "actionable") {
+    return {
+      latest: compatibleLatest,
+      status: "actionable",
+      reason: `A compatible stable ${target.registryName} update is available.${held ? ` ${holdReason}` : ""}`,
+    };
+  }
+  return held
+    ? { latest, status: "hold", reason: holdReason }
+    : { latest: compatibleLatest, ...compatibleResult };
+}
+
+/** @param {NpmTarget} target @param {unknown} metadata @param {unknown} packageJson @param {CargoTarget[]} cargoTargets @returns {CurrencyResult & { latest: string }} */
+export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets = []) {
   if (target.declaredName === "@types/node" && target.registryName !== "@types/node") {
     throw new MonitorError("@types/node must resolve to the official Node type package.");
   }
+  if (
+    ["@tauri-apps/api", "@tauri-apps/cli"].includes(target.declaredName) &&
+    target.registryName !== target.declaredName
+  ) {
+    throw new MonitorError(`${target.declaredName} must resolve to the official Tauri package.`);
+  }
   const latest = inspectNpmMetadata(metadata, target.registryName, target.major);
+  if (["@tauri-apps/api", "@tauri-apps/cli"].includes(target.registryName)) {
+    return classifyTauriNpmCurrency(target, metadata, latest, cargoTargets);
+  }
   if (target.registryName !== "@types/node") {
     return { latest, ...classifyVersion(target.locked, latest) };
   }
@@ -972,8 +1068,13 @@ export function findRolldownLock(lockfile) {
   return { locked, requested };
 }
 
-/** @param {unknown} metadata @param {string} expectedName @param {string} requirement */
-export function inspectNpmRangeMetadata(metadata, expectedName, requirement) {
+/** @param {unknown} metadata @param {string} expectedName @param {string} requirement @param {(version: string) => boolean} isCompatible */
+export function inspectNpmRangeMetadata(
+  metadata,
+  expectedName,
+  requirement,
+  isCompatible = () => true
+) {
   inspectNpmMetadata(metadata, expectedName);
   if (!isRecord(metadata) || !isRecord(metadata.versions)) {
     throw new MonitorError(`npm returned invalid versions for ${expectedName}.`);
@@ -981,10 +1082,10 @@ export function inspectNpmRangeMetadata(metadata, expectedName, requirement) {
   const candidates = Object.entries(metadata.versions)
     .filter(
       ([version, entry]) =>
-        isRecord(entry) &&
-        typeof entry.deprecated !== "string" &&
         parseStableSemver(version) !== null &&
-        satisfiesNpmRequirement(version, requirement)
+        satisfiesNpmRequirement(version, requirement) &&
+        isCompatible(version) &&
+        (!isRecord(entry) || typeof entry.deprecated !== "string")
     )
     .map(([version]) => version);
   const latest = newestStable(candidates);
