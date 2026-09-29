@@ -439,7 +439,7 @@ describe("Cargo dependency inspection", () => {
     assert.equal(satisfiesCargoRequirement("1.2.3", "=1.2.3"), true);
   });
 
-  it("uses root dependency edges when two compatible versions are locked", () => {
+  it("uses root dependency edges for Tauri checks when multiple versions are locked", () => {
     const source = "registry+https://github.com/rust-lang/crates.io-index";
     const metadata = {
       version: 1,
@@ -476,6 +476,7 @@ describe("Cargo dependency inspection", () => {
         { id: "arboard-direct", name: "arboard", version: "3.6.1", source },
         { id: "tauri-transitive", name: "tauri", version: "2.11.5", source },
         { id: "tauri-direct", name: "tauri", version: "2.12.0", source },
+        { id: "tauri-build-transitive", name: "tauri-build", version: "2.7.0", source },
         { id: "tauri-build-direct", name: "tauri-build", version: "2.6.3", source },
       ],
       resolve: {
@@ -504,18 +505,45 @@ describe("Cargo dependency inspection", () => {
           { id: "arboard-direct", deps: [] },
           { id: "tauri-transitive", deps: [] },
           { id: "tauri-direct", deps: [] },
+          { id: "tauri-build-transitive", deps: [] },
           { id: "tauri-build-direct", deps: [] },
         ],
       },
     };
+    const targets = collectCargoTargets(metadata);
     assert.deepEqual(
-      collectCargoTargets(metadata).map((target) => [target.declaredName, target.locked]),
+      targets.map((target) => [target.declaredName, target.locked]),
       [
         ["arboard", "3.6.1"],
         ["desktop-runtime", "2.12.0"],
         ["tauri-build", "2.6.3"],
       ]
     );
+    for (const [name, locked, expected] of [
+      ["@tauri-apps/api", "2.11.1", "actionable"],
+      ["@tauri-apps/cli", "2.11.5", "hold"],
+    ]) {
+      const result = classifyNpmCurrency(
+        {
+          declaredName: name,
+          registryName: name,
+          requested: `^${locked}`,
+          locked,
+          kind: "runtime",
+          major: null,
+        },
+        {
+          name,
+          "dist-tags": { latest: "2.12.0" },
+          versions: Object.fromEntries(
+            [locked, "2.12.0"].map((version) => [version, { name, version }])
+          ),
+        },
+        {},
+        targets
+      );
+      assert.equal(result.status, expected);
+    }
   });
 
   it("ignores prerelease and yanked crate versions", () => {

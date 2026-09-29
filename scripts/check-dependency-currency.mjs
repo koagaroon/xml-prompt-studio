@@ -90,8 +90,8 @@ async function fetchNpmMetadata(packageName) {
   });
 }
 
-/** @param {unknown} packageJson @param {unknown} lockfile @param {string} npmrc @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
-async function checkNpm(packageJson, lockfile, npmrc) {
+/** @param {unknown} packageJson @param {unknown} lockfile @param {string} npmrc @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
+async function checkNpm(packageJson, lockfile, npmrc, cargoTargets) {
   let targets;
   try {
     targets = collectNpmTargets(packageJson, lockfile);
@@ -106,11 +106,14 @@ async function checkNpm(packageJson, lockfile, npmrc) {
         : `${target.declaredName} -> ${target.registryName}`;
     try {
       const metadata = await fetchNpmMetadata(target.registryName);
+      const nativeTargets = ["@tauri-apps/api", "@tauri-apps/cli"].includes(target.registryName)
+        ? await cargoTargets
+        : [];
       return {
         ecosystem: target.kind === "toolchain" ? "npm toolchain" : "npm",
         dependency,
         locked: target.locked,
-        ...classifyNpmCurrency(target, metadata, packageJson),
+        ...classifyNpmCurrency(target, metadata, packageJson, nativeTargets),
       };
     } catch (error) {
       return errorRow("npm", dependency, target.locked, error);
@@ -159,13 +162,12 @@ function runCargoMetadata(manifestPath) {
   });
 }
 
-/** @param {string} manifestText @param {string} manifestPath @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
-async function checkCargo(manifestText, manifestPath) {
+/** @param {string} manifestText @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
+async function checkCargo(manifestText, cargoTargets) {
   let targets;
   let projectMsrv;
   try {
-    const metadataText = await runCargoMetadata(manifestPath);
-    targets = collectCargoTargets(JSON.parse(metadataText));
+    targets = await cargoTargets;
     projectMsrv = parseProjectMsrv(manifestText);
   } catch (error) {
     return [errorRow("Cargo", "direct dependency graph", "unknown", error)];
@@ -314,10 +316,13 @@ async function main() {
     return;
   }
 
+  const cargoTargets = runCargoMetadata(paths.cargoManifest).then((metadataText) =>
+    collectCargoTargets(JSON.parse(metadataText))
+  );
   const rows = (
     await Promise.all([
-      checkNpm(packageJson, lockfile, npmrc),
-      checkCargo(cargoManifest, paths.cargoManifest),
+      checkNpm(packageJson, lockfile, npmrc, cargoTargets),
+      checkCargo(cargoManifest, cargoTargets),
       checkActions(),
       checkRolldown(lockfile, {
         fetchMetadata: () => fetchNpmMetadata("rolldown"),
