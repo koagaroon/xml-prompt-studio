@@ -26,15 +26,14 @@ function checkScriptProbe(source) {
 }
 
 describe("minimum Node API compatibility", () => {
-  it("checks maintenance scripts and rejects APIs newer than Node 22.13", () => {
-    const prelude = 'import process from "node:process";\n';
-    assert.deepEqual(checkScriptProbe(`${prelude}process.cpuUsage();`), []);
-    const diagnostics = checkScriptProbe(`${prelude}process.threadCpuUsage();`);
+  it("checks maintenance scripts and rejects Node 26-only APIs on Node 24", () => {
+    const prelude = 'import v8 from "node:v8";\n';
+    assert.deepEqual(checkScriptProbe(`${prelude}v8.getHeapStatistics();`), []);
+    const diagnostics = checkScriptProbe(`${prelude}v8.startHeapProfile();`);
     assert.equal(diagnostics.length, 1);
-    assert.equal(diagnostics[0].code, 2339);
     assert.match(
       ts.flattenDiagnosticMessageText(diagnostics[0].messageText, "\n"),
-      /threadCpuUsage/u
+      /Property 'startHeapProfile' does not exist/u
     );
   }, 10_000);
 });
