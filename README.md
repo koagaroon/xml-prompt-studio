@@ -38,6 +38,10 @@ Windows users can download the portable, no-installer exe from the [Releases](ht
 - **`xml-prompt-studio.exe`** — 图形界面（GUI），适合手动编写和复制提示词结构
 - **`xml-prompt-studio.exe`** — graphical interface (GUI), for manually composing and copying prompt structures
 
+便携版需要 Windows 10 / 11（x64）和 [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)。Windows 10 / 11 通常已预装 WebView2；运行下载的程序不需要 Node.js、npm、Rust 或 Visual Studio Build Tools。
+
+The portable executable requires Windows 10 / 11 (x64) and the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), which is usually pre-installed. Running the downloaded app does not require Node.js, npm, Rust, or Visual Studio Build Tools.
+
 > [!NOTE]
 > 目前项目优先支持 Windows：代码和剪贴板层预留了 macOS / Linux 的备用方案，但现阶段仅测试与交付 Windows 便携版。
 >
@@ -185,9 +189,13 @@ Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers
 
 ### 前置条件 | Prerequisites
 
+以下工具版本仅适用于开发和从源码构建，会随经过验证的依赖更新而调整。
+
+These tool versions apply to development and source builds and may advance with verified dependency updates.
+
 - [Node.js](https://nodejs.org/) satisfying `^22.13.0 || ^24.0.0 || ^26.0.0`
 - npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.88 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.98.0 工具链 / 1.88 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.98.0 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)

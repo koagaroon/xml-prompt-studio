@@ -86,8 +86,9 @@ describe("frontend runtime notice inventory", () => {
       "node_modules/react/LICENSE",
       "node_modules/react-dom/LICENSE",
       "node_modules/scheduler/LICENSE",
-      "node_modules/@tauri-apps/api/LICENSE_MIT",
-      "node_modules/@tauri-apps/api/LICENSE_APACHE-2.0",
+      "node_modules/@tauri-apps/api/LICENSE-MIT",
+      "node_modules/@tauri-apps/api/LICENSE-APACHE-2.0",
+      "node_modules/@tauri-apps/api/LICENSE.spdx",
       "node_modules/vite/LICENSE.md",
       "public/fonts/Inter-LICENSE.txt",
       "public/fonts/JetBrainsMono-OFL.txt",
@@ -106,7 +107,7 @@ describe("frontend runtime notice inventory", () => {
     for (const text of texts.values())
       assert.ok(output.includes(text), "Missing full native notice text");
     assert.ok(output.includes("Copyright (c) 2021 Bill Avery"));
-    assert.ok(output.includes("Microsoft WebView2 static loader 1.0.3650.58"));
+    assert.ok(output.includes("Microsoft WebView2 static loader 1.0.3800.47"));
     assert.ok(!output.includes(root));
   });
 });
