@@ -193,7 +193,7 @@ Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers
 
 These tool versions apply to development and source builds and may advance with verified dependency updates.
 
-- [Node.js](https://nodejs.org/) satisfying `^22.13.0 || ^24.0.0 || ^26.0.0`
+- [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
 - npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
 - [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.98.0 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
@@ -262,9 +262,9 @@ npm run typecheck:ts6
 
 Release builds use native TypeScript 7 for type-checking. ESLint and `typescript-eslint` continue to use TypeScript 6's programmatic API through the official `@typescript/typescript6` compatibility package. Use the `npm run typecheck:*` scripts above instead of relying on bare `tsc` or `npx tsc` resolution order.
 
-Node 类型定义与 `package.json` 中最低支持的 Node 主版本和次版本保持一致。两套 TypeScript 检查均覆盖 Node 配置和维护脚本；Dependency Watch 会报告同一类型版本线内的补丁更新，并将较新的版本线标记为有意暂缓。
+Node 类型定义与 `package.json` 中最低支持的 Node 运行时保持相同的主版本，次版本可以相同或更低；类型包的补丁版本号与运行时无关。两套 TypeScript 检查均覆盖 Node 配置和维护脚本，持续集成会在声明的最低 Node 版本和该 LTS 主版本的最新版本上运行。Dependency Watch 会报告兼容的类型更新，包括需要调整声明范围的次版本更新；超出运行时支持范围的类型版本仍会标记为有意暂缓。
 
-Node type definitions track the major and minor version of the oldest supported Node runtime in `package.json`. Both TypeScript checks cover Node configuration and maintenance scripts. Dependency Watch reports type patches within that line and marks newer lines as intentionally held.
+Node type definitions use the same major version as the oldest supported Node runtime in `package.json`, with an equal or older minor version; type-package patch numbers are independent of runtime patch numbers. Both TypeScript checks cover Node configuration and maintenance scripts, and CI runs on the declared minimum Node version and the latest release in that LTS major. Dependency Watch reports compatible type updates, including minor updates that need a declaration change; definitions beyond the supported runtime remain intentionally held.
 
 ---
 

@@ -366,43 +366,49 @@ export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets 
   }
 
   const minimum = minimumNodeVersion(packageJson);
-  const line = `${minimum.major}.${minimum.minor}`;
+  /** @param {string} version */
+  const isCompatible = (version) => {
+    const parsed = parseStableSemver(version);
+    return parsed !== null && parsed.major === minimum.major && parsed.minor <= minimum.minor;
+  };
   const requested = parseStableSemver(/^(?:~)?(\d+\.\d+\.\d+)$/u.exec(target.requested)?.[1]);
   const locked = parseStableSemver(target.locked);
   if (
     requested === null ||
-    requested.major !== minimum.major ||
-    requested.minor !== minimum.minor ||
+    !isCompatible(requested.raw) ||
     locked === null ||
-    locked.major !== minimum.major ||
-    locked.minor !== minimum.minor ||
+    !isCompatible(locked.raw) ||
     !satisfiesNpmRequirement(target.locked, target.requested)
   ) {
     throw new MonitorError(
-      `@types/node must use an exact or tilde ${line}.x requirement and matching lock to preserve Node ${minimum.raw} compatibility.`
+      `@types/node must use an exact or tilde requirement with a matching lock, major ${minimum.major}, and an API minor no newer than ${minimum.minor} to preserve Node ${minimum.raw} compatibility.`
     );
   }
 
-  // Type-package patches are independent of runtime patches; select the whole API line.
-  const compatibleLatest = inspectNpmRangeMetadata(metadata, target.registryName, `~${line}.0`);
+  // Type patches are independent of runtime patches; reviewed minor updates may exceed the declared tilde.
+  const compatibleLatest = inspectNpmRangeMetadata(
+    metadata,
+    target.registryName,
+    `^${minimum.major}.0.0`,
+    isCompatible
+  );
   const result = classifyVersion(
     target.locked,
     compatibleLatest,
-    `Current stable Node ${line} type definitions for the Node ${minimum.raw} minimum.`
+    `Current stable type definitions compatible with the Node ${minimum.raw} minimum.`
   );
   if (result.status === "error") return { latest: compatibleLatest, ...result };
-  const newerOutsideLine =
-    !satisfiesNpmRequirement(latest, `~${line}.0`) &&
-    classifyVersion(compatibleLatest, latest).status === "actionable";
+  const newerOutsideMinimum =
+    !isCompatible(latest) && classifyVersion(compatibleLatest, latest).status === "actionable";
   const holdReason = `Newer Node type definitions are held to preserve the Node ${minimum.raw} API minimum.`;
   if (result.status === "actionable") {
     return {
       latest: compatibleLatest,
       status: "actionable",
-      reason: `A newer stable ${line}.x type patch is available.${newerOutsideLine ? ` ${holdReason}` : ""}`,
+      reason: `A compatible stable Node type update is available.${newerOutsideMinimum ? ` ${holdReason}` : ""}`,
     };
   }
-  if (newerOutsideLine) return { latest, status: "hold", reason: holdReason };
+  if (newerOutsideMinimum) return { latest, status: "hold", reason: holdReason };
   return { latest: compatibleLatest, ...result };
 }
 
