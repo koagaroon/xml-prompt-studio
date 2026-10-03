@@ -54,9 +54,9 @@ jobs:
       - name: Install locked Node dependencies
         run: npm ci
 
-      - name: Audit the complete Node dependency graph
+      - name: Audit production and complete Node dependency graphs
         if: matrix.audit
-        run: npm audit
+        run: npm run audit:dependencies
 
       - name: Check TypeScript 7 release and TypeScript 6 API compatibility
         run: npm run typecheck:all

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "c1264b98a481d3d249f6fb495debadd3d4c38c9f4a907135f903fd2d416baeb6",
+  "inputFingerprint": "abf98cae01762fe424ce92f480b721086d5a3daa4bda75f681223139c683563e",
   "packages": [
     {
       "name": "adler2",
@@ -1326,7 +1326,7 @@
       "version": "2.5.0",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
-      "features": [],
+      "features": ["alloc", "default", "std"],
       "usage": "build-support",
       "selectedLicense": "MIT",
       "texts": [

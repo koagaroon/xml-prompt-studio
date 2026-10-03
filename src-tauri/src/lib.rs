@@ -1003,31 +1003,21 @@ mod tests {
         let relative = PathBuf::from("relative-helper-name");
         assert!(trusted_helper("relative", [&relative]).is_err());
 
-        let dir = std::env::temp_dir().join(format!(
-            "xml-prompt-studio-helper-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp helper dir");
-        let helper = dir.join("helper");
-        write_test_helper(&helper);
+        let dir = test_dir();
+        let helper = dir.path().join("helper");
+        write_test_helper(&helper).expect("write temp helper");
 
         assert_eq!(
             trusted_helper("helper", [&helper]).expect("absolute helper exists"),
             helper
         );
-
-        std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
     }
 
     #[test]
     fn linux_helper_candidates_do_not_discover_unlisted_absolute_helpers() {
-        let dir = std::env::temp_dir().join(format!(
-            "xml-prompt-studio-path-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp helper dir");
-        let helper = dir.join("wl-copy");
-        write_test_helper(&helper);
+        let dir = test_dir();
+        let helper = dir.path().join("wl-copy");
+        write_test_helper(&helper).expect("write temp helper");
         let helper_text = helper.display().to_string();
 
         let error = linux_helper_candidates("wl-copy", &[])
@@ -1035,8 +1025,6 @@ mod tests {
 
         assert!(error.contains("helper not found in trusted locations: none"));
         assert!(!error.contains(&helper_text));
-
-        std::fs::remove_dir_all(&dir).expect("clean temp helper dir");
     }
 
     #[test]
@@ -1085,15 +1073,11 @@ mod tests {
 
     #[test]
     fn linux_helper_candidates_lists_usable_trusted_candidates_in_order() {
-        let dir = std::env::temp_dir().join(format!(
-            "xml-prompt-studio-candidates-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp candidates dir");
-        let first = dir.join("first-helper");
-        let second = dir.join("second-helper");
-        write_test_helper(&first);
-        write_test_helper(&second);
+        let dir = test_dir();
+        let first = dir.path().join("first-helper");
+        let second = dir.path().join("second-helper");
+        write_test_helper(&first).expect("write first temp helper");
+        write_test_helper(&second).expect("write second temp helper");
         let first_str = first.to_str().expect("temp path is utf-8");
         let second_str = second.to_str().expect("temp path is utf-8");
 
@@ -1103,8 +1087,6 @@ mod tests {
             linux_helper_candidates("xml-prompt-studio-no-such-helper", &[first_str, second_str])
                 .expect("both trusted candidates are usable");
         assert_eq!(candidates, vec![first.clone(), second.clone()]);
-
-        std::fs::remove_dir_all(&dir).expect("clean temp candidates dir");
     }
 
     #[test]
@@ -1112,20 +1094,14 @@ mod tests {
         // Pins the canonical-path dedup (usrmerge /bin → /usr/bin class).
         // Literal duplicates exercise the same `seen` mechanism without
         // needing symlink privileges on Windows.
-        let dir = std::env::temp_dir().join(format!(
-            "xml-prompt-studio-dedup-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp dedup dir");
-        let helper = dir.join("dup-helper");
-        write_test_helper(&helper);
+        let dir = test_dir();
+        let helper = dir.path().join("dup-helper");
+        write_test_helper(&helper).expect("write temp helper");
         let helper_str = helper.to_str().expect("temp path is utf-8");
 
         let candidates = linux_helper_candidates("dup-helper", &[helper_str, helper_str])
             .expect("the deduped candidate is usable");
         assert_eq!(candidates, vec![helper.clone()]);
-
-        std::fs::remove_dir_all(&dir).expect("clean temp dedup dir");
     }
 
     // Cross-platform coverage for the contributed process-management
@@ -1223,34 +1199,135 @@ mod tests {
     #[test]
     fn helper_is_usable_rejects_a_file_without_an_exec_bit() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!(
-            "xml-prompt-studio-exec-test-{}",
-            std::process::id()
-        ));
-        std::fs::create_dir_all(&dir).expect("create temp exec-test dir");
-        let helper = dir.join("helper");
-        std::fs::write(&helper, b"data").expect("write non-executable helper");
-        let mut permissions = std::fs::metadata(&helper)
-            .expect("read helper metadata")
-            .permissions();
-        permissions.set_mode(0o600);
-        std::fs::set_permissions(&helper, permissions).expect("strip exec bits");
+        let dir = test_dir();
+        let helper = dir.path().join("helper");
+        let file = write_test_helper(&helper).expect("write temp helper");
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .expect("strip exec bits");
 
         assert!(!helper_is_usable(&helper));
-
-        std::fs::remove_dir_all(&dir).expect("clean temp exec-test dir");
     }
 
-    fn write_test_helper(path: &Path) {
-        std::fs::write(path, b"test").expect("write temp helper file");
+    fn test_dir_builder() -> tempfile::Builder<'static, 'static> {
+        let mut builder = tempfile::Builder::new();
+        builder.prefix("xml-prompt-studio-test-");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mut permissions = std::fs::metadata(path)
-                .expect("read temp helper metadata")
-                .permissions();
-            permissions.set_mode(0o700);
-            std::fs::set_permissions(path, permissions).expect("mark temp helper executable");
+            // tempfile directories otherwise inherit the process umask's public permissions.
+            builder.permissions(std::fs::Permissions::from_mode(0o700));
+        }
+        builder
+    }
+
+    fn test_dir() -> tempfile::TempDir {
+        test_dir_builder()
+            .tempdir()
+            .expect("create private temp test directory")
+    }
+
+    fn write_test_helper(path: &Path) -> std::io::Result<std::fs::File> {
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut file = options.open(path)?;
+        file.write_all(b"test")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+        }
+        Ok(file)
+    }
+
+    #[test]
+    fn test_fixture_directories_are_isolated_and_cleaned_up() {
+        let first = test_dir();
+        let second = test_dir();
+        let first_path = first.path().to_path_buf();
+        let second_path = second.path().to_path_buf();
+        assert_ne!(first_path, second_path);
+        let helper = second.path().join("helper");
+        write_test_helper(&helper).expect("write temp helper");
+
+        drop(first);
+        assert!(!first_path.exists());
+        assert_eq!(std::fs::read(&helper).unwrap(), b"test");
+        assert!(helper_is_usable(&helper));
+        drop(second);
+        assert!(!second_path.exists());
+    }
+
+    #[test]
+    fn test_fixture_directory_collision_preserves_existing_contents() {
+        let parent = test_dir();
+        let mut builder = test_dir_builder();
+        builder.rand_bytes(0);
+        let existing = builder.tempdir_in(parent.path()).unwrap();
+        let helper = existing.path().join("helper");
+        std::fs::write(&helper, b"preserve existing contents").unwrap();
+
+        let error = builder
+            .tempdir_in(parent.path())
+            .expect_err("an existing directory must never be reused");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            std::fs::read(&helper).unwrap(),
+            b"preserve existing contents"
+        );
+    }
+
+    #[test]
+    fn test_fixture_writer_preserves_existing_files() {
+        let dir = test_dir();
+        let sentinel = dir.path().join("sentinel");
+        std::fs::write(&sentinel, b"preserve sentinel").unwrap();
+
+        let error =
+            write_test_helper(&sentinel).expect_err("existing files must not be overwritten");
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve sentinel");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fixture_directories_are_private() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = test_dir();
+        assert_eq!(
+            std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fixture_writer_rejects_existing_and_dangling_symlinks() {
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let dir = test_dir();
+        let sentinel = dir.path().join("sentinel");
+        std::fs::write(&sentinel, b"preserve sentinel").unwrap();
+        std::fs::set_permissions(&sentinel, std::fs::Permissions::from_mode(0o600)).unwrap();
+        let existing_link = dir.path().join("existing-link");
+        symlink(&sentinel, &existing_link).unwrap();
+        let missing_target = dir.path().join("must-not-be-created");
+        let dangling_link = dir.path().join("dangling-link");
+        symlink(&missing_target, &dangling_link).unwrap();
+
+        for path in [&existing_link, &dangling_link] {
+            let error = write_test_helper(path).expect_err("symlinks must never be followed");
+            assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+            assert!(std::fs::symlink_metadata(path).unwrap().is_symlink());
+            assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve sentinel");
+            assert_eq!(
+                std::fs::metadata(&sentinel).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+            assert!(!missing_target.exists());
         }
     }
 

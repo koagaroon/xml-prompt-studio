@@ -241,6 +241,7 @@ npm run test
 npm run typecheck:all
 npm run build
 npm run native-notices:check
+npm run audit:dependencies
 cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets
 ```
 
@@ -265,6 +266,10 @@ Release builds use native TypeScript 7 for type-checking. ESLint and `typescript
 Node 类型定义与 `package.json` 中最低支持的 Node 运行时保持相同的主版本，次版本可以相同或更低；类型包的补丁版本号与运行时无关。两套 TypeScript 检查均覆盖 Node 配置和维护脚本，持续集成会在声明的最低 Node 版本和该 LTS 主版本的最新版本上运行。Dependency Watch 会报告兼容的类型更新，包括需要调整声明范围的次版本更新；超出运行时支持范围的类型版本仍会标记为有意暂缓。
 
 Node type definitions use the same major version as the oldest supported Node runtime in `package.json`, with an equal or older minor version; type-package patch numbers are independent of runtime patch numbers. Both TypeScript checks cover Node configuration and maintenance scripts, and CI runs on the declared minimum Node version and the latest release in that LTS major. Dependency Watch reports compatible type updates, including minor updates that need a declaration change; definitions beyond the supported runtime remain intentionally held.
+
+`npm run audit:dependencies` 会向 npm 注册表查询安全公告，先检查生产依赖，再检查包含开发工具的完整依赖树。生产依赖不允许例外；开发依赖仅接受 [`audit-ci.json`](audit-ci.json) 中列明的公告与完整依赖路径，且每条例外必须注明原因和到期时间。例外到期后，对应漏洞会重新阻止检查通过；新增漏洞或依赖路径、查询失败或报告异常也会阻止检查通过。CI 与发布检查共用此命令。原始 `npm audit` 仍会报告已接受的漏洞；通过项目检查不代表底层审计没有发现问题。
+
+`npm run audit:dependencies` queries the npm registry for advisories, checking production dependencies first and then the complete graph including development tools. Production dependencies have no exceptions. Development exceptions in [`audit-ci.json`](audit-ci.json) require an exact advisory and complete dependency path, a reason, and an expiry. An expired exception no longer accepts its finding. New findings or paths, request failures, and invalid reports also block the check. CI and release checks use this same command. Raw `npm audit` still reports accepted findings; passing the project check does not mean the underlying audit is clean.
 
 ---
 
@@ -364,4 +369,6 @@ The **Licenses** button opens frontend licenses, bundled asset attributions, and
 | [ESLint](https://eslint.org/)                                       | MIT               | JavaScript / TypeScript 代码检查 / JavaScript and TypeScript linting                                              |
 | [Prettier](https://prettier.io/)                                    | MIT               | JavaScript、TypeScript、CSS、JSON 与 Markdown 格式化 / JavaScript, TypeScript, CSS, JSON, and Markdown formatting |
 | [Stylelint](https://stylelint.io/)                                  | MIT               | CSS 代码检查 / CSS linting                                                                                        |
+| [audit-ci](https://github.com/IBM/audit-ci)                         | Apache-2.0        | 开发依赖审计例外的到期管理 / Expiry handling for development audit exceptions                                     |
 | [Vitest](https://vitest.dev/)                                       | MIT               | 单元测试 / Unit testing                                                                                           |
+| [tempfile](https://docs.rs/tempfile/)                               | MIT OR Apache-2.0 | Rust 测试的临时目录管理 / Temporary directories for Rust tests                                                    |
