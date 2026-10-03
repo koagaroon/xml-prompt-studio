@@ -1,0 +1,89 @@
+{
+  "low": true,
+  "allowlist": [
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint>globby>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint>globby>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint>globby>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint>globby>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint-config-recommended>stylelint>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint-config-recommended>stylelint>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint-config-recommended>stylelint>globby>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    },
+    {
+      "GHSA-vfj7-8cjw-p6xm|stylelint-config-standard>stylelint-config-recommended>stylelint>globby>fast-glob>micromatch>braces": {
+        "active": true,
+        "notes": "Development CSS lint patterns are repository-controlled; braces is not shipped. No upstream fix is available. Reassess if callers or packaging change.",
+        "expiry": "2026-11-02T00:00:00Z"
+      }
+    }
+  ]
+}

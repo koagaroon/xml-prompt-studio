@@ -33,7 +33,8 @@
     "typecheck:ts6": "node ./node_modules/typescript/bin/tsc6 --project tsconfig.json && node ./node_modules/typescript/bin/tsc6 --project tsconfig.test.json && node ./node_modules/typescript/bin/tsc6 --project tsconfig.node.json",
     "typecheck:ts7": "node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.json && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.test.json && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.node.json",
     "typecheck:all": "npm run typecheck:versions && npm run typecheck:ts7 && npm run typecheck:ts6",
-    "check:dependency-currency": "node scripts/check-dependency-currency.mjs"
+    "check:dependency-currency": "node scripts/check-dependency-currency.mjs",
+    "audit:dependencies": "node scripts/audit-dependencies.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",
@@ -48,6 +49,7 @@
     "@types/react-dom": "^19.3.0",
     "@typescript/native": "npm:typescript@~7.0.2",
     "@vitejs/plugin-react": "^6.1.1",
+    "audit-ci": "7.1.0",
     "eslint": "^10.11.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
