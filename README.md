@@ -365,3 +365,4 @@ The **Licenses** button opens frontend licenses, bundled asset attributions, and
 | [Prettier](https://prettier.io/)                                    | MIT               | JavaScript、TypeScript、CSS、JSON 与 Markdown 格式化 / JavaScript, TypeScript, CSS, JSON, and Markdown formatting |
 | [Stylelint](https://stylelint.io/)                                  | MIT               | CSS 代码检查 / CSS linting                                                                                        |
 | [Vitest](https://vitest.dev/)                                       | MIT               | 单元测试 / Unit testing                                                                                           |
+| [tempfile](https://docs.rs/tempfile/)                               | MIT OR Apache-2.0 | Rust 测试的临时目录管理 / Temporary directories for Rust tests                                                    |
