@@ -22,6 +22,7 @@ import {
 } from "./lib/dependency-currency.mjs";
 import { createJsonRequester } from "./lib/dependency-requests.mjs";
 import { checkRolldown } from "./lib/dependency-rolldown.mjs";
+import { checkToolchains } from "./lib/dependency-toolchains.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const userAgent = "xml-prompt-studio-dependency-watch/1.0";
@@ -100,6 +101,7 @@ async function checkNpm(packageJson, lockfile, npmrc, cargoTargets) {
   }
 
   const rows = await mapWithConcurrency(targets, 6, async (target) => {
+    const ecosystem = `npm ${target.kind}`;
     const dependency =
       target.declaredName === target.registryName
         ? target.declaredName
@@ -110,13 +112,13 @@ async function checkNpm(packageJson, lockfile, npmrc, cargoTargets) {
         ? await cargoTargets
         : [];
       return {
-        ecosystem: target.kind === "toolchain" ? "npm toolchain" : "npm",
+        ecosystem,
         dependency,
         locked: target.locked,
         ...classifyNpmCurrency(target, metadata, packageJson, nativeTargets),
       };
     } catch (error) {
-      return errorRow("npm", dependency, target.locked, error);
+      return errorRow(ecosystem, dependency, target.locked, error);
     }
   });
 
@@ -173,6 +175,13 @@ async function checkCargo(manifestText, cargoTargets) {
     return [errorRow("Cargo", "direct dependency graph", "unknown", error)];
   }
   return await mapWithConcurrency(targets, 4, async (target) => {
+    const role =
+      target.section === "build-dependencies"
+        ? "build"
+        : target.section === "dev-dependencies"
+          ? "test"
+          : "runtime";
+    const ecosystem = `Cargo ${role}`;
     try {
       const metadata = await requestJson(
         `https://crates.io/api/v1/crates/${encodeURIComponent(target.registryName)}`,
@@ -181,7 +190,7 @@ async function checkCargo(manifestText, cargoTargets) {
       const inspection = inspectCratesMetadata(metadata, target.registryName, projectMsrv);
       const result = classifyCargoCurrency(target.locked, inspection, projectMsrv.raw);
       return {
-        ecosystem: "Cargo",
+        ecosystem,
         dependency:
           target.declaredName === target.registryName
             ? target.declaredName
@@ -192,7 +201,7 @@ async function checkCargo(manifestText, cargoTargets) {
         reason: result.reason,
       };
     } catch (error) {
-      return errorRow("Cargo", target.declaredName, target.locked, error);
+      return errorRow(ecosystem, target.declaredName, target.locked, error);
     }
   });
 }
@@ -297,17 +306,20 @@ async function main() {
     packageLock: resolve(projectRoot, "package-lock.json"),
     npmrc: resolve(projectRoot, ".npmrc"),
     cargoManifest: resolve(projectRoot, "src-tauri", "Cargo.toml"),
+    rustToolchain: resolve(projectRoot, "rust-toolchain.toml"),
   };
   let packageJson;
   let lockfile;
   let npmrc;
   let cargoManifest;
+  let rustToolchain;
   try {
-    [packageJson, lockfile, npmrc, cargoManifest] = await Promise.all([
+    [packageJson, lockfile, npmrc, cargoManifest, rustToolchain] = await Promise.all([
       readJson(paths.packageJson),
       readJson(paths.packageLock),
       readText(paths.npmrc),
       readText(paths.cargoManifest),
+      readText(paths.rustToolchain),
     ]);
   } catch (error) {
     const rows = [errorRow("Monitor", "local project metadata", "unknown", error)];
@@ -323,6 +335,10 @@ async function main() {
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc, cargoTargets),
       checkCargo(cargoManifest, cargoTargets),
+      checkToolchains(packageJson, rustToolchain, {
+        fetchNpmMetadata: () => fetchNpmMetadata("npm"),
+        fetchRustReleases: () => fetchGitHubJson("/repos/rust-lang/rust/releases?per_page=100"),
+      }),
       checkActions(),
       checkRolldown(lockfile, {
         fetchMetadata: () => fetchNpmMetadata("rolldown"),

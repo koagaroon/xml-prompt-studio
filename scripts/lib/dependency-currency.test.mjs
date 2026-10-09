@@ -996,6 +996,22 @@ describe("deterministic reporting", () => {
     assert.equal(reportExitCode(rows), 0);
   });
 
+  it("states coverage limits and preserves runtime and build-input roles", () => {
+    const report = renderReport([
+      { ...rows[0], ecosystem: "npm runtime" },
+      { ...rows[0], ecosystem: "npm development", dependency: "lint-tool" },
+      { ...rows[1], ecosystem: "Cargo build" },
+    ]);
+    assert.match(report, /direct npm\/Cargo dependencies, selected derived packages/u);
+    assert.match(report, /pinned build tools, and GitHub Actions/u);
+    assert.match(report, /Runtime dependencies may contribute to the executable/u);
+    assert.match(report, /not a complete transitive or shipped-component inventory/u);
+    assert.match(report, /Security audits run separately/u);
+    assert.match(report, /\| npm runtime \| current-package \|/u);
+    assert.match(report, /\| npm development \| lint-tool \|/u);
+    assert.match(report, /\| Cargo build \| held-package \|/u);
+  });
+
   it("uses distinct nonzero codes for actionable updates and monitor errors", () => {
     assert.equal(reportExitCode([{ status: "actionable" }]), 1);
     assert.equal(reportExitCode([{ status: "error" }, { status: "actionable" }]), 2);
