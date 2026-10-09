@@ -194,8 +194,8 @@ Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers
 These tool versions apply to development and source builds and may advance with verified dependency updates.
 
 - [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
-- npm 11.19.0（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.98.0 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.98.0 toolchain
+- npm 12.2.0（由 `packageManager` 固定 / pinned by `packageManager`）
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.99.0 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.99.0 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
@@ -266,6 +266,10 @@ Release builds use native TypeScript 7 for type-checking. ESLint and `typescript
 Node 类型定义与 `package.json` 中最低支持的 Node 运行时保持相同的主版本，次版本可以相同或更低；类型包的补丁版本号与运行时无关。两套 TypeScript 检查均覆盖 Node 配置和维护脚本，持续集成会在声明的最低 Node 版本和该 LTS 主版本的最新版本上运行。Dependency Watch 会报告兼容的类型更新，包括需要调整声明范围的次版本更新；超出运行时支持范围的类型版本仍会标记为有意暂缓。
 
 Node type definitions use the same major version as the oldest supported Node runtime in `package.json`, with an equal or older minor version; type-package patch numbers are independent of runtime patch numbers. Both TypeScript checks cover Node configuration and maintenance scripts, and CI runs on the declared minimum Node version and the latest release in that LTS major. Dependency Watch reports compatible type updates, including minor updates that need a declaration change; definitions beyond the supported runtime remain intentionally held.
+
+Dependency Watch 检查直接依赖、固定的 npm 与 Rust 构建工具、GitHub Actions，以及 TypeScript 兼容编译器和 Rolldown 原生绑定等特定间接依赖。报告会区分开发工具与运行时依赖，但不是完整锁文件的更新清单，也不代表每个列出的包都进入了 `.exe`。构建工具更新属于开发维护；下载便携版的用户不需要安装这些工具。安全检查仍覆盖完整 npm 依赖树。
+
+Dependency Watch checks direct dependencies, pinned npm and Rust build tools, GitHub Actions, and selected indirect dependencies such as the TypeScript compatibility compiler and Rolldown native bindings. It distinguishes development tools from runtime dependencies, but is neither a complete lockfile update inventory nor proof that every listed package enters the `.exe`. Build-tool updates are maintenance work; portable-app users do not need to install these tools. Security checks still cover the complete npm dependency graph.
 
 `npm run audit:dependencies` 会向 npm 注册表查询安全公告，先检查生产依赖，再检查包含开发工具的完整依赖树。生产依赖不允许例外；开发依赖仅接受 [`audit-ci.json`](audit-ci.json) 中列明的公告与完整依赖路径，且每条例外必须注明原因和到期时间。例外到期后，对应漏洞会重新阻止检查通过；新增漏洞或依赖路径、查询失败或报告异常也会阻止检查通过。CI 与发布检查共用此命令。原始 `npm audit` 仍会报告已接受的漏洞；通过项目检查不代表底层审计没有发现问题。
 

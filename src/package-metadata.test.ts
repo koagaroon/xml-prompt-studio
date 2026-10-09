@@ -6,7 +6,7 @@ import tsconfigNodeJson from "../tsconfig.node.json";
 import tsconfigTestJson from "../tsconfig.test.json";
 
 const SUPPORTED_NODE_RANGE = "^24.21.0";
-const PINNED_PACKAGE_MANAGER = "npm@11.19.0";
+const PINNED_PACKAGE_MANAGER = "npm@12.2.0";
 type LockPackageMetadata = {
   hasInstallScript?: boolean;
   version?: string;

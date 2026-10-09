@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "abf98cae01762fe424ce92f480b721086d5a3daa4bda75f681223139c683563e",
+  "inputFingerprint": "d7587b60a8014a07be66db0045d79e6c854ca14b3b367138c9cf35c9b0ff84d2",
   "packages": [
     {
       "name": "adler2",
@@ -4232,7 +4232,7 @@
     },
     {
       "name": "tauri",
-      "version": "2.12.1",
+      "version": "2.12.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": [
@@ -4255,13 +4255,13 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE-APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri/2.12.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.12.2/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE-MIT",
-          "source": "https://crates.io/api/v1/crates/tauri/2.12.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.12.2/download"
         }
       ],
       "artifacts": []
@@ -5992,90 +5992,90 @@
     }
   ],
   "toolchain": {
-    "version": "1.98.0",
-    "commit": "88d9e12ae178fab0fb5cc050a94da85685d449ea",
-    "source": "https://github.com/rust-lang/rust/tree/88d9e12ae178fab0fb5cc050a94da85685d449ea/library",
-    "original": "sources/rust-1.98.0-COPYRIGHT-library.html.txt",
-    "originalSha256": "68129500b616d5838629e68f55ff3aed5e096dacf60ce9eb41bbe599a563afa6",
+    "version": "1.99.0",
+    "commit": "b940084d7eb6a299eb4bfeb8e34901bc051e7ac4",
+    "source": "https://github.com/rust-lang/rust/tree/b940084d7eb6a299eb4bfeb8e34901bc051e7ac4/library",
+    "original": "sources/rust-1.99.0-COPYRIGHT-library.html.txt",
+    "originalSha256": "5647be074c8edf7339fd863055923a8fc80bc5610a8d4661ec3b767b9d392c27",
     "derivation": "The full COPYRIGHT-library.html from the pinned Rust distribution is retained under sources. Its complete HTML text data, with character references decoded and no text omitted or shortened, is included in the plain-text viewer. All accompanying distribution license texts are retained. Line endings are normalized to LF.",
     "texts": [
       {
-        "file": "texts/a4bd7b11a9ccb0891ede2bc4272bc438de3a2e3baedecef9676c4d20bc2dc354.txt",
-        "sha256": "a4bd7b11a9ccb0891ede2bc4272bc438de3a2e3baedecef9676c4d20bc2dc354",
+        "file": "texts/5e3384d3593002520340f7805183203c21030f1c4910f529e6c22f3f874bbab1.txt",
+        "sha256": "5e3384d3593002520340f7805183203c21030f1c4910f529e6c22f3f874bbab1",
         "original": "COPYRIGHT-library.html",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff.txt",
         "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff",
         "original": "licenses/Apache-2.0.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df.txt",
         "sha256": "f32fb3b417a194167cfad068223fc975ba96c5960513a10f66a3c28720aec1df",
         "original": "licenses/BSD-2-Clause.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/23ee78c8bae49cf08ea2f0c84945c66b987ebe4520881fb51b3dad4fb43d07c2.txt",
         "sha256": "23ee78c8bae49cf08ea2f0c84945c66b987ebe4520881fb51b3dad4fb43d07c2",
         "original": "licenses/CC-BY-SA-4.0.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/a3966c9410ef94a1efbfa9ec04e9c1994026a70623fbf0885ce36737bfba3b54.txt",
         "sha256": "a3966c9410ef94a1efbfa9ec04e9c1994026a70623fbf0885ce36737bfba3b54",
         "original": "licenses/GCC-exception-3.1.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/54b212ba1f97f6948fa5486239ab505dd820b02e50cbfd296b4062c8609a70af.txt",
         "sha256": "54b212ba1f97f6948fa5486239ab505dd820b02e50cbfd296b4062c8609a70af",
         "original": "licenses/GPL-2.0-only.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/05315fce6c35f79b8a35454828995fa26336f235895ac64557abc028f4ffcea2.txt",
         "sha256": "05315fce6c35f79b8a35454828995fa26336f235895ac64557abc028f4ffcea2",
         "original": "licenses/GPL-3.0-or-later.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/0ff61769b238634e042ab759dddfd104a8e69d091e3600ae3410e401a6164381.txt",
         "sha256": "0ff61769b238634e042ab759dddfd104a8e69d091e3600ae3410e401a6164381",
         "original": "licenses/ISC.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e.txt",
         "sha256": "e34c58338bd89d43e709e226610d8f32b3e3c47f4ad9a99a8dc1d4ac7842488e",
         "original": "licenses/LLVM-exception.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0.txt",
         "sha256": "b85dcd3e453d05982552c52b5fc9e0bdd6d23c6f8e844b984a88af32570b0cc0",
         "original": "licenses/MIT.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/39cb0234065c92b9e6cee3830cbb52b1aa289aa8fe9ba2e66730fec5cf05c630.txt",
         "sha256": "39cb0234065c92b9e6cee3830cbb52b1aa289aa8fe9ba2e66730fec5cf05c630",
         "original": "licenses/NCSA.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/8eea8287e5876b539670cadb82e99f9a7afddec6f6730811be1daf25d2e9bcfd.txt",
         "sha256": "8eea8287e5876b539670cadb82e99f9a7afddec6f6730811be1daf25d2e9bcfd",
         "original": "licenses/OFL-1.1.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       },
       {
         "file": "texts/f5062c9a188d81dfe66b56db4182dcf9e4b17c0d9b0d311a8e20b3a1b075c443.txt",
         "sha256": "f5062c9a188d81dfe66b56db4182dcf9e4b17c0d9b0d311a8e20b3a1b075c443",
         "original": "licenses/Unicode-3.0.txt",
-        "source": "https://static.rust-lang.org/dist/rust-docs-1.98.0-x86_64-pc-windows-msvc.tar.xz"
+        "source": "https://static.rust-lang.org/dist/2026-10-01/rustc-1.99.0-x86_64-pc-windows-msvc.tar.xz"
       }
     ]
   },

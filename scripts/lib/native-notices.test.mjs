@@ -435,7 +435,7 @@ describe("native notice inputs and texts", () => {
     for (const text of texts.values()) assert.ok(output.includes(text));
     assert.ok(output.includes("Copyright (c) 2021 Bill Avery"));
     assert.ok(output.includes("Copyright (C) Microsoft Corporation. All rights reserved."));
-    assert.ok(output.includes("Rust standard library 1.98.0"));
+    assert.ok(output.includes(`Rust standard library ${reviewed.toolchain.version}`));
     assert.ok(!output.includes(root));
     const source = readFileSync(
       new URL(`../../licenses/native/${reviewed.toolchain.original}`, import.meta.url),
