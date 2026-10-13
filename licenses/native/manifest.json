@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "d7587b60a8014a07be66db0045d79e6c854ca14b3b367138c9cf35c9b0ff84d2",
+  "inputFingerprint": "72805467f84e3ebbe8cc5fa5d2125e11652ee49905d258866476204574e804e3",
   "packages": [
     {
       "name": "adler2",
@@ -192,6 +192,30 @@
           "sha256": "0dd882e53de11566d50f8e8e2d5a651bcf3fabee4987d70f306233cf39094ba7",
           "original": "LICENSE-MIT",
           "source": "https://crates.io/api/v1/crates/base64/0.22.1/download"
+        }
+      ],
+      "artifacts": []
+    },
+    {
+      "name": "base64",
+      "version": "0.23.1",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "license": "MIT OR Apache-2.0",
+      "features": ["alloc", "default", "simd-unsafe", "std"],
+      "usage": "build-support",
+      "selectedLicense": "MIT",
+      "texts": [
+        {
+          "file": "texts/a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2.txt",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+          "original": "LICENSE-APACHE",
+          "source": "https://crates.io/api/v1/crates/base64/0.23.1/download"
+        },
+        {
+          "file": "texts/ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c.txt",
+          "sha256": "ab499c75a0f0da8e0fe83bf9ba3a27e5c39705310f07107c6c66b69958d2401c",
+          "original": "LICENSE-MIT",
+          "source": "https://crates.io/api/v1/crates/base64/0.23.1/download"
         }
       ],
       "artifacts": []
@@ -4057,7 +4081,7 @@
     },
     {
       "name": "tauri-build",
-      "version": "2.7.1",
+      "version": "2.7.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": ["config-json", "default"],
@@ -4068,20 +4092,20 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE-APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri-build/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-build/2.7.2/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE-MIT",
-          "source": "https://crates.io/api/v1/crates/tauri-build/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-build/2.7.2/download"
         }
       ],
       "artifacts": []
     },
     {
       "name": "tauri-codegen",
-      "version": "2.7.1",
+      "version": "2.7.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": ["brotli", "compression"],
@@ -4092,20 +4116,20 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE-APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri-codegen/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-codegen/2.7.2/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE-MIT",
-          "source": "https://crates.io/api/v1/crates/tauri-codegen/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-codegen/2.7.2/download"
         }
       ],
       "artifacts": []
     },
     {
       "name": "tauri-macros",
-      "version": "2.7.1",
+      "version": "2.7.2",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": ["compression", "custom-protocol"],
@@ -4116,13 +4140,13 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE-APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri-macros/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-macros/2.7.2/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE-MIT",
-          "source": "https://crates.io/api/v1/crates/tauri-macros/2.7.1/download"
+          "source": "https://crates.io/api/v1/crates/tauri-macros/2.7.2/download"
         }
       ],
       "artifacts": []
@@ -4232,7 +4256,7 @@
     },
     {
       "name": "tauri",
-      "version": "2.12.2",
+      "version": "2.12.3",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "Apache-2.0 OR MIT",
       "features": [
@@ -4255,13 +4279,13 @@
           "file": "texts/0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594.txt",
           "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
           "original": "LICENSE-APACHE-2.0",
-          "source": "https://crates.io/api/v1/crates/tauri/2.12.2/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.12.3/download"
         },
         {
           "file": "texts/9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d.txt",
           "sha256": "9dd42ea92cff2ede5cd477cbfcce051b2d0115c0ac7f368ee88cb545055dff1d",
           "original": "LICENSE-MIT",
-          "source": "https://crates.io/api/v1/crates/tauri/2.12.2/download"
+          "source": "https://crates.io/api/v1/crates/tauri/2.12.3/download"
         }
       ],
       "artifacts": []
