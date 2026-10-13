@@ -19,7 +19,7 @@ name = "xml_prompt_studio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.1", features = [] }
+tauri-build = { version = "2.7.2", features = [] }
 
 # Tauri major upgrade checklist (only triggers when WE choose to bump from
 # `^2` to `^3`; SemVer pin prevents silent jumps):
@@ -39,7 +39,7 @@ tauri-build = { version = "2.7.1", features = [] }
 arboard = { version = "3.6.1", default-features = false, features = [
     "wayland-data-control",
 ] }
-tauri = { version = "2.12.2", features = [] }
+tauri = { version = "2.12.3", features = [] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
