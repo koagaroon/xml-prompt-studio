@@ -194,8 +194,8 @@ Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers
 These tool versions apply to development and source builds and may advance with verified dependency updates.
 
 - [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
-- npm 12.2.0（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.99.0 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.99.0 toolchain
+- npm 12.2.1（由 `packageManager` 固定 / pinned by `packageManager`）
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.99.1 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.99.1 toolchain
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
