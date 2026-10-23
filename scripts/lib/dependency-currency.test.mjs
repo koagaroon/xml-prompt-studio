@@ -21,7 +21,7 @@ import {
   newestStable,
   parseActionReferences,
   parseNpmAlias,
-  parseProjectMsrv,
+  parseProjectRustVersion,
   parseStableSemver,
   readBoundedResponse,
   renderReport,
@@ -644,7 +644,7 @@ describe("Cargo dependency inspection", () => {
       inspectCratesMetadata(
         metadata,
         "arboard",
-        parseProjectMsrv(`
+        parseProjectRustVersion(`
 [package]
 rust-version = "1.88"
 `)
@@ -658,8 +658,8 @@ rust-version = "1.88"
     );
   });
 
-  it("holds releases above the project MSRV and flags missing rust_version evidence", () => {
-    const msrv = parseProjectMsrv(`[package]\nrust-version = "1.88"\n`);
+  it("holds releases above the reviewed build compiler and flags missing rust_version evidence", () => {
+    const msrv = parseProjectRustVersion(`[package]\nrust-version = "1.88"\n`);
     const held = inspectCratesMetadata(
       {
         crate: { id: "example" },

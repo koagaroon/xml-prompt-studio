@@ -15,7 +15,6 @@ import {
   isRecord,
   mapWithConcurrency,
   parseActionReferences,
-  parseProjectMsrv,
   renderReport,
   reportExitCode,
   validateInstallScriptPolicy,
@@ -23,7 +22,7 @@ import {
 import { createJsonRequester } from "./lib/dependency-requests.mjs";
 import { checkReleasedDependencies } from "./lib/dependency-release.mjs";
 import { checkRolldown } from "./lib/dependency-rolldown.mjs";
-import { checkToolchains } from "./lib/dependency-toolchains.mjs";
+import { checkToolchains, parseRustBuildBaseline } from "./lib/dependency-toolchains.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const userAgent = "xml-prompt-studio-dependency-watch/1.0";
@@ -165,13 +164,13 @@ function runCargoMetadata(manifestPath) {
   });
 }
 
-/** @param {string} manifestText @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
-async function checkCargo(manifestText, cargoTargets) {
+/** @param {string} manifestText @param {string} rustToolchain @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
+async function checkCargo(manifestText, rustToolchain, cargoTargets) {
   let targets;
-  let projectMsrv;
+  let buildCompiler;
   try {
     targets = await cargoTargets;
-    projectMsrv = parseProjectMsrv(manifestText);
+    buildCompiler = parseRustBuildBaseline(manifestText, rustToolchain);
   } catch (error) {
     return [errorRow("Cargo", "direct dependency graph", "unknown", error)];
   }
@@ -188,8 +187,8 @@ async function checkCargo(manifestText, cargoTargets) {
         `https://crates.io/api/v1/crates/${encodeURIComponent(target.registryName)}`,
         { headers: cratesHeaders, maxBytes: 16 * 1024 * 1024 }
       );
-      const inspection = inspectCratesMetadata(metadata, target.registryName, projectMsrv);
-      const result = classifyCargoCurrency(target.locked, inspection, projectMsrv.raw);
+      const inspection = inspectCratesMetadata(metadata, target.registryName, buildCompiler);
+      const result = classifyCargoCurrency(target.locked, inspection, buildCompiler.raw);
       return {
         ecosystem,
         dependency:
@@ -381,7 +380,7 @@ async function main() {
   const rows = (
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc, cargoTargets),
-      checkCargo(cargoManifest, cargoTargets),
+      checkCargo(cargoManifest, rustToolchain, cargoTargets),
       checkToolchains(packageJson, rustToolchain, {
         fetchNpmMetadata: () => fetchNpmMetadata("npm"),
         fetchRustReleases: () => fetchGitHubJson("/repos/rust-lang/rust/releases?per_page=100"),

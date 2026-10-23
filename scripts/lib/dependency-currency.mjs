@@ -468,7 +468,7 @@ export function parseRustVersion(value) {
 }
 
 /** @param {unknown} manifestText */
-export function parseProjectMsrv(manifestText) {
+export function parseProjectRustVersion(manifestText) {
   if (typeof manifestText !== "string") throw new MonitorError("Cargo.toml is not text.");
   const packageStart = /^\[package\]\s*$/mu.exec(manifestText);
   const packageBody =
@@ -678,16 +678,16 @@ export function collectCargoTargets(metadata) {
   );
 }
 
-/** @param {unknown} metadata @param {string} expectedName @param {ParsedVersion | null} projectMsrv @returns {CargoInspection} */
-export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
+/** @param {unknown} metadata @param {string} expectedName @param {ParsedVersion | null} buildCompiler @returns {CargoInspection} */
+export function inspectCratesMetadata(metadata, expectedName, buildCompiler) {
   if (!isRecord(metadata) || !isRecord(metadata.crate) || !Array.isArray(metadata.versions)) {
     throw new MonitorError(`crates.io returned invalid metadata for ${expectedName}.`);
   }
   if (String(metadata.crate.id).toLowerCase() !== expectedName.toLowerCase()) {
     throw new MonitorError(`crates.io returned the wrong crate for ${expectedName}.`);
   }
-  if (projectMsrv === null || parseRustVersion(projectMsrv.raw) === null) {
-    throw new MonitorError("The project MSRV is invalid.");
+  if (buildCompiler === null || parseRustVersion(buildCompiler.raw) === null) {
+    throw new MonitorError("The reviewed build compiler is invalid.");
   }
   if (metadata.versions.length === 0 || metadata.versions.length > 10_000) {
     throw new MonitorError(`crates.io returned an invalid version list for ${expectedName}.`);
@@ -718,12 +718,13 @@ export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
   const compatibleLatest = newestStable(
     versions
       .filter(
-        (entry) => entry.rustVersion === null || compareSemver(entry.rustVersion, projectMsrv) <= 0
+        (entry) =>
+          entry.rustVersion === null || compareSemver(entry.rustVersion, buildCompiler) <= 0
       )
       .map((entry) => entry.version)
   );
   if (compatibleLatest === null) {
-    throw new MonitorError(`No stable ${expectedName} release supports Rust ${projectMsrv.raw}.`);
+    throw new MonitorError(`No stable ${expectedName} release supports Rust ${buildCompiler.raw}.`);
   }
   const latestEntry = versions.find((entry) => entry.version === latest);
   const candidateEntry = versions.find((entry) => entry.version === compatibleLatest);
@@ -735,8 +736,8 @@ export function inspectCratesMetadata(metadata, expectedName, projectMsrv) {
   };
 }
 
-/** @param {string} locked @param {CargoInspection} inspection @param {string} projectMsrv @returns {CurrencyResult & { latest: string }} */
-export function classifyCargoCurrency(locked, inspection, projectMsrv) {
+/** @param {string} locked @param {CargoInspection} inspection @param {string} buildCompiler @returns {CurrencyResult & { latest: string }} */
+export function classifyCargoCurrency(locked, inspection, buildCompiler) {
   const lockedVersion = parseStableSemver(locked);
   const candidate = parseStableSemver(inspection.compatibleLatest);
   const globalLatest = parseStableSemver(inspection.latest);
@@ -747,7 +748,7 @@ export function classifyCargoCurrency(locked, inspection, projectMsrv) {
     return {
       latest: inspection.compatibleLatest,
       status: "error",
-      reason: `The locked release is not supported by the Rust ${projectMsrv} compatibility result.`,
+      reason: `The locked release is not supported by the Rust ${buildCompiler} compatibility result.`,
     };
   }
   const newerIncompatible = compareSemver(globalLatest, candidate) > 0;
@@ -755,21 +756,21 @@ export function classifyCargoCurrency(locked, inspection, projectMsrv) {
     const unknownNote =
       inspection.candidateRustVersion === null
         ? " The publisher omits rust_version."
-        : " Direct crate metadata is compatible with the project MSRV.";
+        : " Direct crate metadata is compatible with the reviewed build compiler.";
     const heldNote = newerIncompatible
-      ? ` Newer ${inspection.latest} is held because it requires Rust ${inspection.latestRustVersion}, above project MSRV ${projectMsrv}.`
+      ? ` Newer ${inspection.latest} is held because it requires Rust ${inspection.latestRustVersion}, above reviewed build compiler ${buildCompiler}.`
       : "";
     return {
       latest: inspection.compatibleLatest,
       status: "actionable",
-      reason: `A newer stable release is available.${unknownNote} The exact resolved graph must be verified at Rust ${projectMsrv}.${heldNote}`,
+      reason: `A newer stable release is available.${unknownNote} The exact resolved graph must be verified at Rust ${buildCompiler}.${heldNote}`,
     };
   }
   if (newerIncompatible) {
     return {
       latest: inspection.latest,
       status: "hold",
-      reason: `The newer stable release requires Rust ${inspection.latestRustVersion}, above project MSRV ${projectMsrv}.`,
+      reason: `The newer stable release requires Rust ${inspection.latestRustVersion}, above reviewed build compiler ${buildCompiler}.`,
     };
   }
   return {
@@ -777,8 +778,8 @@ export function classifyCargoCurrency(locked, inspection, projectMsrv) {
     status: "current",
     reason:
       inspection.candidateRustVersion === null
-        ? `Current stable release; the publisher omits rust_version, while CI independently enforces the locked graph at Rust ${projectMsrv}.`
-        : `Current stable release; direct crate metadata is compatible and CI independently enforces the locked graph at Rust ${projectMsrv}.`,
+        ? `Current stable release; the publisher omits rust_version, while CI independently enforces the locked graph at Rust ${buildCompiler}.`
+        : `Current stable release; direct crate metadata is compatible and CI independently enforces the locked graph at Rust ${buildCompiler}.`,
   };
 }
 

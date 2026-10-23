@@ -10,9 +10,8 @@ authors = ["koagaroon"]
 license = "MIT"
 repository = "https://github.com/koagaroon/xml-prompt-studio"
 edition = "2021"
-# Minimum supported by the locked Tauri dependency graph. CI validates this
-# floor separately from the pinned development toolchain.
-rust-version = "1.90"
+# Match the reviewed build compiler; no separate older-compiler support is promised.
+rust-version = "1.99.1"
 
 [lib]
 name = "xml_prompt_studio_lib"
