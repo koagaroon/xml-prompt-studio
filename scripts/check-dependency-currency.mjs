@@ -21,6 +21,7 @@ import {
   validateInstallScriptPolicy,
 } from "./lib/dependency-currency.mjs";
 import { createJsonRequester } from "./lib/dependency-requests.mjs";
+import { checkReleasedDependencies } from "./lib/dependency-release.mjs";
 import { checkRolldown } from "./lib/dependency-rolldown.mjs";
 import { checkToolchains } from "./lib/dependency-toolchains.mjs";
 
@@ -300,6 +301,51 @@ async function checkActions() {
   return rows;
 }
 
+/** @returns {Promise<string>} */
+function developmentRevision() {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: projectRoot, encoding: "utf8", timeout: 10_000, windowsHide: true },
+      (error, stdout) => {
+        if (error !== null)
+          rejectPromise(new MonitorError("Unable to identify the development checkout commit."));
+        else resolvePromise(stdout.trim());
+      }
+    );
+  });
+}
+
+/** @param {unknown} npmLock */
+async function checkRelease(npmLock) {
+  try {
+    const [cargoLock, nativeInventory, revision] = await Promise.all([
+      readText(resolve(projectRoot, "src-tauri", "Cargo.lock")),
+      readJson(resolve(projectRoot, "licenses", "native", "manifest.json")),
+      developmentRevision(),
+    ]);
+    return await checkReleasedDependencies({ npmLock, cargoLock, nativeInventory }, revision, {
+      fetchGitHub: fetchGitHubJson,
+      queryBatch: (jsonBody) =>
+        requestJson("https://api.osv.dev/v1/querybatch", {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": userAgent,
+          },
+          maxBytes: 4 * 1024 * 1024,
+          jsonBody,
+        }),
+    });
+  } catch (error) {
+    return {
+      rows: [errorRow("Released advisories", "release inspection inputs", "unknown", error)],
+      detail: "",
+    };
+  }
+}
+
 async function main() {
   const paths = {
     packageJson: resolve(projectRoot, "package.json"),
@@ -331,6 +377,7 @@ async function main() {
   const cargoTargets = runCargoMetadata(paths.cargoManifest).then((metadataText) =>
     collectCargoTargets(JSON.parse(metadataText))
   );
+  const releasedDependencies = checkRelease(lockfile);
   const rows = (
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc, cargoTargets),
@@ -351,7 +398,9 @@ async function main() {
       }),
     ])
   ).flat();
-  const report = renderReport(rows);
+  const release = await releasedDependencies;
+  rows.push(...release.rows);
+  const report = renderReport(rows) + release.detail;
   console.log(report);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (typeof summaryPath === "string" && summaryPath.trim() !== "") {
@@ -366,7 +415,7 @@ async function main() {
           new MonitorError("Unable to write the bounded report to the GitHub job summary.")
         )
       );
-      console.log(renderReport(rows));
+      console.log(renderReport(rows) + release.detail);
     }
   }
   process.exitCode = reportExitCode(rows);

@@ -434,20 +434,20 @@ export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
     throw new MonitorError("package-lock.json has no packages map.");
   }
 
-  const locked = [];
+  const lockedIdentities = new Set();
   for (const [path, metadata] of Object.entries(lockfile.packages)) {
     if (path === "" || !isRecord(metadata) || metadata.hasInstallScript !== true) continue;
     if (parseStableSemver(metadata.version) === null) {
       throw new MonitorError(`Install-script package ${path} has no stable locked version.`);
     }
-    locked.push(`${lockPackageName(path, metadata)}@${metadata.version}`);
+    lockedIdentities.add(`${lockPackageName(path, metadata)}@${metadata.version}`);
   }
   const allowed = Object.entries(packageJson.allowScripts).map(([packageId, enabled]) => {
     if (enabled !== true)
       throw new MonitorError(`Install-script approval ${packageId} is not true.`);
     return packageId;
   });
-  locked.sort();
+  const locked = [...lockedIdentities].sort();
   allowed.sort();
   if (JSON.stringify(locked) !== JSON.stringify(allowed)) {
     throw new MonitorError(
@@ -1111,7 +1111,10 @@ export function inspectRolldownRelease(metadata, version) {
     throw new MonitorError("npm returned invalid Rolldown metadata.");
   }
   const release = metadata.versions[version];
-  if (!isRecord(release) || !isRecord(release.optionalDependencies)) {
+  if (!isRecord(release) || release.name !== "rolldown" || release.version !== version) {
+    throw new MonitorError(`Rolldown ${version} has invalid release metadata.`);
+  }
+  if (!isRecord(release.optionalDependencies)) {
     throw new MonitorError(`Rolldown ${version} has no optional dependency metadata.`);
   }
   const nativeBindings = Object.entries(release.optionalDependencies)
@@ -1220,9 +1223,9 @@ export function renderReport(rows) {
     "",
     `current=${counts.current} actionable=${counts.actionable} hold=${counts.hold} error=${counts.error}`,
     "",
-    "Coverage: direct npm/Cargo dependencies, selected derived packages, pinned build tools, and GitHub Actions.",
+    "Development currency coverage: direct npm/Cargo dependencies, selected derived packages, pinned build tools, and GitHub Actions.",
     "Runtime dependencies may contribute to the executable; development, build, test, and toolchain entries describe build inputs.",
-    "This report is not a complete transitive or shipped-component inventory. Security audits run separately.",
+    "This is not a complete transitive or shipped-component inventory. Released-package advisory results appear below; full-build npm audits and Dependabot alerts remain separate.",
     "",
     "| Status | Ecosystem | Dependency | Locked | Latest | Detail |",
     "| --- | --- | --- | --- | --- | --- |",

@@ -12,9 +12,13 @@ export function createJsonRequester(fetchMetadata = fetch, delay = sleep) {
   /** @type {Map<string, Promise<unknown>>} */
   const responseCache = new Map();
 
-  /** @param {string} url @param {{ headers: Record<string, string>, maxBytes: number, allowNotFound?: boolean }} options @returns {Promise<unknown>} */
-  return async function requestJson(url, { headers, maxBytes, allowNotFound = false }) {
-    const cacheKey = JSON.stringify([headers, url, maxBytes, allowNotFound]);
+  /** @param {string} url @param {{ headers: Record<string, string>, maxBytes: number, allowNotFound?: boolean, jsonBody?: unknown }} options @returns {Promise<unknown>} */
+  return async function requestJson(url, { headers, maxBytes, allowNotFound = false, jsonBody }) {
+    const body = jsonBody === undefined ? undefined : JSON.stringify(jsonBody);
+    if (body !== undefined && Buffer.byteLength(body, "utf8") > 256 * 1024) {
+      throw new MonitorError("Remote metadata query exceeded the request size limit.");
+    }
+    const cacheKey = JSON.stringify([headers, url, maxBytes, allowNotFound, body]);
     if (responseCache.has(cacheKey)) return await responseCache.get(cacheKey);
 
     const request = (async () => {
@@ -23,6 +27,7 @@ export function createJsonRequester(fetchMetadata = fetch, delay = sleep) {
         try {
           const response = await fetchMetadata(url, {
             headers,
+            ...(body === undefined ? {} : { method: "POST", body }),
             redirect: "error",
             signal: AbortSignal.timeout(20_000),
           });
