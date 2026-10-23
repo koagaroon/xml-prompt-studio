@@ -15,14 +15,14 @@ import {
   isRecord,
   mapWithConcurrency,
   parseActionReferences,
-  parseProjectMsrv,
   renderReport,
   reportExitCode,
   validateInstallScriptPolicy,
 } from "./lib/dependency-currency.mjs";
 import { createJsonRequester } from "./lib/dependency-requests.mjs";
+import { checkReleasedDependencies } from "./lib/dependency-release.mjs";
 import { checkRolldown } from "./lib/dependency-rolldown.mjs";
-import { checkToolchains } from "./lib/dependency-toolchains.mjs";
+import { checkToolchains, parseRustBuildBaseline } from "./lib/dependency-toolchains.mjs";
 
 const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const userAgent = "xml-prompt-studio-dependency-watch/1.0";
@@ -164,13 +164,13 @@ function runCargoMetadata(manifestPath) {
   });
 }
 
-/** @param {string} manifestText @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
-async function checkCargo(manifestText, cargoTargets) {
+/** @param {string} manifestText @param {string} rustToolchain @param {Promise<import("./lib/dependency-currency.mjs").CargoTarget[]>} cargoTargets @returns {Promise<import("./lib/dependency-currency.mjs").CurrencyRow[]>} */
+async function checkCargo(manifestText, rustToolchain, cargoTargets) {
   let targets;
-  let projectMsrv;
+  let buildCompiler;
   try {
     targets = await cargoTargets;
-    projectMsrv = parseProjectMsrv(manifestText);
+    buildCompiler = parseRustBuildBaseline(manifestText, rustToolchain);
   } catch (error) {
     return [errorRow("Cargo", "direct dependency graph", "unknown", error)];
   }
@@ -187,8 +187,8 @@ async function checkCargo(manifestText, cargoTargets) {
         `https://crates.io/api/v1/crates/${encodeURIComponent(target.registryName)}`,
         { headers: cratesHeaders, maxBytes: 16 * 1024 * 1024 }
       );
-      const inspection = inspectCratesMetadata(metadata, target.registryName, projectMsrv);
-      const result = classifyCargoCurrency(target.locked, inspection, projectMsrv.raw);
+      const inspection = inspectCratesMetadata(metadata, target.registryName, buildCompiler);
+      const result = classifyCargoCurrency(target.locked, inspection, buildCompiler.raw);
       return {
         ecosystem,
         dependency:
@@ -300,6 +300,51 @@ async function checkActions() {
   return rows;
 }
 
+/** @returns {Promise<string>} */
+function developmentRevision() {
+  return new Promise((resolvePromise, rejectPromise) => {
+    execFile(
+      "git",
+      ["rev-parse", "HEAD"],
+      { cwd: projectRoot, encoding: "utf8", timeout: 10_000, windowsHide: true },
+      (error, stdout) => {
+        if (error !== null)
+          rejectPromise(new MonitorError("Unable to identify the development checkout commit."));
+        else resolvePromise(stdout.trim());
+      }
+    );
+  });
+}
+
+/** @param {unknown} npmLock */
+async function checkRelease(npmLock) {
+  try {
+    const [cargoLock, nativeInventory, revision] = await Promise.all([
+      readText(resolve(projectRoot, "src-tauri", "Cargo.lock")),
+      readJson(resolve(projectRoot, "licenses", "native", "manifest.json")),
+      developmentRevision(),
+    ]);
+    return await checkReleasedDependencies({ npmLock, cargoLock, nativeInventory }, revision, {
+      fetchGitHub: fetchGitHubJson,
+      queryBatch: (jsonBody) =>
+        requestJson("https://api.osv.dev/v1/querybatch", {
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            "User-Agent": userAgent,
+          },
+          maxBytes: 4 * 1024 * 1024,
+          jsonBody,
+        }),
+    });
+  } catch (error) {
+    return {
+      rows: [errorRow("Released advisories", "release inspection inputs", "unknown", error)],
+      detail: "",
+    };
+  }
+}
+
 async function main() {
   const paths = {
     packageJson: resolve(projectRoot, "package.json"),
@@ -331,10 +376,11 @@ async function main() {
   const cargoTargets = runCargoMetadata(paths.cargoManifest).then((metadataText) =>
     collectCargoTargets(JSON.parse(metadataText))
   );
+  const releasedDependencies = checkRelease(lockfile);
   const rows = (
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc, cargoTargets),
-      checkCargo(cargoManifest, cargoTargets),
+      checkCargo(cargoManifest, rustToolchain, cargoTargets),
       checkToolchains(packageJson, rustToolchain, {
         fetchNpmMetadata: () => fetchNpmMetadata("npm"),
         fetchRustReleases: () => fetchGitHubJson("/repos/rust-lang/rust/releases?per_page=100"),
@@ -351,7 +397,9 @@ async function main() {
       }),
     ])
   ).flat();
-  const report = renderReport(rows);
+  const release = await releasedDependencies;
+  rows.push(...release.rows);
+  const report = renderReport(rows) + release.detail;
   console.log(report);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (typeof summaryPath === "string" && summaryPath.trim() !== "") {
@@ -366,7 +414,7 @@ async function main() {
           new MonitorError("Unable to write the bounded report to the GitHub job summary.")
         )
       );
-      console.log(renderReport(rows));
+      console.log(renderReport(rows) + release.detail);
     }
   }
   process.exitCode = reportExitCode(rows);

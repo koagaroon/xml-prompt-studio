@@ -21,7 +21,7 @@ import {
   newestStable,
   parseActionReferences,
   parseNpmAlias,
-  parseProjectMsrv,
+  parseProjectRustVersion,
   parseStableSemver,
   readBoundedResponse,
   renderReport,
@@ -237,6 +237,56 @@ describe("npm dependency inspection", () => {
           "strict-allow-scripts=true\nstrict-allow-scripts=false\n"
         ),
       /must enable/u
+    );
+  });
+
+  it("requires one install-script approval for repeated copies of the same package version", () => {
+    const entry = { version: "1.0.0", hasInstallScript: true };
+    const lockfile = {
+      packages: {
+        "": {},
+        "node_modules/install-helper": entry,
+        "node_modules/parent/node_modules/install-helper": { ...entry },
+        "node_modules/renamed-helper": { ...entry, name: "install-helper" },
+      },
+    };
+    assert.deepEqual(
+      validateInstallScriptPolicy(
+        { allowScripts: { "install-helper@1.0.0": true } },
+        lockfile,
+        "strict-allow-scripts=true\n"
+      ),
+      ["install-helper@1.0.0"]
+    );
+  });
+
+  it("keeps separate install-script approvals for different versions of one package", () => {
+    const lockfile = {
+      packages: {
+        "": {},
+        "node_modules/install-helper": { version: "1.0.0", hasInstallScript: true },
+        "node_modules/parent/node_modules/install-helper": {
+          version: "1.1.0",
+          hasInstallScript: true,
+        },
+      },
+    };
+    assert.throws(
+      () =>
+        validateInstallScriptPolicy(
+          { allowScripts: { "install-helper@1.0.0": true } },
+          lockfile,
+          "strict-allow-scripts=true\n"
+        ),
+      /differs/u
+    );
+    assert.deepEqual(
+      validateInstallScriptPolicy(
+        { allowScripts: { "install-helper@1.0.0": true, "install-helper@1.1.0": true } },
+        lockfile,
+        "strict-allow-scripts=true\n"
+      ),
+      ["install-helper@1.0.0", "install-helper@1.1.0"]
     );
   });
 });
@@ -594,7 +644,7 @@ describe("Cargo dependency inspection", () => {
       inspectCratesMetadata(
         metadata,
         "arboard",
-        parseProjectMsrv(`
+        parseProjectRustVersion(`
 [package]
 rust-version = "1.88"
 `)
@@ -608,8 +658,8 @@ rust-version = "1.88"
     );
   });
 
-  it("holds releases above the project MSRV and flags missing rust_version evidence", () => {
-    const msrv = parseProjectMsrv(`[package]\nrust-version = "1.88"\n`);
+  it("holds releases above the reviewed build compiler and flags missing rust_version evidence", () => {
+    const msrv = parseProjectRustVersion(`[package]\nrust-version = "1.88"\n`);
     const held = inspectCratesMetadata(
       {
         crate: { id: "example" },
@@ -906,7 +956,7 @@ describe("Vite-scoped Rolldown safety gate", () => {
     );
   });
 
-  it("promotes a newer release only after every native package is published", () => {
+  it("promotes a newer release only after every supplied maintained-host package is published", () => {
     const bindings = inspectRolldownRelease(metadata, "1.2.5");
     const lockedBinding = "@rolldown/binding-linux-x64-gnu@1.2.4";
     assert.equal(
@@ -1006,7 +1056,7 @@ describe("deterministic reporting", () => {
     assert.match(report, /pinned build tools, and GitHub Actions/u);
     assert.match(report, /Runtime dependencies may contribute to the executable/u);
     assert.match(report, /not a complete transitive or shipped-component inventory/u);
-    assert.match(report, /Security audits run separately/u);
+    assert.match(report, /full-build npm audits and Dependabot alerts remain separate/u);
     assert.match(report, /\| npm runtime \| current-package \|/u);
     assert.match(report, /\| npm development \| lint-tool \|/u);
     assert.match(report, /\| Cargo build \| held-package \|/u);

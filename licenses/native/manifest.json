@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "c0f435a55f6b4641e3896d7525ccdb54efc6c45bcb618e55f00a04f5a412a39f",
+  "inputFingerprint": "c61fc4ad4895722ff22cc30a9366d767edb90193385102d14fcd451ab44d0997",
   "packages": [
     {
       "name": "adler2",

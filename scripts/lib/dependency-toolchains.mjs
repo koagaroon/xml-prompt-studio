@@ -6,6 +6,7 @@ import {
   isRecord,
   minimumNodeVersion,
   newestStable,
+  parseProjectRustVersion,
   parseStableSemver,
   satisfiesNpmRequirement,
 } from "./dependency-currency.mjs";
@@ -43,6 +44,18 @@ export function parseRustToolchainPin(manifestText) {
     throw new MonitorError("rust-toolchain.toml must pin one exact stable compiler channel.");
   }
   return version.raw;
+}
+
+/** @param {unknown} cargoManifest @param {unknown} rustToolchain */
+export function parseRustBuildBaseline(cargoManifest, rustToolchain) {
+  const declared = parseProjectRustVersion(cargoManifest);
+  const pinned = parseRustToolchainPin(rustToolchain);
+  if (declared.raw !== pinned) {
+    throw new MonitorError(
+      "Cargo rust-version must match the reviewed Rust compiler pin " + pinned + "."
+    );
+  }
+  return declared;
 }
 
 /** @param {import("./dependency-currency.mjs").ParsedVersion} nodeVersion @param {unknown} requirement */

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "vitest";
 import { MonitorError, parseStableSemver, reportExitCode } from "./dependency-currency.mjs";
 import { createJsonRequester } from "./dependency-requests.mjs";
@@ -6,6 +7,7 @@ import {
   checkToolchains,
   inspectRustReleases,
   parseNpmToolchainPin,
+  parseRustBuildBaseline,
   parseRustToolchainPin,
   supportsNodeMinimum,
 } from "./dependency-toolchains.mjs";
@@ -53,13 +55,35 @@ async function inspect({
 }
 
 describe("build-tool pins", () => {
-  it("reads npm's manifest pin and Rust's compiler independently from a minimum version", () => {
+  it("aligns the checked-in Cargo baseline, compiler pin, and reviewed standard-library notices", () => {
+    const cargo = readFileSync(new URL("../../src-tauri/Cargo.toml", import.meta.url), "utf8");
+    const rust = readFileSync(new URL("../../rust-toolchain.toml", import.meta.url), "utf8");
+    const inventory = JSON.parse(
+      readFileSync(new URL("../../licenses/native/manifest.json", import.meta.url), "utf8")
+    );
+    assert.equal(parseRustBuildBaseline(cargo, rust).raw, inventory.toolchain.version);
+  });
+
+  it("reads npm's manifest pin and Rust's exact reviewed compiler", () => {
     assert.equal(parseNpmToolchainPin(manifest), "11.19.0");
     assert.equal(parseRustToolchainPin(toolchain), "1.98.0");
     assert.equal(
       parseRustToolchainPin("[toolchain] # compiler\nchannel = '1.98.0' # reviewed\n"),
       "1.98.0"
     );
+  });
+
+  it("uses one Rust baseline and refuses an older, newer, or abbreviated Cargo declaration", () => {
+    assert.equal(
+      parseRustBuildBaseline('[package]\nrust-version = "1.98.0"\n', toolchain).raw,
+      "1.98.0"
+    );
+    for (const version of ["1.90", "1.97.9", "1.98", "1.98.1"]) {
+      assert.throws(
+        () => parseRustBuildBaseline('[package]\nrust-version = "' + version + '"\n', toolchain),
+        /must match/u
+      );
+    }
   });
 
   it.each([

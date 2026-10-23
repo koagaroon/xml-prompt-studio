@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   ordinary-updates:
-    name: Ordinary dependency updates
+    name: Dependency updates and released Windows packages
     runs-on: ubuntu-24.04
     timeout-minutes: 15
 
@@ -42,7 +42,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Check dependency currency
+      - name: Check dependency currency and released advisories
         run: npm run check:dependency-currency
         env:
           GITHUB_TOKEN: ${{ github.token }}

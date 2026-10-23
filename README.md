@@ -195,7 +195,7 @@ These tool versions apply to development and source builds and may advance with 
 
 - [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
 - npm 12.2.1（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/)；1.90 是最低支持版本，仓库通过 `rust-toolchain.toml` 指定已测试的 1.99.1 工具链 / 1.90 is the minimum supported version, while `rust-toolchain.toml` selects the tested 1.99.1 toolchain
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.99.1（由 `rust-toolchain.toml` 固定；Cargo 的 `rust-version` 与该构建基线保持一致，不单独承诺兼容更旧的编译器 / pinned by `rust-toolchain.toml`; Cargo's `rust-version` matches this build baseline, with no separate older-compiler compatibility promise）
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
 - macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
@@ -270,6 +270,14 @@ Node type definitions use the same major version as the oldest supported Node ru
 Dependency Watch 检查直接依赖、固定的 npm 与 Rust 构建工具、GitHub Actions，以及 TypeScript 兼容编译器和 Rolldown 原生绑定等特定间接依赖。报告会区分开发工具与运行时依赖，但不是完整锁文件的更新清单，也不代表每个列出的包都进入了 `.exe`。构建工具更新属于开发维护；下载便携版的用户不需要安装这些工具。安全检查仍覆盖完整 npm 依赖树。
 
 Dependency Watch checks direct dependencies, pinned npm and Rust build tools, GitHub Actions, and selected indirect dependencies such as the TypeScript compatibility compiler and Rolldown native bindings. It distinguishes development tools from runtime dependencies, but is neither a complete lockfile update inventory nor proof that every listed package enters the `.exe`. Build-tool updates are maintenance work; portable-app users do not need to install these tools. Security checks still cover the complete npm dependency graph.
+
+报告还会将最新稳定 Windows 发布版的标签解析到确定的提交，读取该提交中的锁文件与已审核的 Windows 许可证清单，列出开发版本与已发布版本的依赖差异，并向 [OSV](https://osv.dev/) 查询已发布 npm 运行时包（含 Vite 生成的辅助代码）与 Rust 运行时依赖的安全公告。匹配公告需要进一步判断是否适用；没有匹配不代表应用已被证明安全。此查询不覆盖 Rust 标准库、非包形式的资源、外部 WebView2 运行时、仅构建时使用的依赖或更早的发布版，也不会自动构建或发布应用。
+
+The report also resolves the latest stable Windows release tag to a fixed commit, reads its lockfiles and reviewed Windows notice inventory, shows dependency differences from development, and queries [OSV](https://osv.dev/) for advisories affecting released npm runtime packages (including Vite's emitted helper) and Rust runtime crates. Matches need applicability review; no matches do not prove the app is secure. This query excludes the Rust standard library, non-package assets, the external WebView2 runtime, build-only dependencies, and older releases. It does not build or publish the app automatically.
+
+Rolldown 更新会检查仍符合 Vite 要求且已为维护中的构建环境完整发布的最新稳定版本：Windows x64 MSVC 和 Linux x64 GNU。较新但尚未完整发布的版本会单独说明，不会遮住已经可用的更新；其他平台的发布问题仅供参考。`npm ci` 仍负责验证锁文件安装。
+
+Rolldown updates select the newest Vite-compatible stable release fully published for the maintained build hosts: Windows x64 MSVC and Linux x64 GNU. A newer incomplete release is explained without hiding an available update; other-platform publication gaps are informational. `npm ci` continues to verify the locked installation.
 
 `npm run audit:dependencies` 会向 npm 注册表查询安全公告，先检查生产依赖，再检查包含开发工具的完整依赖树。生产依赖不允许例外；开发依赖仅接受 [`audit-ci.json`](audit-ci.json) 中列明的公告与完整依赖路径，且每条例外必须注明原因和到期时间。例外到期后，对应漏洞会重新阻止检查通过；新增漏洞或依赖路径、查询失败或报告异常也会阻止检查通过。CI 与发布检查共用此命令。原始 `npm audit` 仍会报告已接受的漏洞；通过项目检查不代表底层审计没有发现问题。
 

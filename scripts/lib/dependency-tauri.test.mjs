@@ -6,7 +6,7 @@ import {
   classifyCargoCurrency,
   classifyNpmCurrency,
   inspectCratesMetadata,
-  parseProjectMsrv,
+  parseProjectRustVersion,
   renderReport,
   reportExitCode,
 } from "./dependency-currency.mjs";
@@ -262,8 +262,8 @@ describe("Tauri npm compatibility", () => {
     );
   });
 
-  it("keeps coordinated native upgrades actionable when only the declared Rust minimum advances", () => {
-    const minimumRust = parseProjectMsrv('[package]\nrust-version = "1.90"\n');
+  it("keeps coordinated native upgrades actionable when the reviewed Rust build compiler advances", () => {
+    const minimumRust = parseProjectRustVersion('[package]\nrust-version = "1.90"\n');
     const results = cases.flatMap((entry) => {
       const npmResult = classifyNpmCurrency(
         npmTarget(entry.npm, entry.locked),

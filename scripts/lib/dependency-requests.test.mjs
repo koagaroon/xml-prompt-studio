@@ -5,6 +5,26 @@ import { METADATA_NOT_FOUND, createJsonRequester } from "./dependency-requests.m
 const options = { headers: { Accept: "application/json" }, maxBytes: 1024 };
 
 describe("bounded metadata requests", () => {
+  it("caches identical advisory queries without mixing distinct request bodies", async () => {
+    /** @type {string[]} */
+    const bodies = [];
+    const request = createJsonRequester(async (_url, init) => {
+      assert.equal(init?.method, "POST");
+      bodies.push(String(init?.body));
+      return Response.json({ results: [] });
+    });
+    const url = "https://example.test/querybatch";
+    await request(url, { ...options, jsonBody: { queries: ["first"] } });
+    await request(url, { ...options, jsonBody: { queries: ["first"] } });
+    await request(url, { ...options, jsonBody: { queries: ["second"] } });
+    assert.deepEqual(bodies, ['{"queries":["first"]}', '{"queries":["second"]}']);
+    await assert.rejects(
+      () => request(url, { ...options, jsonBody: "x".repeat(256 * 1024) }),
+      /request size limit/u
+    );
+    assert.equal(bodies.length, 2);
+  });
+
   it("distinguishes a permitted HTTP 404 from a successful JSON null", async () => {
     const request = createJsonRequester(async (url) =>
       String(url).endsWith("missing")
