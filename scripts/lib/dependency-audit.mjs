@@ -122,29 +122,41 @@ export function checkAuditReport(output, status, exceptions = []) {
   const visited = new Set();
   /** @type {Set<string>} */
   const paths = new Set();
+  /** @type {Set<string>} */
+  const incompletePaths = new Set();
   let steps = 0;
-  /** @param {string} name @param {string[]} parents */
-  function visit(name, parents) {
+  /** @param {string} name @param {string[]} parents @param {boolean} complete */
+  function visit(name, parents, complete) {
     if (parents.includes(name) || parents.length >= 256 || ++steps > 10_000) {
       throw new Error("npm audit dependency paths are cyclic or exceed the review limit.");
     }
     visited.add(name);
     const path = [...parents, name];
     for (const via of vulnerabilities[name].via) {
-      if (typeof via === "string") visit(via, path);
-      else paths.add(`${via.url.slice(via.url.lastIndexOf("/") + 1)}|${path.join(">")}`);
+      if (typeof via === "string") visit(via, path, complete);
+      else
+        (complete ? paths : incompletePaths).add(
+          `${via.url.slice(via.url.lastIndexOf("/") + 1)}|${path.join(">")}`
+        );
     }
   }
   for (const entry of Object.values(vulnerabilities)) {
-    if (entry.isDirect) visit(entry.name, []);
+    if (entry.isDirect) visit(entry.name, [], true);
   }
-  if (visited.size !== Object.keys(vulnerabilities).length) {
-    throw new Error("npm audit contains vulnerable dependencies without a direct dependency path.");
+  // npm can omit unaffected parents; partial paths must never match complete-path exceptions.
+  for (const entry of Object.values(vulnerabilities)) {
+    if (!visited.has(entry.name)) visit(entry.name, [], false);
   }
   const allowed = new Set(new Allowlist(exceptions).paths);
-  const blocked = [...paths].filter((path) => !allowed.has(path));
+  const blocked = [...paths].filter((path) => !allowed.has(path)).sort();
+  if (incompletePaths.size > 0) {
+    blocked.push(
+      "Incomplete dependency paths (npm omitted a direct caller; exceptions cannot apply):",
+      ...[...incompletePaths].sort()
+    );
+  }
   if (blocked.length > 0) {
-    throw new Error(`Unaccepted npm audit findings:\n${blocked.sort().join("\n")}`);
+    throw new Error(`Unaccepted npm audit findings:\n${blocked.join("\n")}`);
   }
   return [...paths].sort();
 }

@@ -8,9 +8,38 @@ import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { checkAuditReport, readAuditPolicy } from "./dependency-audit.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const policySource = readFileSync(new URL("../../audit-ci.json", import.meta.url), "utf8");
 const advisory = "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm";
 const expiry = new Date("2026-11-02T00:00:00Z");
+const reviewedPaths = [
+  "stylelint>micromatch>braces",
+  "stylelint>fast-glob>micromatch>braces",
+  "stylelint>globby>micromatch>braces",
+  "stylelint>globby>fast-glob>micromatch>braces",
+  "stylelint-config-standard>stylelint>micromatch>braces",
+  "stylelint-config-standard>stylelint>fast-glob>micromatch>braces",
+  "stylelint-config-standard>stylelint>globby>micromatch>braces",
+  "stylelint-config-standard>stylelint>globby>fast-glob>micromatch>braces",
+  "stylelint-config-standard>stylelint-config-recommended>stylelint>micromatch>braces",
+  "stylelint-config-standard>stylelint-config-recommended>stylelint>fast-glob>micromatch>braces",
+  "stylelint-config-standard>stylelint-config-recommended>stylelint>globby>micromatch>braces",
+  "stylelint-config-standard>stylelint-config-recommended>stylelint>globby>fast-glob>micromatch>braces",
+];
+const policySource = JSON.stringify({
+  low: true,
+  allowlist: reviewedPaths.map((path) => ({
+    [`GHSA-vfj7-8cjw-p6xm|${path}`]: {
+      active: true,
+      notes: "Synthetic reviewed path for policy regression tests.",
+      expiry: expiry.toISOString(),
+    },
+  })),
+});
+const indirectAdvisories = [
+  "GHSA-w74x-v6f9-j3xg",
+  "GHSA-xhq7-xmqj-769h",
+  "GHSA-wjr9-j795-jxcr",
+  "GHSA-333x-w4r6-6crp",
+];
 
 /** @param {string} name @param {(string | {url: string})[]} via @param {boolean} [isDirect] @param {string} [severity] */
 function entry(name, via, isDirect = false, severity = "high") {
@@ -44,6 +73,20 @@ function stylelintReport() {
   });
 }
 
+function indirectReport() {
+  const vulnerability = {
+    ...entry(
+      "fast-uri",
+      indirectAdvisories.map((id) => ({ url: `https://github.com/advisories/${id}` })),
+      false,
+      "moderate"
+    ),
+    effects: [],
+    nodes: ["node_modules/fast-uri"],
+  };
+  return report({ "fast-uri": vulnerability });
+}
+
 describe("dependency audit policy", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -69,6 +112,49 @@ describe("dependency audit policy", () => {
 
   it("rejects the same finding in production without consulting development exceptions", () => {
     assert.throws(() => checkAuditReport(JSON.stringify(stylelintReport()), 1), /Unaccepted/u);
+  });
+
+  it("reports every advisory when npm omits unaffected direct callers", () => {
+    assert.throws(
+      () => checkAuditReport(JSON.stringify(indirectReport()), 1),
+      (error) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /Incomplete dependency paths/u);
+        for (const id of indirectAdvisories) assert.ok(error.message.includes(`${id}|fast-uri`));
+        return true;
+      }
+    );
+  });
+
+  it("never accepts an indirect package as an invented direct path", () => {
+    const rules = readAuditPolicy({
+      low: true,
+      allowlist: indirectAdvisories.map((id) => ({
+        [`${id}|fast-uri`]: {
+          active: true,
+          notes: "Only valid if fast-uri is a direct caller.",
+          expiry: expiry.toISOString(),
+        },
+      })),
+    });
+    assert.throws(
+      () => checkAuditReport(JSON.stringify(indirectReport()), 1, rules),
+      /exceptions cannot apply/u
+    );
+  });
+
+  it("blocks an incomplete caller even when its shared advisory has an accepted complete path", () => {
+    const input = stylelintReport();
+    input.vulnerabilities["indirect-tool"] = entry("indirect-tool", ["micromatch"]);
+    assert.throws(
+      () =>
+        checkAuditReport(
+          JSON.stringify(report(input.vulnerabilities)),
+          1,
+          readAuditPolicy(JSON.parse(policySource))
+        ),
+      /GHSA-vfj7-8cjw-p6xm\|indirect-tool>micromatch>braces/u
+    );
   });
 
   it.each(["globby", "micromatch", "braces"])(
@@ -229,13 +315,14 @@ describe("dependency audit policy", () => {
     }
   );
 
-  it("rejects unsupported severity, dangling links, cycles and orphan entries", () => {
+  it("rejects unsupported severity, dangling links and cycles even without direct callers", () => {
     /** @type {Record<string, import("./dependency-audit.mjs").Vulnerability>[]} */
     const invalidGraphs = [
       { a: entry("a", [{ url: advisory }], true, "unknown") },
       { a: entry("a", ["missing"], true) },
       { a: entry("a", ["b"], true), b: entry("b", ["a"]) },
-      { a: entry("a", [{ url: advisory }]) },
+      { a: entry("a", ["missing"]) },
+      { a: entry("a", ["b"]), b: entry("b", ["a"]) },
     ];
     for (const graph of invalidGraphs)
       assert.throws(() => checkAuditReport(JSON.stringify(report(graph)), 1));
@@ -336,11 +423,19 @@ process.exitCode = result.status;
     }
   });
 
-  it("blocks production findings before running the complete audit, even for the excepted advisory", () => {
+  it("blocks production findings before running the complete audit", () => {
     const result = run({ output: JSON.stringify(stylelintReport()), status: 1 }, clean);
     assert.equal(result.status, 1);
     assert.equal(result.calls.length, 1);
     assert.match(result.stderr, /Unaccepted/u);
+  });
+
+  it("reports and blocks indirect-only findings from the complete audit", () => {
+    const result = run(clean, { output: JSON.stringify(indirectReport()), status: 1 });
+    assert.equal(result.status, 1);
+    assert.equal(result.calls.length, 2);
+    assert.match(result.stderr, /Incomplete dependency paths/u);
+    for (const id of indirectAdvisories) assert.ok(result.stderr.includes(`${id}|fast-uri`));
   });
 
   it.each(["{", '{"error":{"code":"ENOAUDIT"}}'])(
