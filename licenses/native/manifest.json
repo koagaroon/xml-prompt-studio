@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "c61fc4ad4895722ff22cc30a9366d767edb90193385102d14fcd451ab44d0997",
+  "inputFingerprint": "dca39ea58cef299aaba825e4549be04c51fe01b847f3ebf6f03963cd0cfc81c0",
   "packages": [
     {
       "name": "adler2",
@@ -4524,7 +4524,7 @@
     },
     {
       "name": "tokio",
-      "version": "1.53.2",
+      "version": "1.54.1",
       "source": "registry+https://github.com/rust-lang/crates.io-index",
       "license": "MIT",
       "features": [
@@ -4549,7 +4549,7 @@
           "file": "texts/253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552.txt",
           "sha256": "253cd04c6714889df2d32f3f64d669179a1c95c76ac43c40882c52eb06bc3552",
           "original": "LICENSE",
-          "source": "https://crates.io/api/v1/crates/tokio/1.53.2/download"
+          "source": "https://crates.io/api/v1/crates/tokio/1.54.1/download"
         }
       ],
       "artifacts": []
