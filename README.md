@@ -283,6 +283,10 @@ Rolldown updates select the newest Vite-compatible stable release fully publishe
 
 `npm run audit:dependencies` queries the npm registry for advisories, checking production dependencies first and then the complete graph including development tools. Production dependencies have no exceptions. Development exceptions in [`audit-ci.json`](audit-ci.json) require an exact advisory and complete dependency path, a reason, and an expiry. An expired exception no longer accepts its finding. New findings or paths, request failures, and invalid reports also block the check. CI and release checks use this same command. Raw `npm audit` still reports accepted findings; passing the project check does not mean the underlying audit is clean.
 
+`package.json` 中的 `overrides` 为三个代码检查工具指定了已修复的 minimatch 版本。上游工具支持修复版后，可移除对应覆盖，再核对 ESLint 检查的文件和完整审计结果。[安全公告](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+
+The `overrides` in `package.json` select a patched minimatch version for three lint tools that still request major 10. When a tool supports a patched version, remove its override and verify ESLint's file list and the full audit. [Security advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+
 ---
 
 ## 架构 | Architecture
