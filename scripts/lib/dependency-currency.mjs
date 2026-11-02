@@ -1056,15 +1056,20 @@ export function findRolldownLock(lockfile) {
   const vite = lockfile.packages["node_modules/vite"];
   if (
     !isRecord(vite) ||
+    (vite.name !== undefined && vite.name !== "vite") ||
     !isRecord(vite.dependencies) ||
     typeof vite.dependencies.rolldown !== "string"
   ) {
     throw new MonitorError("The Vite lock entry does not reference Rolldown.");
   }
-  const nested = lockfile.packages["node_modules/vite/node_modules/rolldown"];
-  const root = lockfile.packages["node_modules/rolldown"];
-  const resolved = isRecord(nested) ? nested : root;
-  if (!isRecord(resolved) || parseStableSemver(resolved.version) === null) {
+  const nested = "node_modules/vite/node_modules/rolldown";
+  const location = Object.hasOwn(lockfile.packages, nested) ? nested : "node_modules/rolldown";
+  const resolved = lockfile.packages[location];
+  if (
+    !isRecord(resolved) ||
+    (resolved.name !== undefined && resolved.name !== "rolldown") ||
+    parseStableSemver(resolved.version) === null
+  ) {
     throw new MonitorError("The Vite-scoped Rolldown lock entry is invalid.");
   }
   const requested = String(vite.dependencies.rolldown);
@@ -1072,7 +1077,7 @@ export function findRolldownLock(lockfile) {
   if (!satisfiesNpmRequirement(locked, requested)) {
     throw new MonitorError("The Vite-scoped Rolldown lock entry is outside Vite's requirement.");
   }
-  return { locked, requested };
+  return { locked, requested, location };
 }
 
 /** @param {unknown} metadata @param {string} expectedName @param {string} requirement @param {(version: string) => boolean} isCompatible */

@@ -925,8 +925,24 @@ describe("Vite-scoped Rolldown safety gate", () => {
           "node_modules/vite/node_modules/rolldown": { version: "1.2.4" },
         },
       }),
-      { locked: "1.2.4", requested: "~1.2.1" }
+      { locked: "1.2.4", requested: "~1.2.1", location: "node_modules/vite/node_modules/rolldown" }
     );
+  });
+
+  it("refuses a malformed or misidentified nested Rolldown even with a valid root copy", () => {
+    for (const nested of [null, { version: "1.2.4", name: "unrelated" }]) {
+      assert.throws(
+        () =>
+          findRolldownLock({
+            packages: {
+              "node_modules/vite": { dependencies: { rolldown: "~1.2.1" } },
+              "node_modules/rolldown": { version: "1.2.5" },
+              "node_modules/vite/node_modules/rolldown": nested,
+            },
+          }),
+        /Vite-scoped Rolldown lock entry is invalid/u
+      );
+    }
   });
 
   it("selects the newest release allowed by Vite even when global latest is outside range", () => {

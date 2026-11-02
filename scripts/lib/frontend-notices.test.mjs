@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "vitest";
+import { findRolldownLock } from "./dependency-currency.mjs";
 import { buildFrontendNotices, collectNpmNotices } from "./frontend-notices.mjs";
 import { loadNativeInventory } from "./native-notices.mjs";
 
@@ -12,7 +13,14 @@ const lockfile = {
     "": { dependencies: { react: "^19.2.8" } },
     "node_modules/react": { version: "19.2.8", license: "MIT" },
     "node_modules/scheduler": { version: "0.27.0", license: "MIT" },
-    "node_modules/vite": { version: "8.2.2", license: "MIT", dev: true },
+    "node_modules/vite": {
+      version: "8.2.2",
+      license: "MIT",
+      dev: true,
+      dependencies: { rolldown: "~1.2.4" },
+    },
+    "node_modules/rolldown": { version: "1.1.0", license: "MIT", dev: true },
+    "node_modules/vite/node_modules/rolldown": { version: "1.2.4", license: "MIT", dev: true },
     "node_modules/vitest": { version: "5.0.0", license: "MIT", dev: true },
   },
 };
@@ -22,18 +30,26 @@ const lockfile = {
  */
 function readPackage(location) {
   const entry = lockfile.packages[location];
+  const name = location.split("node_modules/").at(-1);
+  const files = [{ name: "LICENSE", text: "Copyright: fixture\nPermission: fixture\n" }];
+  if (name === "rolldown") files.push({ name: "THIRD-PARTY-LICENSE", text: "upstream licenses" });
   return {
-    metadata: { name: location.replace("node_modules/", ""), ...entry },
-    files: [{ name: "LICENSE", text: "Copyright: fixture\nPermission: fixture\n" }],
+    metadata: { name, ...entry },
+    files,
   };
 }
 
 describe("frontend runtime notice inventory", () => {
-  it("includes transitive runtime packages and Vite's emitted helper but excludes test tools", () => {
+  it("includes runtime packages and the helpers from Vite and its resolved Rolldown copy", () => {
     const entries = collectNpmNotices(lockfile, readPackage);
     assert.deepEqual(
-      entries.map(({ name }) => name),
-      ["react", "scheduler", "vite"]
+      entries.map(({ location }) => location),
+      [
+        "node_modules/react",
+        "node_modules/scheduler",
+        "node_modules/vite",
+        "node_modules/vite/node_modules/rolldown",
+      ]
     );
   });
 
@@ -72,13 +88,37 @@ describe("frontend runtime notice inventory", () => {
       { name: "NOTICE", text: "additional copyright attribution" },
     ];
     assert.deepEqual(
-      collectNpmNotices(lockfile, (location) => ({ ...readPackage(location), files }))[0].files,
+      collectNpmNotices(lockfile, (location) =>
+        location === "node_modules/react"
+          ? { ...readPackage(location), files }
+          : readPackage(location)
+      )[0].files,
       files
     );
   });
 
+  it("requires Rolldown's own license and the third-party licenses it references", () => {
+    for (const omitted of ["LICENSE", "THIRD-PARTY-LICENSE"]) {
+      assert.throws(
+        () =>
+          collectNpmNotices(lockfile, (location) => {
+            const entry = readPackage(location);
+            if (entry.metadata.name === "rolldown") {
+              entry.files = entry.files.filter((file) => file.name !== omitted);
+            }
+            return entry;
+          }),
+        omitted === "LICENSE" ? /No full runtime license text/u : /THIRD-PARTY-LICENSE/u
+      );
+    }
+  });
+
   it("deterministically retains the current full runtime and asset license texts", () => {
     const root = fileURLToPath(new URL("../../", import.meta.url));
+    const currentLock = JSON.parse(
+      readFileSync(new URL("../../package-lock.json", import.meta.url), "utf8")
+    );
+    const rolldownLocation = findRolldownLock(currentLock).location;
     const output = buildFrontendNotices(root);
     assert.equal(output, buildFrontendNotices(root));
     for (const file of [
@@ -90,6 +130,8 @@ describe("frontend runtime notice inventory", () => {
       "node_modules/@tauri-apps/api/LICENSE-APACHE-2.0",
       "node_modules/@tauri-apps/api/LICENSE.spdx",
       "node_modules/vite/LICENSE.md",
+      `${rolldownLocation}/LICENSE`,
+      `${rolldownLocation}/THIRD-PARTY-LICENSE`,
       "public/fonts/Inter-LICENSE.txt",
       "public/fonts/JetBrainsMono-OFL.txt",
       "public/licenses/Feather-MIT.txt",
@@ -100,6 +142,7 @@ describe("frontend runtime notice inventory", () => {
       );
       assert.ok(output.includes(source), `Missing full text: ${file}`);
     }
+    assert.ok(output.includes(`Locked location: ${rolldownLocation}\n`));
     for (const name of ["react", "react-dom", "scheduler", "@tauri-apps/api", "vite"]) {
       assert.ok(output.includes(`Locked location: node_modules/${name}\n`));
     }

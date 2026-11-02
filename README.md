@@ -271,9 +271,9 @@ Dependency Watch 检查直接依赖、固定的 npm 与 Rust 构建工具、GitH
 
 Dependency Watch checks direct dependencies, pinned npm and Rust build tools, GitHub Actions, and selected indirect dependencies such as the TypeScript compatibility compiler and Rolldown native bindings. It distinguishes development tools from runtime dependencies, but is neither a complete lockfile update inventory nor proof that every listed package enters the `.exe`. Build-tool updates are maintenance work; portable-app users do not need to install these tools. Security checks still cover the complete npm dependency graph.
 
-报告还会将最新稳定 Windows 发布版的标签解析到确定的提交，读取该提交中的锁文件与已审核的 Windows 许可证清单，列出开发版本与已发布版本的依赖差异，并向 [OSV](https://osv.dev/) 查询已发布 npm 运行时包（含 Vite 生成的辅助代码）与 Rust 运行时依赖的安全公告。匹配公告需要进一步判断是否适用；没有匹配不代表应用已被证明安全。此查询不覆盖 Rust 标准库、非包形式的资源、外部 WebView2 运行时、仅构建时使用的依赖或更早的发布版，也不会自动构建或发布应用。
+报告还会将最新稳定 Windows 发布版的标签解析到确定的提交，读取该提交中的锁文件与已审核的 Windows 许可证清单，列出开发版本与已发布版本的依赖差异，并向 [OSV](https://osv.dev/) 查询已发布 npm 运行时包（含 Vite 和 Rolldown 生成的辅助代码）与 Rust 运行时依赖的安全公告。匹配公告需要进一步判断是否适用；没有匹配不代表应用已被证明安全。此查询不覆盖 Rust 标准库、非包形式的资源、外部 WebView2 运行时、仅构建时使用的依赖或更早的发布版，也不会自动构建或发布应用。
 
-The report also resolves the latest stable Windows release tag to a fixed commit, reads its lockfiles and reviewed Windows notice inventory, shows dependency differences from development, and queries [OSV](https://osv.dev/) for advisories affecting released npm runtime packages (including Vite's emitted helper) and Rust runtime crates. Matches need applicability review; no matches do not prove the app is secure. This query excludes the Rust standard library, non-package assets, the external WebView2 runtime, build-only dependencies, and older releases. It does not build or publish the app automatically.
+The report also resolves the latest stable Windows release tag to a fixed commit, reads its lockfiles and reviewed Windows notice inventory, shows dependency differences from development, and queries [OSV](https://osv.dev/) for advisories affecting released npm runtime packages (including helpers emitted by Vite and Rolldown) and Rust runtime crates. Matches need applicability review; no matches do not prove the app is secure. This query excludes the Rust standard library, non-package assets, the external WebView2 runtime, build-only dependencies, and older releases. It does not build or publish the app automatically.
 
 Rolldown 更新会检查仍符合 Vite 要求且已为维护中的构建环境完整发布的最新稳定版本：Windows x64 MSVC 和 Linux x64 GNU。较新但尚未完整发布的版本会单独说明，不会遮住已经可用的更新；其他平台的发布问题仅供参考。`npm ci` 仍负责验证锁文件安装。
 
@@ -364,6 +364,7 @@ The **Licenses** button opens frontend licenses, bundled asset attributions, and
 | [React](https://react.dev/) / React DOM                                           | MIT               | UI 框架 / UI framework                                                        |
 | [Scheduler](https://github.com/facebook/react/tree/main/packages/scheduler)       | MIT               | React DOM 的调度依赖 / React DOM scheduling dependency                        |
 | [Vite runtime helpers](https://vite.dev/config/build-options#build-modulepreload) | MIT               | 构建时注入的模块预加载辅助代码 / Module preload helper emitted by the build   |
+| [Rolldown](https://github.com/rolldown/rolldown)                                  | MIT               | CommonJS 模块加载代码 / CommonJS module loader emitted by the build           |
 | [Feather](https://github.com/feathericons/feather)                                | MIT               | 月亮图标（保守起见，仍保留署名） / Conservative attribution for the moon icon |
 | [arboard](https://github.com/1Password/arboard)                                   | MIT OR Apache-2.0 | 跨平台剪贴板访问 / Cross-platform clipboard access                            |
 | [Inter](https://rsms.me/inter/)                                                   | SIL OFL 1.1       | 捆绑 UI 字体 / Bundled UI font                                                |
