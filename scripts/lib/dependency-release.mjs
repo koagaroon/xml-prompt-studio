@@ -1,5 +1,6 @@
 import {
   MonitorError,
+  findRolldownLock,
   isRecord,
   mapWithConcurrency,
   parseStableSemver,
@@ -159,9 +160,7 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
     if (!isRecord(entry) || entry.dev)
       throw new MonitorError("Release npm runtime root is missing: " + name);
   }
-  if (!isRecord(npmLock.packages["node_modules/vite"])) {
-    throw new MonitorError("Release npm lock has no Vite emitted-helper identity.");
-  }
+  const rolldownLocation = findRolldownLock(npmLock).location;
   /** @type {Map<string, ReleasePackage>} */
   const packages = new Map();
   /** @param {ReleasePackage} entry */
@@ -172,8 +171,7 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
     if (!isRecord(value) || (value.dev !== undefined && typeof value.dev !== "boolean")) {
       throw new MonitorError("Release npm lock contains an invalid package entry.");
     }
-    // Match the shipped notice scope, including Vite's generated modulepreload helper.
-    if (value.dev === true && path !== "node_modules/vite") continue;
+    if (value.dev === true && path !== "node_modules/vite" && path !== rolldownLocation) continue;
     const name = value.name ?? path.slice(path.lastIndexOf("node_modules/") + 13);
     if (
       !path.startsWith("node_modules/") ||
@@ -296,7 +294,7 @@ export async function checkReleasedDependencies(development, revision, requests)
     const packages = collectReleasePackages(snapshot);
     const changes = compareReleasePackages(packages, collectReleasePackages(development));
     lines.push(
-      "Compared npm runtime packages (including Vite's emitted helper) and reviewed Windows runtime crates.",
+      "Compared npm runtime packages (including helpers emitted by Vite and Rolldown) and reviewed Windows runtime crates.",
       "Unreleased package-version differences: " +
         changes.length +
         ". These are release-planning context, not release approval.",
@@ -315,7 +313,7 @@ export async function checkReleasedDependencies(development, revision, requests)
       "### Released dependency advisories",
       "",
       "OSV queries exact released npm/crates.io versions. Matches require applicability review; absence of matches is not a security guarantee.",
-      "Matches may include maintenance notices. Vite is included for its emitted helper only; package-level advisories can concern development functionality that is not shipped.",
+      "Matches may include maintenance notices. Vite and Rolldown are included for their emitted helpers. Package advisories can concern development functionality outside the executable.",
       "Coverage excludes Rust standard-library code, bundled non-package assets, the external WebView2 runtime, build-only packages, and older/prerelease releases. Current full-build npm audits and Dependabot alerts remain separate.",
       ""
     );

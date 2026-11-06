@@ -5,10 +5,11 @@
 The **Licenses** button in the application opens an offline notice viewer.
 `npm run dev` and `npm run build` generate `public/third-party-notices.txt`
 from the exact installed versions in `package-lock.json`, retaining full
-license and NOTICE files for every production npm package. Vite's package
-license is also retained because its modulepreload helper is emitted into
-the application. The build verifies the copy in `dist/` byte-for-byte; Tauri
-embeds that directory in the portable executable.
+license and NOTICE files for every production npm package. The application
+also includes Vite's modulepreload helper and Rolldown's CommonJS module loader.
+The viewer includes Vite's license and Rolldown's `LICENSE` and
+`THIRD-PARTY-LICENSE` files. The build verifies the copy in `dist/` byte-for-byte.
+Tauri embeds that directory in the portable executable.
 
 The frontend inventory includes React, React DOM, Scheduler, `@tauri-apps/api`,
 and the bundled assets below. A missing license or a mismatch between installed

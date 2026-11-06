@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { findRolldownLock } from "./dependency-currency.mjs";
 import { loadNativeInventory, renderNativeNotices } from "./native-notices.mjs";
 
 /**
@@ -12,7 +13,7 @@ import { loadNativeInventory, renderNativeNotices } from "./native-notices.mjs";
 /** @param {string} text */
 const normalizeNewlines = (text) => text.replace(/\r\n/gu, "\n");
 const licenseName = /^(?:licen[cs]e|copying)(?:$|[._-])/iu;
-const noticeName = /^(?:licen[cs]e|copying|notice)(?:$|[._-])/iu;
+const noticeName = /^(?:licen[cs]e|copying|notice)(?:$|[._-])|^THIRD-PARTY-LICENSE$/iu;
 
 /**
  * @param {NpmLockfile} lockfile
@@ -27,17 +28,16 @@ export function collectNpmNotices(lockfile, readPackage) {
     if (!entry || entry.dev)
       throw new Error(`Runtime dependency is missing from the lock: ${name}`);
   }
+  const rolldownLocation = findRolldownLock(lockfile).location;
   const locations = Object.keys(lockfile.packages)
     .filter(
       (location) =>
         location !== "" &&
-        // Vite's modulepreload helper is emitted into index.html builds.
-        (!lockfile.packages[location].dev || location === "node_modules/vite")
+        (!lockfile.packages[location].dev ||
+          location === "node_modules/vite" ||
+          location === rolldownLocation)
     )
     .sort();
-  if (!locations.includes("node_modules/vite")) {
-    throw new Error("Vite runtime helper notices are missing from the lock.");
-  }
   return locations.map((location) => {
     if (!/^node_modules\/(?:[A-Za-z0-9@_.-]+\/)*[A-Za-z0-9_.-]+$/u.test(location)) {
       throw new Error(`Unsupported runtime package location: ${location}`);
@@ -53,6 +53,12 @@ export function collectNpmNotices(lockfile, readPackage) {
     }
     if (!files.some(({ name: file }) => licenseName.test(file))) {
       throw new Error(`No full runtime license text found for ${name}; review its license files.`);
+    }
+    if (
+      location === rolldownLocation &&
+      !files.some((file) => file.name === "THIRD-PARTY-LICENSE")
+    ) {
+      throw new Error("Rolldown's THIRD-PARTY-LICENSE is missing from its runtime notices.");
     }
     for (const file of files) {
       if (!file.text.trim()) throw new Error(`Empty runtime notice: ${name}/${file.name}`);
@@ -77,8 +83,8 @@ export function buildFrontendNotices(root) {
   }));
   const sections = [
     "XML Prompt Studio — Third-party notices\n\n" +
-      "This inventory covers the locked JavaScript runtime packages, Vite's generated " +
-      "runtime helpers, and the bundled fonts and icon attribution. Some included package " +
+      "This inventory covers the locked JavaScript runtime packages, helpers emitted by Vite " +
+      "and Rolldown, and the bundled fonts and icon attribution. Some included package " +
       "notices also describe code used only during development.\n" +
       "The reviewed Windows native dependency and Rust standard-library notices follow " +
       "the frontend and asset notices. Native coverage for other targets is unverified.\n",

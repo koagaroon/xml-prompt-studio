@@ -41,7 +41,12 @@ function snapshot(version = "1.0.0") {
       packages: {
         "": { dependencies: { react: "^" + version } },
         "node_modules/react": npmEntry("react", version),
-        "node_modules/vite": npmEntry("vite", "8.0.0", true),
+        "node_modules/vite": {
+          ...npmEntry("vite", "8.0.0", true),
+          dependencies: { rolldown: "~1.2.4" },
+        },
+        "node_modules/vite/node_modules/rolldown": npmEntry("rolldown", "1.2.4", true),
+        "node_modules/rolldown": npmEntry("rolldown", "1.1.0", true),
         "node_modules/eslint": npmEntry("eslint", "10.0.0", true),
         "node_modules/parent/node_modules/react": npmEntry("react", version),
       },
@@ -146,10 +151,11 @@ describe("released Windows dependency scope", () => {
     }
   });
 
-  it("includes Vite emitted helpers and runtime crates, excludes build-only packages, and deduplicates copies", () => {
+  it("includes Vite, its resolved Rolldown and runtime crates, excludes build-only packages, and deduplicates copies", () => {
     assert.deepEqual(collectReleasePackages(snapshot()), [
       { ecosystem: "crates.io", name: "tauri", version: "2.0.0" },
       { ecosystem: "npm", name: "react", version: "1.0.0" },
+      { ecosystem: "npm", name: "rolldown", version: "1.2.4" },
       { ecosystem: "npm", name: "vite", version: "8.0.0" },
     ]);
   });
