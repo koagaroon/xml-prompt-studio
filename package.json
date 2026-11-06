@@ -3,7 +3,7 @@
   "private": true,
   "license": "MIT",
   "version": "0.1.0",
-  "packageManager": "npm@12.2.1",
+  "packageManager": "npm@12.2.2",
   "type": "module",
   "engines": {
     "node": "^24.21.0"
@@ -66,11 +66,11 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.14.0",
     "prettier": "3.9.10",
-    "stylelint": "^17.16.0",
-    "stylelint-config-standard": "^40.0.0",
+    "stylelint": "^18.0.0",
+    "stylelint-config-standard": "^41.0.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
+    "vite": "^8.3.6",
     "vitest": "^5.1.0"
   }
 }
