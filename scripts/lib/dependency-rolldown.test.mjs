@@ -6,7 +6,9 @@ import { checkRolldown } from "./dependency-rolldown.mjs";
 
 const bindingName = "@rolldown/binding-win32-x64-msvc";
 const linuxBinding = "@rolldown/binding-linux-x64-gnu";
+const macosBinding = "@rolldown/binding-darwin-arm64";
 const androidBinding = "@rolldown/binding-android-arm64";
+const otherBindings = [linuxBinding, macosBinding, androidBinding];
 const lockfile = {
   packages: {
     "node_modules/vite": { dependencies: { rolldown: "~1.2.1" } },
@@ -181,57 +183,54 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     assert.equal(restored.rows[0].status, "actionable");
   });
 
-  it.each([bindingName, linuxBinding])(
-    "holds an update missing maintained binding %s",
-    async (name) => {
-      const { rows } = await inspectInventory(releaseInventory(["1.2.5", "1.2.6"]), {
-        missing: [`${name}@1.2.6`],
-      });
-      assert.equal(rows[0].status, "hold");
-      assert.equal(reportExitCode(rows), 0);
-      assert.ok(rows[0].reason.includes(`${name}@1.2.6`));
-    }
-  );
+  it("holds an update missing the Windows binding", async () => {
+    const { rows } = await inspectInventory(releaseInventory(["1.2.5", "1.2.6"]), {
+      missing: [`${bindingName}@1.2.6`],
+    });
+    assert.equal(rows[0].status, "hold");
+    assert.equal(reportExitCode(rows), 0);
+    assert.ok(rows[0].reason.includes(`${bindingName}@1.2.6`));
+  });
 
-  it.each([bindingName, linuxBinding])(
-    "rejects missing locked maintained binding %s",
-    async (name) => {
-      const { rows, requests } = await inspectInventory(releaseInventory(["1.2.5", "1.2.6"]), {
-        missing: [`${name}@1.2.5`],
-      });
-      assert.equal(rows[0].status, "error");
-      assert.match(rows[0].reason, /Locked Rolldown/u);
-      assert.ok(requests.every((identity) => identity.endsWith("@1.2.5")));
-    }
-  );
+  it("rejects a missing locked Windows binding", async () => {
+    const { rows, requests } = await inspectInventory(releaseInventory(["1.2.5", "1.2.6"]), {
+      missing: [`${bindingName}@1.2.5`],
+    });
+    assert.equal(rows[0].status, "error");
+    assert.match(rows[0].reason, /Locked Rolldown/u);
+    assert.ok(requests.every((identity) => identity.endsWith("@1.2.5")));
+  });
 
-  it.each([false, true])(
-    "keeps other-platform gaps informational when an update exists: %s",
-    async (update) => {
+  it.each(otherBindings.flatMap((name) => [false, true].map((update) => ({ name, update }))))(
+    "keeps $name publication gaps informational when an update exists: $update",
+    async ({ name, update }) => {
       const versions = update ? ["1.2.5", "1.2.6"] : ["1.2.5"];
       const { rows } = await inspectInventory(
-        releaseInventory(versions, [bindingName, linuxBinding, androidBinding]),
-        { missing: versions.map((version) => `${androidBinding}@${version}`) }
+        releaseInventory(versions, [bindingName, ...otherBindings]),
+        { missing: versions.map((version) => `${name}@${version}`) }
       );
       assert.equal(rows[0].status, update ? "actionable" : "current");
       assert.equal(reportExitCode(rows), update ? 1 : 0);
-      assert.match(rows[0].reason, /Windows x64 MSVC and Linux x64 GNU/u);
+      assert.match(rows[0].reason, /Build host: Windows x64 MSVC\./u);
       assert.match(rows[0].reason, /publication gaps \(informational\)/u);
-      for (const version of versions)
-        assert.ok(rows[0].reason.includes(`android-arm64@${version}`));
+      const platform = name.slice("@rolldown/binding-".length);
+      for (const version of versions) assert.ok(rows[0].reason.includes(`${platform}@${version}`));
     }
   );
 
-  it("keeps an unverified other-platform locked binding informational without calling it missing", async () => {
-    const { rows } = await inspectInventory(
-      releaseInventory(["1.2.5"], [bindingName, linuxBinding, androidBinding]),
-      { invalid: { [`${androidBinding}@1.2.5`]: null } }
-    );
-    assert.equal(rows[0].status, "current");
-    assert.equal(reportExitCode(rows), 0);
-    assert.match(rows[0].reason, /Other-platform checks incomplete \(informational\)/u);
-    assert.doesNotMatch(rows[0].reason, /publication gaps/u);
-  });
+  it.each(otherBindings)(
+    "keeps unverified locked %s informational without calling it missing",
+    async (name) => {
+      const { rows } = await inspectInventory(
+        releaseInventory(["1.2.5"], [bindingName, ...otherBindings]),
+        { invalid: { [`${name}@1.2.5`]: null } }
+      );
+      assert.equal(rows[0].status, "current");
+      assert.equal(reportExitCode(rows), 0);
+      assert.match(rows[0].reason, /Other-platform checks incomplete \(informational\)/u);
+      assert.doesNotMatch(rows[0].reason, /publication gaps/u);
+    }
+  );
 
   it.each(
     [
@@ -242,9 +241,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
       "wrong name",
       "wrong version",
       "missing integrity",
-    ].flatMap((failure) =>
-      [bindingName, linuxBinding, androidBinding].map((name) => [failure, name])
-    )
+    ].flatMap((failure) => [bindingName, ...otherBindings].map((name) => [failure, name]))
   )("limits %s for %s to the appropriate host scope", async (failure, name) => {
     let attempts = 0;
     const request = createJsonRequester(
@@ -263,7 +260,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     );
     const rows = await checkRolldown(lockfile, {
       fetchMetadata: async () =>
-        releaseInventory(["1.2.5", "1.2.6"], [bindingName, linuxBinding, androidBinding]),
+        releaseInventory(["1.2.5", "1.2.6"], [bindingName, ...otherBindings]),
       fetchBinding: async (requestedName, version) =>
         requestedName === name && version === "1.2.6"
           ? await request("https://example.test/binding", {
@@ -273,12 +270,12 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
             })
           : bindingMetadata(version, requestedName),
     });
-    if (name === androidBinding) {
+    if (name !== bindingName) {
       assert.equal(rows[0].status, "actionable");
       assert.equal(rows[0].latest, "1.2.6");
       assert.equal(reportExitCode(rows), 1);
       assert.match(rows[0].reason, /Other-platform checks incomplete \(informational\)/u);
-      assert.match(rows[0].reason, /android-arm64@1\.2\.6/u);
+      assert.ok(rows[0].reason.includes(`${name.slice("@rolldown/binding-".length)}@1.2.6`));
       assert.doesNotMatch(rows[0].reason, /publication gaps/u);
     } else {
       assert.equal(rows[0].status, "error");
@@ -288,27 +285,33 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     assert.equal(attempts, failure === "network" || failure === "HTTP failure" ? 3 : 1);
   });
 
-  it("rejects invalid overall Rolldown release metadata even for an unmaintained binding", async () => {
-    const metadata = releaseInventory(
-      ["1.2.5", "1.2.6"],
-      [bindingName, linuxBinding, androidBinding]
-    );
-    metadata.versions["1.2.6"].optionalDependencies[androidBinding] = "invalid";
+  it.each(
+    otherBindings.flatMap((name) => ["1.2.5", "1.2.6"].map((version) => ({ name, version })))
+  )("rejects invalid $version release metadata for optional $name", async ({ name, version }) => {
+    const metadata = releaseInventory(["1.2.5", "1.2.6"], [bindingName, ...otherBindings]);
+    metadata.versions[version].optionalDependencies[name] = "invalid";
     const { rows } = await inspectInventory(metadata);
     assert.equal(rows[0].status, "error");
-    assert.match(rows[0].reason, /Rolldown 1\.2\.6 has invalid native binding metadata/u);
+    assert.ok(rows[0].reason.includes(`Rolldown ${version} has invalid native binding metadata`));
   });
 
-  it.each([bindingName, linuxBinding])(
-    "rejects a release omitting maintained host %s",
-    async (name) => {
-      const metadata = releaseInventory(["1.2.5", "1.2.6"]);
-      delete metadata.versions["1.2.6"].optionalDependencies[name];
-      const { rows } = await inspectInventory(metadata);
-      assert.equal(rows[0].status, "error");
-      assert.match(rows[0].reason, /no maintained-host binding/u);
-    }
-  );
+  it("rejects a release omitting the Windows binding", async () => {
+    const metadata = releaseInventory(["1.2.5", "1.2.6"]);
+    delete metadata.versions["1.2.6"].optionalDependencies[bindingName];
+    const { rows } = await inspectInventory(metadata);
+    assert.equal(rows[0].status, "error");
+    assert.match(rows[0].reason, /no maintained-host binding/u);
+  });
+
+  it("accepts a release declaring only the maintained Windows binding", async () => {
+    const { rows, requests } = await inspectInventory(
+      releaseInventory(["1.2.5", "1.2.6"], [bindingName])
+    );
+    assert.equal(rows[0].status, "actionable");
+    assert.equal(reportExitCode(rows), 1);
+    assert.equal(requests.length, 2);
+    assert.ok(requests.every((identity) => identity.startsWith(`${bindingName}@`)));
+  });
 
   it("checks the eighth candidate and bounds requests even with 64 bindings per release", async () => {
     const versions = Array.from({ length: 9 }, (_, index) => `1.2.${index + 5}`);
@@ -324,7 +327,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     assert.equal(rows[0].latest, "1.2.6");
     assert.equal(rows[1].latest, "1.2.13");
     assert.match(rows[1].reason, /6 other newer releases/u);
-    assert.equal(requests.length, 142);
+    assert.equal(requests.length, 135);
     assert.equal(new Set(requests).size, requests.length);
   });
 
@@ -336,7 +339,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     assert.equal(rows[0].status, "error");
     assert.equal(reportExitCode(rows), 2);
     assert.match(rows[0].reason, /8-candidate limit.*remain unchecked/u);
-    assert.equal(requests.length, 18);
+    assert.equal(requests.length, 9);
     assert.ok(!requests.some((identity) => identity.endsWith("@1.2.6")));
   });
 

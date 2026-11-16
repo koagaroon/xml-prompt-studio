@@ -121,6 +121,10 @@ describe("frontend runtime notice inventory", () => {
     const rolldownLocation = findRolldownLock(currentLock).location;
     const output = buildFrontendNotices(root);
     assert.equal(output, buildFrontendNotices(root));
+    const tauriApiNotice = output
+      .split("\n\n" + "=".repeat(72) + "\n\n")
+      .find((section) => section.startsWith("@tauri-apps/api "));
+    assert.ok(tauriApiNotice, "Missing Tauri API notice section");
     for (const file of [
       "LICENSE",
       "node_modules/react/LICENSE",
@@ -128,7 +132,6 @@ describe("frontend runtime notice inventory", () => {
       "node_modules/scheduler/LICENSE",
       "node_modules/@tauri-apps/api/LICENSE-MIT",
       "node_modules/@tauri-apps/api/LICENSE-APACHE-2.0",
-      "node_modules/@tauri-apps/api/LICENSE.spdx",
       "node_modules/vite/LICENSE.md",
       `${rolldownLocation}/LICENSE`,
       `${rolldownLocation}/THIRD-PARTY-LICENSE`,
@@ -140,7 +143,8 @@ describe("frontend runtime notice inventory", () => {
         /\r\n/gu,
         "\n"
       );
-      assert.ok(output.includes(source), `Missing full text: ${file}`);
+      const notice = file.startsWith("node_modules/@tauri-apps/api/") ? tauriApiNotice : output;
+      assert.ok(notice.includes(source), `Missing full text: ${file}`);
     }
     assert.ok(output.includes(`Locked location: ${rolldownLocation}\n`));
     for (const name of ["react", "react-dom", "scheduler", "@tauri-apps/api", "vite"]) {

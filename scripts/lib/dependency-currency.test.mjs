@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "vitest";
 
 import {
@@ -205,7 +206,7 @@ describe("npm dependency inspection", () => {
     assert.equal(classifyVersion("1.2.4", "1.2.3").status, "error");
   });
 
-  it("requires the strict install-script allowlist to exactly match the lockfile", () => {
+  it("requires the strict install-script allowlist to match scripts without OS exclusions", () => {
     const lockfile = {
       packages: {
         "": {},
@@ -237,6 +238,139 @@ describe("npm dependency inspection", () => {
           "strict-allow-scripts=true\nstrict-allow-scripts=false\n"
         ),
       /must enable/u
+    );
+  });
+
+  it("validates the repository's Windows install-script approvals", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8")
+    );
+    const lockfile = JSON.parse(
+      readFileSync(new URL("../../package-lock.json", import.meta.url), "utf8")
+    );
+    const npmrc = readFileSync(new URL("../../.npmrc", import.meta.url), "utf8");
+
+    assert.doesNotThrow(() => validateInstallScriptPolicy(packageJson, lockfile, npmrc));
+  });
+
+  it("omits approvals only for explicitly optional Linux/macOS-only install scripts", () => {
+    for (const os of [["darwin"], ["linux"], ["darwin", "linux"], "darwin"]) {
+      const lockfile = {
+        packages: {
+          "node_modules/platform-helper": {
+            version: "1.0.0",
+            hasInstallScript: true,
+            optional: true,
+            os,
+          },
+        },
+      };
+      assert.deepEqual(
+        validateInstallScriptPolicy({ allowScripts: {} }, lockfile, "strict-allow-scripts=true\n"),
+        []
+      );
+      assert.throws(
+        () =>
+          validateInstallScriptPolicy(
+            { allowScripts: { "platform-helper@1.0.0": true } },
+            lockfile,
+            "strict-allow-scripts=true\n"
+          ),
+        /differs/u
+      );
+    }
+  });
+
+  it("requires approval for Windows, unrestricted, nonoptional, and uncertain OS metadata", () => {
+    for (const metadata of [
+      {},
+      { optional: true },
+      { optional: true, os: [] },
+      { optional: true, os: ["win32"] },
+      { optional: true, os: ["darwin", "win32"] },
+      { optional: true, os: ["any"] },
+      { optional: true, os: ["!darwin"] },
+      { optional: true, os: ["!win32"] },
+      { optional: true, os: ["darwin", "!linux"] },
+      { optional: true, os: ["future-os"] },
+      { optional: true, os: ["darwin", "future-os"] },
+      { optional: false, os: ["darwin"] },
+      { os: ["darwin"] },
+    ]) {
+      const lockfile = {
+        packages: {
+          "node_modules/install-helper": { version: "1.0.0", hasInstallScript: true, ...metadata },
+        },
+      };
+      assert.throws(
+        () =>
+          validateInstallScriptPolicy(
+            { allowScripts: {} },
+            lockfile,
+            "strict-allow-scripts=true\n"
+          ),
+        /differs/u
+      );
+      assert.deepEqual(
+        validateInstallScriptPolicy(
+          { allowScripts: { "install-helper@1.0.0": true } },
+          lockfile,
+          "strict-allow-scripts=true\n"
+        ),
+        ["install-helper@1.0.0"]
+      );
+    }
+  });
+
+  it("rejects malformed install-script platform metadata instead of treating it as an exclusion", () => {
+    for (const metadata of [
+      null,
+      { version: "1.0.0", hasInstallScript: "true" },
+      ...[null, 42, "", [""], ["darwin", null], [" win32"], ["!"]].map((os) => ({
+        version: "1.0.0",
+        hasInstallScript: true,
+        optional: true,
+        os,
+      })),
+      { version: "1.0.0", hasInstallScript: true, optional: "true", os: ["darwin"] },
+      { version: "invalid", hasInstallScript: true, optional: true, os: ["darwin"] },
+    ]) {
+      assert.throws(
+        () =>
+          validateInstallScriptPolicy(
+            { allowScripts: {} },
+            { packages: { "node_modules/install-helper": metadata } },
+            "strict-allow-scripts=true\n"
+          ),
+        MonitorError
+      );
+    }
+  });
+
+  it("keeps approval when another copy of an excluded package can install on Windows", () => {
+    assert.throws(
+      () =>
+        validateInstallScriptPolicy(
+          { allowScripts: {} },
+          {
+            packages: {
+              "node_modules/install-helper": {
+                version: "1.0.0",
+                hasInstallScript: true,
+                optional: true,
+                os: ["darwin"],
+              },
+              "node_modules/parent/node_modules/install-helper": {
+                version: "1.0.0",
+                hasInstallScript: true,
+                optional: true,
+                os: ["win32"],
+              },
+            },
+          },
+          "strict-allow-scripts=true\n"
+        ),
+      /differs/u
     );
   });
 

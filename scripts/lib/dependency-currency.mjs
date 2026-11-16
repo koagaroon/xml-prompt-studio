@@ -412,6 +412,28 @@ export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets 
   return { latest: compatibleLatest, ...result };
 }
 
+/** @param {string} path @param {Record<string, unknown>} metadata */
+function isOptionalNonWindowsPackage(path, metadata) {
+  if (metadata.optional !== undefined && typeof metadata.optional !== "boolean") {
+    throw new MonitorError(`Install-script package ${path} has invalid optional metadata.`);
+  }
+  if (metadata.os === undefined) return false;
+  const platforms = typeof metadata.os === "string" ? [metadata.os] : metadata.os;
+  if (
+    !Array.isArray(platforms) ||
+    platforms.some((platform) => typeof platform !== "string" || !/^!?[a-z0-9_-]+$/u.test(platform))
+  ) {
+    throw new MonitorError(`Install-script package ${path} has invalid os metadata.`);
+  }
+
+  // Only explicit optional Linux/macOS allowlists are exempt; uncertain or negated lists still require approval.
+  return (
+    metadata.optional === true &&
+    platforms.length > 0 &&
+    platforms.every((platform) => platform === "darwin" || platform === "linux")
+  );
+}
+
 /** @param {unknown} packageJson @param {unknown} lockfile @param {unknown} npmrc */
 export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
   if (!isRecord(packageJson) || !isRecord(packageJson.allowScripts)) {
@@ -436,11 +458,19 @@ export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
 
   const lockedIdentities = new Set();
   for (const [path, metadata] of Object.entries(lockfile.packages)) {
-    if (path === "" || !isRecord(metadata) || metadata.hasInstallScript !== true) continue;
+    if (path === "") continue;
+    if (
+      !isRecord(metadata) ||
+      (metadata.hasInstallScript !== undefined && typeof metadata.hasInstallScript !== "boolean")
+    ) {
+      throw new MonitorError(`Lockfile package ${path} has invalid install-script metadata.`);
+    }
+    if (metadata.hasInstallScript !== true) continue;
     if (parseStableSemver(metadata.version) === null) {
       throw new MonitorError(`Install-script package ${path} has no stable locked version.`);
     }
-    lockedIdentities.add(`${lockPackageName(path, metadata)}@${metadata.version}`);
+    const identity = `${lockPackageName(path, metadata)}@${metadata.version}`;
+    if (!isOptionalNonWindowsPackage(path, metadata)) lockedIdentities.add(identity);
   }
   const allowed = Object.entries(packageJson.allowScripts).map(([packageId, enabled]) => {
     if (enabled !== true)
@@ -451,7 +481,7 @@ export function validateInstallScriptPolicy(packageJson, lockfile, npmrc) {
   allowed.sort();
   if (JSON.stringify(locked) !== JSON.stringify(allowed)) {
     throw new MonitorError(
-      `allowScripts differs from locked install scripts (allowed: ${allowed.join(", ") || "none"}; locked: ${locked.join(", ") || "none"}).`
+      `allowScripts differs from locked install scripts requiring Windows approval (allowed: ${allowed.join(", ") || "none"}; locked: ${locked.join(", ") || "none"}).`
     );
   }
   return locked;

@@ -1,18 +1,15 @@
+#[cfg(not(target_os = "windows"))]
+compile_error!("XML Prompt Studio supports Windows only.");
+
 use arboard::Clipboard;
 mod clipboard_lifecycle;
-#[cfg(all(target_os = "linux", test))]
-mod linux_clipboard_tests;
 use clipboard_lifecycle::ClipboardLifecycle;
-#[cfg(target_os = "windows")]
 use std::ffi::OsString;
-use std::fs;
 use std::io::{Read, Write};
-#[cfg(target_os = "windows")]
 use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -37,16 +34,7 @@ const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
 const STDIN_WRITER_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
-#[cfg(target_os = "linux")]
-// One running copy can try both Linux helpers before releasing ownership.
-const CLIPBOARD_EXIT_TIMEOUT: Duration = FALLBACK_HELPER_TIMEOUT
-    .saturating_add(STDIN_WRITER_JOIN_TIMEOUT)
-    .saturating_mul(2)
-    .saturating_add(Duration::from_secs(3));
-#[cfg(any(target_os = "linux", test))]
-const WL_COPY_TEXT_ARGS: [&str; 2] = ["--type", "text/plain;charset=utf-8"];
 
-#[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
 unsafe extern "system" {
     fn GetSystemDirectoryW(lp_buffer: *mut u16, size: u32) -> u32;
@@ -138,68 +126,14 @@ async fn copy_xml_to_clipboard(xml: String) -> Result<(), String> {
     // The frontend mirrors both gates in the opposite order for its own
     // flow; the asymmetry is harmless — both must pass either way.
     check_payload_size(xml.len())?;
-    COPY_LIFECYCLE.ensure_open()?;
     tauri::async_runtime::spawn_blocking(move || copy_xml_blocking(&xml))
         .await
         .map_err(|error| format!("clipboard task failed: {error}"))?
 }
 
-// Long-lived arboard instance, lazily created on first copy. On Linux
-// (X11 and Wayland alike) the clipboard contents are "hosted" by the app
-// that set them, and per the arboard docs "when the last Clipboard
-// instance is dropped, the contents may become unavailable to other
-// apps" — a per-copy temporary would report success (bloom fires) and
-// then serve an EMPTY paste on sessions without a clipboard manager.
-// Upstream's own recommendation is keeping the instance in persistent
-// state. Windows/macOS don't need the persistence but are unharmed.
-static CLIPBOARD: Mutex<Option<Clipboard>> = Mutex::new(None);
-
-fn set_text_persistent(xml: &str) -> Result<(), String> {
-    let mut guard = CLIPBOARD.lock().unwrap_or_else(|poisoned| {
-        // Poison means a panic mid-operation — the instance state is
-        // exactly as suspect as on the Err path below, so give it the
-        // same treatment: drop it and let this copy reinitialize.
-        // clear_poison makes that recovery one-shot; without it std
-        // poisoning is sticky, every later copy would re-enter this arm,
-        // and the long-lived-instance design would silently degrade to
-        // per-call instances.
-        CLIPBOARD.clear_poison();
-        let mut guard = poisoned.into_inner();
-        *guard = None;
-        guard
-    });
-    if guard.is_none() {
-        *guard = Some(Clipboard::new().map_err(|error| error.to_string())?);
-    }
-    // Unreachable by construction — the block above just guaranteed Some.
-    // Kept as a typed fallback (not unwrap/expect) so a future reshuffle
-    // of the init block degrades to a visible error, not a panic.
-    let Some(clipboard) = guard.as_mut() else {
-        return Err("clipboard handle unavailable".to_string());
-    };
-    let result = clipboard.set_text(xml).map_err(|error| error.to_string());
-    if result.is_err() {
-        // Discard a possibly-broken instance (stale display connection
-        // etc.) so the next copy attempt reinitializes instead of
-        // failing forever — preserves the retry semantics the previous
-        // per-call construction had.
-        *guard = None;
-    }
-    result
-}
-
-// Serializes the whole copy operation, native fallback included. The
-// arboard path is already serialized by CLIPBOARD's mutex, but the
-// fallback child processes (clip.exe / pbcopy / wl-copy / xclip) were
-// not: two concurrent invocations that both fall back would race two
-// children, both report success, and the clipboard would keep whichever
-// wrote last — possibly the OLDER payload under a success report. The
-// frontend's copyInFlight guard already prevents concurrency in
-// practice; this lock makes the Rust IPC boundary self-sufficient,
-// consistent with the NUL / size guards deliberately duplicated on both
-// sides.
-static COPY_LIFECYCLE: LazyLock<Arc<ClipboardLifecycle>> =
-    LazyLock::new(|| Arc::new(ClipboardLifecycle::new()));
+// Serialize arboard and clip.exe together so direct IPC calls cannot race
+// separate clipboard writers, even without the frontend's copyInFlight guard.
+static COPY_LIFECYCLE: ClipboardLifecycle = ClipboardLifecycle::new();
 
 // NUL gate for copy_xml_to_clipboard, split out like check_payload_size
 // so the IPC-boundary guard is unit-testable without touching the real
@@ -218,7 +152,7 @@ fn check_no_nul(xml: &str) -> Result<(), String> {
 }
 
 fn copy_xml_blocking(xml: &str) -> Result<(), String> {
-    let _copy_guard = COPY_LIFECYCLE.lock_copy()?;
+    let _copy_guard = COPY_LIFECYCLE.lock_copy();
     // The NUL gate runs here (on the blocking pool) because the O(n)
     // scan over up to 50 MB belongs with the rest of the heavy work,
     // not on an async worker.
@@ -233,7 +167,7 @@ fn copy_xml_blocking(xml: &str) -> Result<(), String> {
     // clip.exe stderr"), not just the last one. When the fallback
     // succeeds, the arboard error is intentionally dropped: the user got
     // their clipboard content, no need to spam them.
-    match set_text_persistent(xml) {
+    match Clipboard::new().and_then(|mut clipboard| clipboard.set_text(xml)) {
         Ok(()) => Ok(()),
         Err(arb_err) => fallback_copy_native(xml)
             .map_err(|fb_err| format!("arboard: {arb_err}; fallback: {fb_err}")),
@@ -285,84 +219,23 @@ fn launch_window_size_for_work_area(work_area_size: LogicalSize<f64>) -> Logical
     LogicalSize::new(width, height)
 }
 
-// Cross-platform fallback when arboard fails. Each OS has a built-in
-// command-line clipboard tool; we shell out as a last resort. This whole
-// path triggers rarely (arboard failure is the trigger) but matters when
-// it does — RDP sessions on Windows, sandboxed Wayland on Linux, etc.
-//
-// `#[allow(clippy::needless_return)]` — the cfg-gated branches each end
-// with an explicit `return` for readability. Removing them works on the
-// active branch but leaves the source asymmetric across the four arms.
-#[allow(clippy::needless_return)]
+// Windows fallback for sessions where arboard cannot access the clipboard.
 fn fallback_copy_native(xml: &str) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        // clip.exe expects UTF-16 LE via stdin — WITHOUT a BOM. Verified
-        // empirically (Windows 11): a leading FF FE BOM is NOT consumed
-        // as an encoding marker but lands in the clipboard as a literal
-        // U+FEFF prefix character, silently violating the preview ==
-        // clipboard contract; BOM-less UTF-16 LE decodes correctly for
-        // ASCII-only, CJK, and non-BMP payloads alike.
-        let clip = windows_system32_helper("clip.exe")?;
-        return spawn_and_pipe("clip.exe", &clip, &[], utf16le(xml), true)
-            .map_err(HelperRunError::into_message);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        // pbcopy chooses its stdin encoding from locale variables. The
-        // command wrapper below forces LC_CTYPE to a UTF-8 locale so a GUI
-        // launch without Terminal's locale cannot silently garble XML.
-        let pbcopy = trusted_helper("pbcopy", &["/usr/bin/pbcopy"])?;
-        return spawn_and_pipe("pbcopy", &pbcopy, &[], xml.as_bytes().to_vec(), true)
-            .map_err(HelperRunError::into_message);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        // Try Wayland's wl-copy first (modern), fall back to X11's xclip
-        // (legacy). Use package-managed system locations only; either helper
-        // may be missing depending on the distro / session type. If both fail,
-        // chain the errors (mirrors the arboard→native
-        // chaining above) so the user sees the full failure trail when
-        // diagnosing "why doesn't Copy work on this Linux session?". The
-        // inner errors already carry their own tool prefixes — no extra
-        // wrapping here, or the chain reads "wl-copy: wl-copy: …".
-        //
-        // spawn_linux_helper iterates candidates: a stat-passing but
-        // unspawnable binary at a trusted path (stale FHS compat shim,
-        // wrong architecture) advances to the next candidate instead of
-        // masking the next trusted absolute candidate that exists for
-        // exactly that case.
-        let wl_err = match spawn_linux_helper(
-            "wl-copy",
-            &["/usr/bin/wl-copy", "/bin/wl-copy"],
-            &WL_COPY_TEXT_ARGS,
-            xml.as_bytes(),
-        ) {
-            Ok(()) => return Ok(()),
-            Err(err) => err,
-        };
-        return spawn_linux_helper(
-            "xclip",
-            &["/usr/bin/xclip", "/bin/xclip"],
-            &["-selection", "clipboard"],
-            xml.as_bytes(),
-        )
-        .map_err(|xclip_err| format!("{wl_err}; {xclip_err}"));
-    }
-    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        let _ = xml; // silence unused-variable warning on unsupported OSes
-        return Err("Clipboard fallback not implemented for this operating system.".to_string());
-    }
+    // clip.exe expects UTF-16 LE via stdin — WITHOUT a BOM. Verified
+    // empirically (Windows 11): a leading FF FE BOM is NOT consumed
+    // as an encoding marker but lands in the clipboard as a literal
+    // U+FEFF prefix character, silently violating the preview ==
+    // clipboard contract; BOM-less UTF-16 LE decodes correctly for
+    // ASCII-only, CJK, and non-BMP payloads alike.
+    let clip = windows_system32_helper("clip.exe")?;
+    spawn_and_pipe("clip.exe", &clip, &[], utf16le(xml))
 }
 
-#[cfg(target_os = "windows")]
 fn windows_system32_helper(exe_name: &str) -> Result<PathBuf, String> {
     let candidate = windows_system_directory()?.join(exe_name);
-    trusted_helper(exe_name, &[candidate])
+    trusted_helper(exe_name, &candidate)
 }
 
-#[cfg(target_os = "windows")]
 fn windows_system_directory() -> Result<PathBuf, String> {
     // Ask Windows directly instead of trusting inherited SystemRoot/WINDIR.
     // Microsoft documents that success returns the copied length excluding
@@ -386,223 +259,50 @@ fn windows_system_directory() -> Result<PathBuf, String> {
     }
 }
 
-#[cfg(any(target_os = "windows", target_os = "macos", test))]
-fn trusted_helper<I, P>(name: &str, candidates: I) -> Result<PathBuf, String>
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    trusted_helper_candidates(name, candidates).map(|mut candidates| candidates.remove(0))
-}
-
-fn trusted_helper_candidates<I, P>(name: &str, candidates: I) -> Result<Vec<PathBuf>, String>
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    let mut checked = Vec::new();
-    let mut skipped = Vec::new();
-    let mut seen = Vec::new();
-    let mut usable = Vec::new();
-
-    for candidate in candidates {
-        let path = candidate.as_ref();
-        if !path.is_absolute() {
-            skipped.push(display_candidate_path(path));
-            continue;
-        }
-        checked.push(path.display().to_string());
-        if helper_is_usable(path) {
-            push_unique_canonical(path, &mut seen, &mut usable);
-        }
+fn trusted_helper(name: &str, path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err(format!(
+            "{name}: helper path must be absolute: {}",
+            path.display()
+        ));
     }
-
-    if !usable.is_empty() {
-        return Ok(usable);
-    }
-
-    let checked_text = if checked.is_empty() {
-        "none".to_string()
-    } else {
-        checked.join(", ")
-    };
-    let skipped_text = if skipped.is_empty() {
-        String::new()
-    } else {
-        format!("; skipped non-absolute candidates: {}", skipped.join(", "))
-    };
-    Err(format!(
-        "{name}: helper not found in trusted locations: {checked_text}{skipped_text}"
-    ))
-}
-
-fn push_unique_canonical(path: &Path, seen: &mut Vec<PathBuf>, candidates: &mut Vec<PathBuf>) {
-    let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-    if !seen.contains(&canonical) {
-        seen.push(canonical);
-        candidates.push(path.to_path_buf());
-    }
-}
-
-fn display_candidate_path(path: &Path) -> String {
-    if path.as_os_str().is_empty() {
-        "<empty>".to_string()
-    } else {
-        path.display().to_string()
-    }
-}
-
-// Ordered candidate list for a Linux clipboard helper: trusted absolute
-// helper locations only. We deliberately do not consult inherited PATH:
-// absolute PATH entries can still be user-writable or launch-controlled,
-// and spawning from them reintroduces helper hijack risk.
-#[cfg(any(target_os = "linux", test))]
-#[cfg_attr(test, allow(dead_code))]
-fn linux_helper_candidates(
-    name: &str,
-    trusted_candidates: &[&str],
-) -> Result<Vec<PathBuf>, String> {
-    trusted_helper_candidates(name, trusted_candidates)
-}
-
-// Spawn a Linux clipboard helper, advancing through the candidate list
-// ONLY on spawn failure (the binary never started) — a helper that ran
-// and answered, or a candidate-independent environment failure, is
-// authoritative and stops the iteration; retrying a different copy of a
-// tool that already executed would re-run identical binaries and
-// multiply the 10 s timeout bound. capture_stderr is hardcoded FALSE:
-// wl-copy and xclip fork a background process that inherits the stderr
-// handle and keeps it open while serving the selection — only the
-// foreground parent's exit code is a reliable signal (see
-// spawn_and_pipe's doc).
-#[cfg(any(target_os = "linux", test))]
-#[cfg_attr(test, allow(dead_code))]
-fn spawn_linux_helper(
-    name: &str,
-    trusted_candidates: &[&str],
-    args: &[&str],
-    payload: &[u8],
-) -> Result<(), String> {
-    let candidates = linux_helper_candidates(name, trusted_candidates)?;
-    let mut errors: Vec<String> = Vec::new();
-    for candidate in &candidates {
-        match spawn_and_pipe(name, candidate, args, payload.to_vec(), false) {
-            Ok(()) => return Ok(()),
-            Err(HelperRunError::Spawn(message)) => errors.push(message),
-            Err(HelperRunError::Ran(message)) => {
-                errors.push(message);
-                break;
-            }
-        }
-    }
-    Err(errors.join("; "))
-}
-
-fn helper_is_usable(path: &Path) -> bool {
     if !path.is_file() {
-        return false;
+        return Err(format!(
+            "{name}: helper not found at trusted path: {}",
+            path.display()
+        ));
     }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        match fs::metadata(path) {
-            Ok(metadata) => metadata.permissions().mode() & 0o111 != 0,
-            Err(_) => false,
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        true
-    }
+    Ok(path.to_path_buf())
 }
 
-// Two-class error for one helper run, so the Linux candidate iterator
-// can tell "the binary never started — try the next candidate" apart
-// from "the helper executed and answered — that answer is
-// authoritative". Only a spawn failure justifies advancing: retrying a
-// DIFFERENT copy of a tool that already ran and failed (or timed out)
-// re-runs identical binaries and multiplies the documented 10 s timeout
-// bound across candidates.
-enum HelperRunError {
-    // The binary could not start (missing, EACCES, wrong architecture).
-    Spawn(String),
-    // The helper executed (non-zero exit, timeout) — or the environment
-    // failed in a candidate-independent way (pipe plumbing).
-    Ran(String),
-}
-
-impl HelperRunError {
-    #[cfg(any(target_os = "windows", target_os = "macos", test))]
-    fn into_message(self) -> String {
-        match self {
-            HelperRunError::Spawn(message) | HelperRunError::Ran(message) => message,
-        }
-    }
-}
-
-// Shared helper for "spawn a command with payload on stdin, surface
-// success/failure as a two-class HelperRunError". The payload is written
-// through an anonymous pipe on a writer thread; the app creates no named
-// payload file. A helper can create its own temporary files. The writer
-// is checked after the child settles so a failed write cannot be reported
-// as a successful clipboard write.
-//
-// `capture_stderr: false` is for tools that may fork a background
-// process inheriting stderr (wl-copy / xclip). Tools that run to
-// completion (clip.exe / pbcopy) pass true and keep bounded stderr in
-// the error message.
+// Write through an anonymous pipe on a worker thread so the helper timeout
+// still applies when the child stops reading. Check the writer after the
+// child settles so a failed write cannot be reported as a successful copy.
 fn spawn_and_pipe(
     cmd: &str,
     program: &Path,
     args: &[&str],
     payload: Vec<u8>,
-    capture_stderr: bool,
-) -> Result<(), HelperRunError> {
-    let stderr_stdio = if capture_stderr {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    };
+) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
     let mut command = Command::new(program);
     command
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
-        .stderr(stderr_stdio);
-    #[cfg(target_os = "windows")]
-    {
-        use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW: the parent is windows_subsystem = "windows"
-        // (no console), so a console-subsystem child like clip.exe would
-        // otherwise get a freshly allocated VISIBLE console — a black
-        // window flashing on the RDP path this fallback exists for.
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-    #[cfg(target_os = "macos")]
-    if cmd == "pbcopy" {
-        // LOAD-BEARING gate on the `cmd` label: pbcopy picks its stdin
-        // encoding from locale variables, and a GUI launch has none —
-        // without this forcing, non-ASCII payloads silently garble.
-        // Renaming the "pbcopy" label at the callsite would silently
-        // drop this fix; the label is a behavior key, not just an error
-        // prefix.
-        command.env_remove("LC_ALL").env("LC_CTYPE", "en_US.UTF-8");
-    }
-    #[cfg(target_os = "linux")]
-    configure_linux_helper_environment(&mut command);
+        .stderr(Stdio::piped());
+    // Prevent clip.exe from opening a visible console in the GUI app.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
     let mut child = command
         .spawn()
-        .map_err(|error| HelperRunError::Spawn(format!("{cmd}: {}: {error}", program.display())))?;
+        .map_err(|error| format!("{cmd}: {}: {error}", program.display()))?;
     let stdin = child
         .stdin
         .take()
-        .ok_or_else(|| HelperRunError::Ran(format!("{cmd}: child stdin pipe unavailable")))?;
+        .ok_or_else(|| format!("{cmd}: child stdin pipe unavailable"))?;
     let writer = spawn_stdin_writer(cmd.to_string(), stdin, payload);
-
-    // Post-spawn errors name the resolved program path: with several
-    // candidates per tool, a bare "{cmd}: exited with …" chain would
-    // repeat unattributably.
     let label = format!("{cmd} ({})", program.display());
 
     let status = match wait_for_child(&label, &mut child, FALLBACK_HELPER_TIMEOUT) {
@@ -610,11 +310,7 @@ fn spawn_and_pipe(
         Err(error) => {
             let writer_error = finish_stdin_writer(&label, writer).err();
             let stderr = read_child_stderr(&mut child);
-            return Err(HelperRunError::Ran(format_helper_run_error(
-                error,
-                stderr,
-                writer_error,
-            )));
+            return Err(format_helper_run_error(error, stderr, writer_error));
         }
     };
     let writer_error = finish_stdin_writer(&label, writer).err();
@@ -622,32 +318,15 @@ fn spawn_and_pipe(
         return Ok(());
     }
     if let Some(error) = writer_error {
-        return Err(HelperRunError::Ran(error));
+        return Err(error);
     }
 
-    // Every error arm carries the `{cmd}:` prefix so the chained
-    // "arboard: X; fallback: Y" message names which tool produced Y.
-    // The front-end routes a rejected copy IPC into its message strip
-    // (showError → stripMessage), so the text must never be empty.
     let stderr = read_child_stderr(&mut child);
-    Err(HelperRunError::Ran(if stderr.is_empty() {
-        if capture_stderr {
-            format!("{label}: exited with {status} and no stderr output.")
-        } else {
-            // stderr is deliberately not captured on this arm (see the
-            // doc above) — say so rather than implying the tool was
-            // silent.
-            format!("{label}: exited with {status} (stderr not captured for this tool).")
-        }
+    Err(if stderr.is_empty() {
+        format!("{label}: exited with {status} and no stderr output.")
     } else {
         format!("{label}: {stderr}")
-    }))
-}
-
-#[cfg(any(target_os = "linux", test))]
-fn configure_linux_helper_environment(command: &mut Command) {
-    // wl-copy starts nested tools by name even when its own path is absolute.
-    command.env("PATH", "/usr/bin:/bin");
+    })
 }
 
 fn spawn_stdin_writer(
@@ -707,9 +386,7 @@ fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<Exi
                 if started.elapsed() >= timeout {
                     // Kill, then reap and HONOR the exit status: the
                     // child may have finished in the gap since the last
-                    // poll (≤ 25 ms) — on Unix the signal lands on a
-                    // zombie harmlessly and wait() still returns the
-                    // real status. A genuine success means the clipboard
+                    // poll (≤ 25 ms). A genuine success means the clipboard
                     // WAS written; reporting it as "terminated" would
                     // tell the user a successful copy failed.
                     //
@@ -761,7 +438,7 @@ fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<Exi
 const STDERR_CAPTURE_LIMIT_BYTES: u64 = 4096;
 
 // Read back (a bounded head of) a stderr pipe after the child settled.
-// Decoding caveat (Windows-specific but harmless elsewhere): on Chinese
+// Decoding caveat: on Chinese
 // Windows the OEM codepage is CP936/GBK, not UTF-8, so
 // `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD. Acceptable
 // for this rare failure path. Don't "simplify" this away.
@@ -780,7 +457,6 @@ fn read_child_stderr(child: &mut Child) -> String {
 // No BOM on purpose — see the WHY at the clip.exe callsite: clip.exe
 // copies a leading FF FE into the clipboard as a literal U+FEFF instead
 // of consuming it as an encoding marker.
-#[cfg(target_os = "windows")]
 fn utf16le(value: &str) -> Vec<u8> {
     // Pre-allocate the output buffer to avoid the ~25 reallocations that
     // happen as Vec grows from 0 to ~50 MB. UTF-16 of UTF-8 input is at
@@ -865,22 +541,7 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, _event| {
-            #[cfg(target_os = "linux")]
-            if matches!(_event, tauri::RunEvent::Exit) {
-                // Tauri exits the process directly after this callback; static
-                // values do not drop, and queued copies must not reopen ownership.
-                if let Err(error) = COPY_LIFECYCLE.shutdown(CLIPBOARD_EXIT_TIMEOUT, || {
-                    let clipboard = CLIPBOARD
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .take();
-                    drop(clipboard);
-                }) {
-                    eprintln!("[clipboard] {error}");
-                }
-            }
-        });
+        .run(|_app, _event| {});
 }
 
 #[cfg(test)]
@@ -1001,131 +662,54 @@ mod tests {
     #[test]
     fn trusted_helper_requires_an_existing_absolute_path() {
         let relative = PathBuf::from("relative-helper-name");
-        assert!(trusted_helper("relative", [&relative]).is_err());
+        assert!(trusted_helper("relative", &relative).is_err());
 
         let dir = test_dir();
         let helper = dir.path().join("helper");
         write_test_helper(&helper).expect("write temp helper");
 
         assert_eq!(
-            trusted_helper("helper", [&helper]).expect("absolute helper exists"),
+            trusted_helper("helper", &helper).expect("absolute helper exists"),
             helper
         );
     }
 
     #[test]
-    fn linux_helper_candidates_do_not_discover_unlisted_absolute_helpers() {
-        let dir = test_dir();
-        let helper = dir.path().join("wl-copy");
-        write_test_helper(&helper).expect("write temp helper");
-        let helper_text = helper.display().to_string();
-
-        let error = linux_helper_candidates("wl-copy", &[])
-            .expect_err("unlisted helpers must not be discovered through PATH-style lookup");
-
-        assert!(error.contains("helper not found in trusted locations: none"));
-        assert!(!error.contains(&helper_text));
-    }
-
-    #[test]
-    fn linux_helper_environment_replaces_path_and_preserves_session_overrides() {
-        use std::collections::BTreeMap;
-        use std::ffi::OsStr;
-
-        let mut command = Command::new("/usr/bin/wl-copy");
-        command
-            .args(WL_COPY_TEXT_ARGS)
-            .env("PATH", "/untrusted/helper-directory")
-            .env("WAYLAND_DISPLAY", "synthetic-wayland")
-            .env("XDG_RUNTIME_DIR", "/synthetic/runtime")
-            .env("DISPLAY", ":synthetic")
-            .env("DBUS_SESSION_BUS_ADDRESS", "synthetic-session-bus");
-        configure_linux_helper_environment(&mut command);
-        let overrides: BTreeMap<_, _> = command.get_envs().collect();
-        for (name, expected) in [
-            ("PATH", "/usr/bin:/bin"),
-            ("WAYLAND_DISPLAY", "synthetic-wayland"),
-            ("XDG_RUNTIME_DIR", "/synthetic/runtime"),
-            ("DISPLAY", ":synthetic"),
-            ("DBUS_SESSION_BUS_ADDRESS", "synthetic-session-bus"),
+    fn trusted_helper_rejects_empty_and_drive_relative_paths() {
+        for path in [
+            Path::new(""),
+            Path::new("C:clip.exe"),
+            Path::new(r"\clip.exe"),
         ] {
-            assert_eq!(
-                overrides.get(OsStr::new(name)),
-                Some(&Some(OsStr::new(expected)))
-            );
+            let error = trusted_helper("helper", path).expect_err("path must be absolute");
+            assert!(error.contains("helper path must be absolute"));
         }
-        assert_eq!(
-            command.get_args().collect::<Vec<_>>(),
-            [OsStr::new("--type"), OsStr::new("text/plain;charset=utf-8")]
-        );
     }
 
     #[test]
     fn trusted_helper_rejects_an_absolute_but_nonexistent_candidate() {
-        // Negative pin for "existing": without it, dropping the
-        // helper_is_usable check would pass the whole suite.
-        let missing = std::env::temp_dir().join("xml-prompt-studio-definitely-missing-helper");
-        let error =
-            trusted_helper("missing", [&missing]).expect_err("nonexistent must be rejected");
-        assert!(error.contains("helper not found in trusted locations"));
-        assert!(error.contains("xml-prompt-studio-definitely-missing-helper"));
+        let dir = test_dir();
+        let missing = dir.path().join("missing-helper");
+        let error = trusted_helper("missing", &missing).expect_err("nonexistent must be rejected");
+        assert!(error.contains("helper not found at trusted path"));
+        assert!(error.contains("missing-helper"));
     }
 
     #[test]
-    fn linux_helper_candidates_lists_usable_trusted_candidates_in_order() {
+    fn trusted_helper_rejects_a_directory() {
         let dir = test_dir();
-        let first = dir.path().join("first-helper");
-        let second = dir.path().join("second-helper");
-        write_test_helper(&first).expect("write first temp helper");
-        write_test_helper(&second).expect("write second temp helper");
-        let first_str = first.to_str().expect("temp path is utf-8");
-        let second_str = second.to_str().expect("temp path is utf-8");
-
-        // The result is EXACTLY the trusted hits, in declaration order —
-        // no [..2] slicing that would also blind the assert to duplicates.
-        let candidates =
-            linux_helper_candidates("xml-prompt-studio-no-such-helper", &[first_str, second_str])
-                .expect("both trusted candidates are usable");
-        assert_eq!(candidates, vec![first.clone(), second.clone()]);
+        let error = trusted_helper("directory", dir.path()).expect_err("helper must be a file");
+        assert!(error.contains("helper not found at trusted path"));
     }
 
-    #[test]
-    fn linux_helper_candidates_dedup_collapses_aliased_candidates() {
-        // Pins the canonical-path dedup (usrmerge /bin → /usr/bin class).
-        // Literal duplicates exercise the same `seen` mechanism without
-        // needing symlink privileges on Windows.
-        let dir = test_dir();
-        let helper = dir.path().join("dup-helper");
-        write_test_helper(&helper).expect("write temp helper");
-        let helper_str = helper.to_str().expect("temp path is utf-8");
-
-        let candidates = linux_helper_candidates("dup-helper", &[helper_str, helper_str])
-            .expect("the deduped candidate is usable");
-        assert_eq!(candidates, vec![helper.clone()]);
-    }
-
-    // Cross-platform coverage for the contributed process-management
-    // core: the timeout/kill path and the normal fast-exit path.
     fn spawn_sleeper() -> Child {
-        #[cfg(target_os = "windows")]
-        {
-            // `ping -n 6` ≈ 5 s of runtime, no shell needed.
-            Command::new("ping")
-                .args(["-n", "6", "127.0.0.1"])
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .expect("spawn sleeper child")
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            Command::new("sleep")
-                .arg("5")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-                .expect("spawn sleeper child")
-        }
+        // `ping -n 6` ≈ 5 s of runtime, no shell needed.
+        Command::new("ping")
+            .args(["-n", "6", "127.0.0.1"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleeper child")
     }
 
     #[test]
@@ -1141,15 +725,8 @@ mod tests {
 
     #[test]
     fn wait_for_child_returns_success_for_a_fast_exit() {
-        #[cfg(target_os = "windows")]
         let mut child = Command::new("cmd")
             .args(["/C", "exit 0"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn fast child");
-        #[cfg(not(target_os = "windows"))]
-        let mut child = Command::new("true")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -1163,60 +740,22 @@ mod tests {
     #[test]
     fn spawn_and_pipe_writes_payload_through_anonymous_stdin_pipe() {
         let (program, args) = stdin_drain_command();
-        match spawn_and_pipe(
-            "stdin-drain",
-            &program,
-            &args,
-            b"<xml>hello</xml>".to_vec(),
-            false,
-        ) {
+        match spawn_and_pipe("stdin-drain", &program, &args, b"<xml>hello</xml>".to_vec()) {
             Ok(()) => {}
-            Err(error) => panic!("stdin drain helper failed: {}", error.into_message()),
+            Err(error) => panic!("stdin drain helper failed: {error}"),
         }
     }
 
     fn stdin_drain_command() -> (PathBuf, Vec<&'static str>) {
-        #[cfg(target_os = "windows")]
-        {
-            (
-                windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe"),
-                vec!["/C", "more > NUL"],
-            )
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            (
-                trusted_helper("cat", ["/bin/cat", "/usr/bin/cat"])
-                    .expect("resolve stdin-draining cat helper"),
-                vec![],
-            )
-        }
-    }
-
-    // Landed-defense contract pin (Unix-only semantics): helper_is_usable's
-    // exec-bit requirement could otherwise loosen silently with the suite green.
-    #[cfg(unix)]
-    #[test]
-    fn helper_is_usable_rejects_a_file_without_an_exec_bit() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = test_dir();
-        let helper = dir.path().join("helper");
-        let file = write_test_helper(&helper).expect("write temp helper");
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .expect("strip exec bits");
-
-        assert!(!helper_is_usable(&helper));
+        (
+            windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe"),
+            vec!["/C", "more > NUL"],
+        )
     }
 
     fn test_dir_builder() -> tempfile::Builder<'static, 'static> {
         let mut builder = tempfile::Builder::new();
         builder.prefix("xml-prompt-studio-test-");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            // tempfile directories otherwise inherit the process umask's public permissions.
-            builder.permissions(std::fs::Permissions::from_mode(0o700));
-        }
         builder
     }
 
@@ -1229,18 +768,8 @@ mod tests {
     fn write_test_helper(path: &Path) -> std::io::Result<std::fs::File> {
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            options.mode(0o600);
-        }
         let mut file = options.open(path)?;
         file.write_all(b"test")?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(0o700))?;
-        }
         Ok(file)
     }
 
@@ -1257,7 +786,7 @@ mod tests {
         drop(first);
         assert!(!first_path.exists());
         assert_eq!(std::fs::read(&helper).unwrap(), b"test");
-        assert!(helper_is_usable(&helper));
+        assert!(helper.is_file());
         drop(second);
         assert!(!second_path.exists());
     }
@@ -1293,45 +822,6 @@ mod tests {
         assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve sentinel");
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn test_fixture_directories_are_private() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = test_dir();
-        assert_eq!(
-            std::fs::metadata(dir.path()).unwrap().permissions().mode() & 0o777,
-            0o700
-        );
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_fixture_writer_rejects_existing_and_dangling_symlinks() {
-        use std::os::unix::fs::{symlink, PermissionsExt};
-        let dir = test_dir();
-        let sentinel = dir.path().join("sentinel");
-        std::fs::write(&sentinel, b"preserve sentinel").unwrap();
-        std::fs::set_permissions(&sentinel, std::fs::Permissions::from_mode(0o600)).unwrap();
-        let existing_link = dir.path().join("existing-link");
-        symlink(&sentinel, &existing_link).unwrap();
-        let missing_target = dir.path().join("must-not-be-created");
-        let dangling_link = dir.path().join("dangling-link");
-        symlink(&missing_target, &dangling_link).unwrap();
-
-        for path in [&existing_link, &dangling_link] {
-            let error = write_test_helper(path).expect_err("symlinks must never be followed");
-            assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
-            assert!(std::fs::symlink_metadata(path).unwrap().is_symlink());
-            assert_eq!(std::fs::read(&sentinel).unwrap(), b"preserve sentinel");
-            assert_eq!(
-                std::fs::metadata(&sentinel).unwrap().permissions().mode() & 0o777,
-                0o600
-            );
-            assert!(!missing_target.exists());
-        }
-    }
-
-    #[cfg(target_os = "windows")]
     #[test]
     fn windows_clip_helper_resolves_from_system_directory() {
         let clip = windows_system32_helper("clip.exe").expect("resolve Windows clip.exe");
@@ -1342,7 +832,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn utf16le_emits_no_bom() {
         // Empirically verified: clip.exe copies a leading FF FE into the
@@ -1351,7 +840,6 @@ mod tests {
         assert_eq!(utf16le("x"), vec![0x78, 0x00]);
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn utf16le_encodes_ascii_cjk_and_non_bmp_little_endian() {
         // 'A' = 0x0041, '中' = 0x4E2D, '🦀' = U+1F980 → surrogate pair
@@ -1362,7 +850,6 @@ mod tests {
         );
     }
 
-    #[cfg(target_os = "windows")]
     #[test]
     fn utf16le_round_trips_mixed_content() {
         let original = "<反馈>hello 🦀</反馈>";

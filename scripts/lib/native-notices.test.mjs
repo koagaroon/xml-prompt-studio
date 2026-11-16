@@ -444,16 +444,19 @@ describe("native notice inputs and texts", () => {
     assert.ok(source.includes("Copyright notices for The Rust Standard Library"));
   });
 
-  it("allows an ordinary non-Windows source-build hook without Cargo and reports unverified coverage", () => {
-    const result = spawnSync(process.execPath, ["scripts/check-native-notices.mjs"], {
-      cwd: root,
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 10_000,
-      env: { ...process.env, PATH: "", TAURI_ENV_TARGET_TRIPLE: "aarch64-apple-darwin" },
-    });
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stderr, /coverage is unverified for aarch64-apple-darwin/u);
-    assert.match(result.stderr, /Source builds remain available/u);
-  });
+  it.each(["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"])(
+    "rejects the unsupported native target %s before invoking Cargo",
+    (target) => {
+      const result = spawnSync(process.execPath, ["scripts/check-native-notices.mjs"], {
+        cwd: root,
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 10_000,
+        env: { ...process.env, PATH: "", TAURI_ENV_TARGET_TRIPLE: target },
+      });
+      assert.equal(result.status, 1, result.stderr);
+      assert.ok(result.stderr.includes(`Unsupported native target: ${target}`));
+      assert.match(result.stderr, /supports Windows only/u);
+    }
+  );
 });
