@@ -15,7 +15,7 @@ concurrency:
 jobs:
   ordinary-updates:
     name: Dependency updates and released Windows packages
-    runs-on: ubuntu-24.04
+    runs-on: windows-2025
     timeout-minutes: 15
 
     steps:

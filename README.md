@@ -43,13 +43,9 @@ Windows users can download the portable, no-installer exe from the [Releases](ht
 The portable executable requires Windows 10 / 11 (x64) and the [Microsoft Edge WebView2 Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/), which is usually pre-installed. Running the downloaded app does not require Node.js, npm, Rust, or Visual Studio Build Tools.
 
 > [!NOTE]
-> 目前项目优先支持 Windows：代码和剪贴板层预留了 macOS / Linux 的备用方案，但现阶段仅测试与交付 Windows 便携版。
+> 本项目仅支持 Windows，测试与交付目标为 Windows 10 / 11 x64 便携版。
 >
-> The project currently prioritizes Windows: the codebase and clipboard layer include macOS / Linux fallback options, but only Windows portable builds are tested and shipped at this stage.
-
-macOS / Linux 用户请参考下方「从源码构建」。
-
-macOS / Linux users, see "Build from Source" below.
+> This project supports Windows only. Windows 10 / 11 x64 portable builds are tested and shipped.
 
 ---
 
@@ -179,10 +175,6 @@ Copy checks run in this priority order:
 
 If the preview is still updating, **Copy XML** refuses the copy and asks you to wait, preventing outdated content from being copied.
 
-Linux 源码构建会优先使用 `arboard`；如果失败，再尝试系统的 `wl-copy` / `xclip`。应用通过匿名管道传递文本，不自行创建包含提示词的具名临时文件；但外部 `wl-copy` 可暂存到私有临时文件，通常随后会被删除，异常中断时可能残留。Linux 正常退出时会等待剪贴板清理，最长 25 秒；退出后能否保留内容还取决于桌面环境及剪贴板管理器。
-
-Linux source builds use `arboard` first, then system `wl-copy` / `xclip` helpers if needed. The app passes text through anonymous pipes and creates no named prompt file itself. External `wl-copy` can spool text to a private temporary file, normally deleted afterward; interruption can leave it behind. Orderly Linux exit waits up to 25 seconds for clipboard cleanup. Content surviving exit also depends on the desktop environment and clipboard manager.
-
 ---
 
 ## 从源码构建 | Build from Source
@@ -195,10 +187,9 @@ These tool versions apply to development and source builds and may advance with 
 
 - [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
 - npm 12.2.2（由 `packageManager` 固定 / pinned by `packageManager`）
-- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.99.1（由 `rust-toolchain.toml` 固定；Cargo 的 `rust-version` 与该构建基线保持一致，不单独承诺兼容更旧的编译器 / pinned by `rust-toolchain.toml`; Cargo's `rust-version` matches this build baseline, with no separate older-compiler compatibility promise）
+- [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.100.0（由 `rust-toolchain.toml` 固定；Cargo 的 `rust-version` 与该构建基线保持一致，不单独承诺兼容更旧的编译器 / pinned by `rust-toolchain.toml`; Cargo's `rust-version` matches this build baseline, with no separate older-compiler compatibility promise）
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
-- macOS / Linux: 参考 / see [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 ### 开发 | Development
 
@@ -229,9 +220,9 @@ src-tauri/target/release/xml-prompt-studio.exe
 
 `src-tauri/tauri.conf.json` currently sets `bundle.active: false`, so the default output is a portable binary rather than an MSI / NSIS installer.
 
-Windows 原生构建会先核对已锁定依赖、Rust 工具链与本地许可证清单，再构建前端；清单过期或缺失会阻止构建。检查覆盖仓库声明的标准配置；自定义功能、配置文件或编译器覆盖设置需要单独审核。单独运行 `npm run dev` / `npm run build` 仍只需 Node，不会启动 Rust。其他目标平台仍可从源码构建，但其原生许可证覆盖范围尚未验证，分发前需要另行检查。
+Windows 原生构建会先核对已锁定依赖、Rust 工具链与本地许可证清单，再构建前端；清单过期或缺失会阻止构建。检查覆盖仓库声明的标准配置；自定义功能、配置文件或编译器覆盖设置需要单独审核。单独运行 `npm run dev` / `npm run build` 仍只需 Node，不会启动 Rust。原生应用与构建检查仅支持 Windows；已审核的许可证清单覆盖 Windows x64 MSVC。
 
-Windows native builds first compare locked dependencies and the Rust toolchain with the local license inventory, then build the frontend. Missing or stale inventory data blocks the build. The check covers the repository's declared standard profile; custom features, configuration files, or compiler overrides require separate review. Standalone `npm run dev` / `npm run build` remain Node-only and do not invoke Rust. Other targets remain available for source builds, but their native license coverage needs review before distribution.
+Windows native builds first compare locked dependencies and the Rust toolchain with the local license inventory, then build the frontend. Missing or stale inventory data blocks the build. The check covers the repository's declared standard profile; custom features, configuration files, or compiler overrides require separate review. Standalone `npm run dev` / `npm run build` remain Node-only and do not invoke Rust. The native app and build checks support Windows only; the reviewed license inventory covers Windows x64 MSVC.
 
 ### 测试 | Testing
 
@@ -275,17 +266,17 @@ Dependency Watch checks direct dependencies, pinned npm and Rust build tools, Gi
 
 The report also resolves the latest stable Windows release tag to a fixed commit, reads its lockfiles and reviewed Windows notice inventory, shows dependency differences from development, and queries [OSV](https://osv.dev/) for advisories affecting released npm runtime packages (including helpers emitted by Vite and Rolldown) and Rust runtime crates. Matches need applicability review; no matches do not prove the app is secure. This query excludes the Rust standard library, non-package assets, the external WebView2 runtime, build-only dependencies, and older releases. It does not build or publish the app automatically.
 
-Rolldown 更新会检查仍符合 Vite 要求且已为维护中的构建环境完整发布的最新稳定版本：Windows x64 MSVC 和 Linux x64 GNU。较新但尚未完整发布的版本会单独说明，不会遮住已经可用的更新；其他平台的发布问题仅供参考。`npm ci` 仍负责验证锁文件安装。
+Rolldown 更新会检查仍符合 Vite 要求且已为维护中的构建环境 Windows x64 MSVC 完整发布的最新稳定版本。较新但尚未完整发布的版本会单独说明，不会遮住已经可用的更新；其他平台的发布问题仅供参考。`npm ci` 仍负责验证锁文件安装。
 
-Rolldown updates select the newest Vite-compatible stable release fully published for the maintained build hosts: Windows x64 MSVC and Linux x64 GNU. A newer incomplete release is explained without hiding an available update; other-platform publication gaps are informational. `npm ci` continues to verify the locked installation.
+Rolldown updates select the newest Vite-compatible stable release fully published for the maintained build host: Windows x64 MSVC. A newer incomplete release is explained without hiding an available update; other-platform publication gaps are informational. `npm ci` continues to verify the locked installation.
 
 `npm run audit:dependencies` 会向 npm 注册表查询安全公告，先检查生产依赖，再检查包含开发工具的完整依赖树。生产依赖不允许例外；开发依赖仅接受 [`audit-ci.json`](audit-ci.json) 中列明的公告与完整依赖路径，且每条例外必须注明原因和到期时间。例外到期后，对应漏洞会重新阻止检查通过；新增漏洞或依赖路径、查询失败或报告异常也会阻止检查通过。CI 与发布检查共用此命令。原始 `npm audit` 仍会报告已接受的漏洞；通过项目检查不代表底层审计没有发现问题。
 
 `npm run audit:dependencies` queries the npm registry for advisories, checking production dependencies first and then the complete graph including development tools. Production dependencies have no exceptions. Development exceptions in [`audit-ci.json`](audit-ci.json) require an exact advisory and complete dependency path, a reason, and an expiry. An expired exception no longer accepts its finding. New findings or paths, request failures, and invalid reports also block the check. CI and release checks use this same command. Raw `npm audit` still reports accepted findings; passing the project check does not mean the underlying audit is clean.
 
-`package.json` 中的 `overrides` 为三个代码检查工具指定了已修复的 minimatch 版本。上游工具支持修复版后，可移除对应覆盖，再核对 ESLint 检查的文件和完整审计结果。[安全公告](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+`package.json` 中的 `overrides` 为仍请求 minimatch 10 的 TypeScript ESTree 解析工具指定了已修复版本。上游工具支持修复版后，可移除该覆盖，再核对 ESLint 检查的文件和完整审计结果。[安全公告](https://github.com/advisories/GHSA-g3hv-75wg-m249)
 
-The `overrides` in `package.json` select a patched minimatch version for three lint tools that still request major 10. When a tool supports a patched version, remove its override and verify ESLint's file list and the full audit. [Security advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
+The `overrides` in `package.json` select a patched minimatch version for TypeScript ESTree, which still requests major 10. When upstream supports a patched version, remove this override and verify ESLint's file list and the full audit. [Security advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
 
 ---
 
@@ -306,8 +297,8 @@ The `overrides` in `package.json` select a patched minimatch version for three l
 +----------------------------------------------------------------------+
 | Rust native layer                                                    |
 | - copy_xml_to_clipboard: serialized clipboard boundary               |
-| - arboard persistent clipboard handle                                |
-| - native fallbacks: clip.exe / pbcopy / wl-copy / xclip              |
+| - arboard Windows clipboard access                                  |
+| - native fallback: trusted Windows clip.exe                         |
 | - launch sizing, centering, hidden-window show fallback              |
 +----------------------------------------------------------------------+
 ```
@@ -370,7 +361,7 @@ The **Licenses** button opens frontend licenses, bundled asset attributions, and
 | [Vite runtime helpers](https://vite.dev/config/build-options#build-modulepreload) | MIT               | 构建时注入的模块预加载辅助代码 / Module preload helper emitted by the build   |
 | [Rolldown](https://github.com/rolldown/rolldown)                                  | MIT               | CommonJS 模块加载代码 / CommonJS module loader emitted by the build           |
 | [Feather](https://github.com/feathericons/feather)                                | MIT               | 月亮图标（保守起见，仍保留署名） / Conservative attribution for the moon icon |
-| [arboard](https://github.com/1Password/arboard)                                   | MIT OR Apache-2.0 | 跨平台剪贴板访问 / Cross-platform clipboard access                            |
+| [arboard](https://github.com/1Password/arboard)                                   | MIT OR Apache-2.0 | Windows 剪贴板访问 / Windows clipboard access                                 |
 | [Inter](https://rsms.me/inter/)                                                   | SIL OFL 1.1       | 捆绑 UI 字体 / Bundled UI font                                                |
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/)                              | SIL OFL 1.1       | 捆绑等宽字体 / Bundled monospace font                                         |
 

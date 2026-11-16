@@ -7,17 +7,6 @@ import tsconfigTestJson from "../tsconfig.test.json";
 
 const SUPPORTED_NODE_RANGE = "^24.21.0";
 const PINNED_PACKAGE_MANAGER = "npm@12.2.2";
-type LockPackageMetadata = {
-  hasInstallScript?: boolean;
-  version?: string;
-};
-const lockPackages = packageLock.packages as Record<string, LockPackageMetadata>;
-
-function packageNameFromLockPath(packagePath: string): string {
-  const packageSegments = packagePath.split("node_modules/");
-  return packageSegments[packageSegments.length - 1] ?? packagePath;
-}
-
 describe("package metadata", () => {
   it("keeps the root Node and npm contracts explicit", () => {
     expect(packageJson.engines.node).toBe(SUPPORTED_NODE_RANGE);
@@ -51,25 +40,5 @@ describe("package metadata", () => {
     expect(tsconfigNodeJson.compilerOptions.types).toEqual(["node"]);
     expect(packageJson.scripts["typecheck:ts6"]).toContain("--project tsconfig.test.json");
     expect(packageJson.scripts["typecheck:ts7"]).toContain("--project tsconfig.ts7.test.json");
-  });
-
-  it("allows exactly the install scripts present in the lockfile", () => {
-    const lockedInstallScripts = Object.entries(lockPackages)
-      .filter(([packagePath, metadata]) => Boolean(packagePath && metadata.hasInstallScript))
-      .map(([packagePath, metadata]) => {
-        if (!metadata.version) {
-          throw new Error(`Lockfile package ${packagePath} has no version`);
-        }
-
-        return `${packageNameFromLockPath(packagePath)}@${metadata.version}`;
-      })
-      .sort();
-
-    const allowedInstallScripts = Object.entries(packageJson.allowScripts)
-      .filter(([, allowed]) => allowed)
-      .map(([packageId]) => packageId)
-      .sort();
-
-    expect(allowedInstallScripts).toEqual(lockedInstallScripts);
   });
 });

@@ -14,9 +14,9 @@ import {
 } from "./dependency-currency.mjs";
 import { METADATA_NOT_FOUND } from "./dependency-requests.mjs";
 
-const maintainedPackages = ["@rolldown/binding-win32-x64-msvc", "@rolldown/binding-linux-x64-gnu"];
+const maintainedPackages = ["@rolldown/binding-win32-x64-msvc"];
 const maxUpdateCandidates = 8;
-const buildHostNote = " Build hosts: Windows x64 MSVC and Linux x64 GNU.";
+const buildHostNote = " Build host: Windows x64 MSVC.";
 
 /** @param {string[]} bindings @param {string} version */
 function maintainedBindings(bindings, version) {

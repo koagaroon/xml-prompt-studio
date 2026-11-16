@@ -93,14 +93,9 @@ export function formatMegabytes(bytes: number): string {
   return tenths % 10 === 0 ? `${tenths / 10} MB` : `${(tenths / 10).toFixed(1)} MB`;
 }
 
-// Escape regex metacharacters. Both `[` and `]` are explicitly escaped
-// inside the character class for cross-engine portability — V8 tolerates
-// the unescaped forms but older Safari/JavaScriptCore did not.
+// Escape metacharacters before inserting a literal name into a regex.
 function escapeForRegex(value: string): string {
-  // The explicit `\[` is intentional for older WebKit / JavaScriptCore;
-  // modern engines accept it as a no-op so ESLint complains.
-  // eslint-disable-next-line no-useless-escape
-  return value.replace(/[.*+?^${}()|\[\]\\]/g, "\\$&");
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 // Find the lowest unused integer ≥1 among siblings whose tagName matches
@@ -136,15 +131,8 @@ export function nextAvailableSuffix(siblings: XmlNode[], baseName: string): numb
 }
 
 // True when the string contains a high surrogate not followed by a low
-// one, or a low surrogate not preceded by a high one. A plain code-unit
-// walk, NOT a regex: the regex formulation needs lookbehind, which is a
-// PARSE-TIME hard dependency — on webview engines without it (older
-// WKWebView / WebKitGTK) the literal throws SyntaxError at module load,
-// killing the entire frontend before React mounts. charCodeAt works on
-// UTF-16 code units, which is exactly the level surrogate pairing lives
-// at; at the string's end charCodeAt(length) returns NaN, which fails
-// the low-surrogate comparison and correctly flags a trailing high
-// surrogate as lone (pinned by test).
+// one, or a low surrogate not preceded by a high one. Inspect UTF-16 code
+// units directly; a missing next unit is NaN and cannot form a valid pair.
 export function hasLoneSurrogate(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);

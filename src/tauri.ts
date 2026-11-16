@@ -11,9 +11,6 @@ function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
 }
 
-// hasLoneSurrogate lives in helpers.ts (pure, React-free, unit-tested
-// there) — see its doc for the no-lookbehind rationale.
-
 let mainWindowShowRequested = false;
 
 function logStartup(message: string): void {
@@ -119,6 +116,6 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
   // `npm run dev` opened directly without `tauri dev`), there's no Rust
   // backend to invoke. The browser Clipboard API works for development
   // smoke testing; production builds always go through the Tauri path
-  // above for the wider permissions and clip.exe / wl-copy fallbacks.
+  // above for native clipboard access and the clip.exe fallback.
   await navigator.clipboard.writeText(xml);
 }

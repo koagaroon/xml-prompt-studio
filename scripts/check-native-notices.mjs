@@ -28,6 +28,8 @@ if (
 const target = process.env.TAURI_ENV_TARGET_TRIPLE ?? NATIVE_NOTICE_TARGET;
 if (!/^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+$/u.test(target))
   throw new Error(`Invalid native target: ${target}`);
+if (!target.includes("-windows-"))
+  throw new Error(`Unsupported native target: ${target}. XML Prompt Studio supports Windows only.`);
 if (target !== NATIVE_NOTICE_TARGET) {
   console.warn(
     `WARN: Native notice coverage is unverified for ${target}. Source builds remain available; the bundled native inventory covers ${NATIVE_NOTICE_TARGET} only. Review this target's notices before distribution.`

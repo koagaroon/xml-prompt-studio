@@ -11,14 +11,13 @@ license = "MIT"
 repository = "https://github.com/koagaroon/xml-prompt-studio"
 edition = "2021"
 # Match the reviewed build compiler; no separate older-compiler support is promised.
-rust-version = "1.99.1"
+rust-version = "1.100.0"
 
 [lib]
 name = "xml_prompt_studio_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.7.4", features = [] }
+tauri-build = { version = "2.7.5", features = [] }
 
 # Tauri major upgrade checklist (only triggers when WE choose to bump from
 # `^2` to `^3`; SemVer pin prevents silent jumps):
@@ -30,15 +29,9 @@ tauri-build = { version = "2.7.4", features = [] }
 #      scheme set can change across Tauri majors. Mismatch silently
 #      breaks the IPC bridge.
 [dependencies]
-# default-features = false drops `image-data` (we only ever set text) —
-# unused dependency surface. `wayland-data-control` is NOT in arboard's
-# defaults; enabling it gives native Wayland clipboard support on Linux
-# (without it arboard falls back to X11/XWayland only). The dep it pulls
-# (wl-clipboard-rs) is target-gated to Linux in arboard itself.
-arboard = { version = "3.7.0", default-features = false, features = [
-    "wayland-data-control",
-] }
-tauri = { version = "2.12.5", features = [] }
+# The application only copies text, so image support is unnecessary.
+arboard = { version = "3.7.0", default-features = false }
+tauri = { version = "2.12.6", features = [] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

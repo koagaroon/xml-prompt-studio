@@ -58,14 +58,12 @@
 
   /* UI font stack — theme-independent, defined once so consumers (body,
      overlays) can't drift apart. CJK tail per the project convention.
-     The quotes on "Inter" / "BlinkMacSystemFont" are LOAD-BEARING and
+     The quotes on "Inter" are LOAD-BEARING and
      deliberately diverge from the @font-face convention above:
      stylelint can't know a custom-property value is font-family
      context, so unquoted mixed-case names trip value-keyword-case
      (verified empirically) — don't "fix" them for consistency. */
-  --font-ui:
-    "Inter", -apple-system, "BlinkMacSystemFont", "Segoe UI", system-ui, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", sans-serif;
+  --font-ui: "Inter", "Segoe UI", system-ui, "Microsoft YaHei UI", "Noto Sans CJK SC", sans-serif;
 
   /* Backgrounds, deepest to shallowest */
   --bg-app: rgb(7 13 21 / 100%);
@@ -199,11 +197,8 @@ body {
   padding: 0;
   height: 100%;
 
-  /* CJK fallback chain: after Inter (Latin only) and the system English
-     fonts, fall through to the simplified-Chinese system fonts that are
-     usually present on Windows / macOS / Linux respectively. This means
-     CJK characters typed in Tag Name or Text Content render correctly even
-     though we don't bundle CJK web fonts. */
+  /* Inter is Latin-only; system CJK fonts render Chinese input without
+     requiring bundled CJK web fonts. */
   font-family: var(--font-ui);
   background: var(--bg-app);
   color: var(--text-primary);
@@ -212,8 +207,6 @@ body {
      handles its own overflow so long preview / textarea content doesn't
      scroll the whole page. */
   overflow: hidden;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
   transition:
     background 200ms ease,
     color 200ms ease;
@@ -582,7 +575,7 @@ select {
   /* CJK mono fallback similar to body, but for monospace contexts. */
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
 }
 
 /* === INPUT COLUMN === */
@@ -593,7 +586,7 @@ select {
   color: var(--text-code);
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -619,7 +612,7 @@ select {
   padding: 0.65rem 0.9rem;
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
   font-size: 1.1rem;
   width: 100%;
   outline: none;
@@ -785,7 +778,7 @@ select {
   font-size: 0.82rem;
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
 
   /* Cap so individual chips never sprawl. Combined with the 24-char
      logical cap (MAX_PRESET_NAME_LENGTH in helpers.ts) this only kicks in
@@ -853,9 +846,7 @@ select {
   transition: color 120ms ease;
 }
 
-/* Hover the text label → pill turns the standard "use" hover blue.
-   :has() support: Chromium 105+; Tauri 2's WebView2 / WKWebView /
-   WebKitGTK all support it. */
+/* Hover the text label → pill turns the standard "use" hover blue. */
 .chip:has(.chip-label:hover) {
   background: var(--chip-hover-bg);
   border-color: var(--chip-hover-border);
@@ -936,7 +927,7 @@ select {
   resize: none;
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
   font-size: 1.05rem;
   line-height: 1.65;
   outline: none;
@@ -978,7 +969,7 @@ select {
   border-radius: 12px;
   font-family:
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
-    "PingFang SC", "Noto Sans CJK SC", monospace;
+    "Noto Sans CJK SC", monospace;
   font-size: 0.95rem;
   line-height: 1.55;
   color: var(--text-code);
@@ -1018,12 +1009,8 @@ select {
   /* Separator lines between top-level sections have empty text in both
      grid cells; without a floor the empty grid row collapses to ~0 height
      and the preview no longer shows the blank line that the copied XML
-     contains (breaking the preview = clipboard contract). `1lh` = one
-     line-height of this element's own font. The `em` line is a fallback
-     for engines without `lh` support (older WebKitGTK): 1.55em mirrors
-     the pane's `line-height: 1.55` — keep the two in sync. Declared
-     first so `lh` wins wherever it parses. */
-  min-height: 1.55em;
+     contains (breaking the preview = clipboard contract). `1lh` follows
+     this element's own line-height. */
   min-height: 1lh;
 }
 
@@ -1108,13 +1095,7 @@ select {
   }
 }
 
-/* Legacy max-width notation ON PURPOSE, not range syntax: range syntax
-   shares its engine floor with `lh` (older WebKitGTK parses neither),
-   and an unparseable media query means the narrow-window reflow
-   silently never fires on exactly the engines the .preview-line em
-   fallback defends. max-width parses everywhere. */
-/* stylelint-disable-next-line media-feature-range-notation */
-@media (max-width: 920px) {
+@media (width <= 920px) {
   .body {
     grid-template:
       "elements input" minmax(0, 1fr)

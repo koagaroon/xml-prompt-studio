@@ -130,7 +130,7 @@ async function checkNpm(packageJson, lockfile, npmrc, cargoTargets) {
       locked: `${approvals.length} approved`,
       latest: `${approvals.length} required`,
       status: "current",
-      reason: "The allowlist exactly matches lockfile packages with install scripts.",
+      reason: "The allowlist exactly matches locked install scripts requiring Windows approval.",
     });
   } catch (error) {
     rows.push(errorRow("npm policy", "strict install-script allowlist", "unknown", error));
