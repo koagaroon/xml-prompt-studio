@@ -15,13 +15,13 @@ describe("package metadata", () => {
   });
 
   it("keeps both TypeScript aliases aligned with the lockfile", () => {
-    expect(packageLock.packages[""].devDependencies["@typescript/native"]).toBe(
-      packageJson.devDependencies["@typescript/native"]
+    expect(packageLock.packages[""].devDependencies["typescript-release"]).toBe(
+      packageJson.devDependencies["typescript-release"]
     );
     expect(packageLock.packages[""].devDependencies.typescript).toBe(
       packageJson.devDependencies.typescript
     );
-    expect(packageLock.packages["node_modules/@typescript/native"].version).toMatch(/^7\./u);
+    expect(packageLock.packages["node_modules/typescript-release"].version).toMatch(/^7\./u);
     expect(packageLock.packages["node_modules/typescript"].version).toMatch(/^6\./u);
   });
 

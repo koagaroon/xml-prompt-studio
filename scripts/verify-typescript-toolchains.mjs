@@ -8,10 +8,10 @@ const rootPackageJson = JSON.parse(
 
 const toolchains = [
   {
-    alias: "@typescript/native",
+    alias: "typescript-release",
     dependencySpec: "npm:typescript@~7.0.2",
     label: "release",
-    packageUrl: new URL("../node_modules/@typescript/native/package.json", import.meta.url),
+    packageUrl: new URL("../node_modules/typescript-release/package.json", import.meta.url),
     expectedPackageName: "typescript",
     expectedBinName: "tsc",
     expectedBinPath: "bin/tsc",

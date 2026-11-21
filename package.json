@@ -9,11 +9,6 @@
     "node": "^24.21.0"
   },
   "allowScripts": {},
-  "overrides": {
-    "@typescript-eslint/typescript-estree@8.72.2": {
-      "minimatch@^10": "11.0.4"
-    }
-  },
   "scripts": {
     "dev": "npm run notices:generate && vite",
     "build": "npm run typecheck:ts7 && npm run notices:generate && vite build && npm run notices:check",
@@ -34,7 +29,7 @@
     "lint:fix": "eslint . --fix && prettier --write . && stylelint \"src/**/*.css\" --fix && cargo fmt --manifest-path src-tauri/Cargo.toml",
     "typecheck:versions": "node scripts/verify-typescript-toolchains.mjs",
     "typecheck:ts6": "node ./node_modules/typescript/bin/tsc6 --project tsconfig.json && node ./node_modules/typescript/bin/tsc6 --project tsconfig.test.json && node ./node_modules/typescript/bin/tsc6 --project tsconfig.node.json",
-    "typecheck:ts7": "node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.json && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.test.json && node ./node_modules/@typescript/native/bin/tsc --project tsconfig.ts7.node.json",
+    "typecheck:ts7": "node ./node_modules/typescript-release/bin/tsc --project tsconfig.ts7.json && node ./node_modules/typescript-release/bin/tsc --project tsconfig.ts7.test.json && node ./node_modules/typescript-release/bin/tsc --project tsconfig.ts7.node.json",
     "typecheck:all": "npm run typecheck:versions && npm run typecheck:ts7 && npm run typecheck:ts6",
     "check:dependency-currency": "node scripts/check-dependency-currency.mjs",
     "audit:dependencies": "node scripts/audit-dependencies.mjs"
@@ -50,7 +45,6 @@
     "@types/node": "~24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@typescript/native": "npm:typescript@~7.0.2",
     "@vitejs/plugin-react": "^6.3.0",
     "audit-ci": "7.1.0",
     "eslint": "^10.15.0",
@@ -61,7 +55,8 @@
     "stylelint": "^18.0.0",
     "stylelint-config-standard": "^41.0.0",
     "typescript": "npm:@typescript/typescript6@6.0.2",
-    "typescript-eslint": "^8.72.2",
+    "typescript-eslint": "^8.73.0",
+    "typescript-release": "npm:typescript@~7.0.2",
     "vite": "^8.3.8",
     "vitest": "^5.1.0"
   }

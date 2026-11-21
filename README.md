@@ -250,9 +250,9 @@ npm run typecheck:ts7
 npm run typecheck:ts6
 ```
 
-发布构建使用原生 TypeScript 7 进行类型检查；ESLint 和 `typescript-eslint` 通过官方 `@typescript/typescript6` 兼容包继续使用 TypeScript 6 的程序化 API。请使用上面的 `npm run typecheck:*` 脚本，不要依赖裸 `tsc` 或 `npx tsc` 的解析顺序。
+发布构建使用原生 TypeScript 7 进行类型检查，并以 `typescript-release` 别名安装，避免与 `typescript-eslint` 为实验性 TypeScript 7.1 支持使用的 `@typescript/native` 名称冲突。ESLint 和 `typescript-eslint` 通过官方 `@typescript/typescript6` 兼容包继续使用 TypeScript 6 的程序化 API。请使用上面的 `npm run typecheck:*` 脚本，不要依赖裸 `tsc` 或 `npx tsc` 的解析顺序。
 
-Release builds use native TypeScript 7 for type-checking. ESLint and `typescript-eslint` continue to use TypeScript 6's programmatic API through the official `@typescript/typescript6` compatibility package. Use the `npm run typecheck:*` scripts above instead of relying on bare `tsc` or `npx tsc` resolution order.
+Release builds use native TypeScript 7 for type-checking, installed as `typescript-release` to avoid colliding with the `@typescript/native` name that `typescript-eslint` uses for experimental TypeScript 7.1 support. ESLint and `typescript-eslint` continue to use TypeScript 6's programmatic API through the official `@typescript/typescript6` compatibility package. Use the `npm run typecheck:*` scripts above instead of relying on bare `tsc` or `npx tsc` resolution order.
 
 Node 类型定义与 `package.json` 中最低支持的 Node 运行时保持相同的主版本，次版本可以相同或更低；类型包的补丁版本号与运行时无关。两套 TypeScript 检查均覆盖 Node 配置和维护脚本，持续集成会在声明的最低 Node 版本和该 LTS 主版本的最新版本上运行。Dependency Watch 会报告兼容的类型更新，包括需要调整声明范围的次版本更新；超出运行时支持范围的类型版本仍会标记为有意暂缓。
 
@@ -273,10 +273,6 @@ Rolldown updates select the newest Vite-compatible stable release fully publishe
 `npm run audit:dependencies` 会向 npm 注册表查询安全公告，先检查生产依赖，再检查包含开发工具的完整依赖树。生产依赖不允许例外；开发依赖仅接受 [`audit-ci.json`](audit-ci.json) 中列明的公告与完整依赖路径，且每条例外必须注明原因和到期时间。例外到期后，对应漏洞会重新阻止检查通过；新增漏洞或依赖路径、查询失败或报告异常也会阻止检查通过。CI 与发布检查共用此命令。原始 `npm audit` 仍会报告已接受的漏洞；通过项目检查不代表底层审计没有发现问题。
 
 `npm run audit:dependencies` queries the npm registry for advisories, checking production dependencies first and then the complete graph including development tools. Production dependencies have no exceptions. Development exceptions in [`audit-ci.json`](audit-ci.json) require an exact advisory and complete dependency path, a reason, and an expiry. An expired exception no longer accepts its finding. New findings or paths, request failures, and invalid reports also block the check. CI and release checks use this same command. Raw `npm audit` still reports accepted findings; passing the project check does not mean the underlying audit is clean.
-
-`package.json` 中的 `overrides` 为仍请求 minimatch 10 的 TypeScript ESTree 解析工具指定了已修复版本。上游工具支持修复版后，可移除该覆盖，再核对 ESLint 检查的文件和完整审计结果。[安全公告](https://github.com/advisories/GHSA-g3hv-75wg-m249)
-
-The `overrides` in `package.json` select a patched minimatch version for TypeScript ESTree, which still requests major 10. When upstream supports a patched version, remove this override and verify ESLint's file list and the full audit. [Security advisory](https://github.com/advisories/GHSA-g3hv-75wg-m249)
 
 ---
 

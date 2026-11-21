@@ -77,7 +77,7 @@ describe("npm dependency inspection", () => {
     const packageJson = {
       dependencies: { react: "^19.2.8" },
       devDependencies: {
-        "@typescript/native": "npm:typescript@~7.0.2",
+        "typescript-release": "npm:typescript@~7.0.2",
         typescript: "npm:@typescript/typescript6@6.0.2",
       },
     };
@@ -86,12 +86,12 @@ describe("npm dependency inspection", () => {
         "": {
           dependencies: { react: "^19.2.8" },
           devDependencies: {
-            "@typescript/native": "npm:typescript@~7.0.2",
+            "typescript-release": "npm:typescript@~7.0.2",
             typescript: "npm:@typescript/typescript6@6.0.2",
           },
         },
         "node_modules/react": { version: "19.2.8" },
-        "node_modules/@typescript/native": { name: "typescript", version: "7.0.2" },
+        "node_modules/typescript-release": { name: "typescript", version: "7.0.2" },
         "node_modules/typescript": {
           name: "@typescript/typescript6",
           version: "6.0.2",
@@ -102,9 +102,9 @@ describe("npm dependency inspection", () => {
     const targets = collectNpmTargets(packageJson, lockfile);
     assert.equal(targets.length, 4);
     assert.deepEqual(
-      targets.find((target) => target.declaredName === "@typescript/native"),
+      targets.find((target) => target.declaredName === "typescript-release"),
       {
-        declaredName: "@typescript/native",
+        declaredName: "typescript-release",
         registryName: "typescript",
         requested: "npm:typescript@~7.0.2",
         locked: "7.0.2",
