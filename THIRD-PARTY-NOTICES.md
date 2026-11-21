@@ -55,9 +55,10 @@ inventory and regenerate it. Preserve the full upstream texts when updating.
 Exact crate source-download links accompany the native notices, including
 unmodified dependencies available under the Mozilla Public License 2.0.
 The original Rust standard-library copyright notice is retained alongside its
-plain-text rendering. Native coverage for other targets is unverified: source
-builds remain available, but their dependency and artifact notices require a
-separate review before distribution.
+plain-text rendering. Non-Windows targets are unsupported and rejected at build
+time. Native coverage for other Windows targets (outside `x86_64-pc-windows-msvc`)
+is unverified: source builds remain available, but their dependency and artifact
+notices require a separate review before distribution.
 
 ## Bundled fonts
 
