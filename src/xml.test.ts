@@ -83,6 +83,62 @@ describe("buildPreview — forest rendering", () => {
       ].join("\n")
     );
   });
+
+  it("expands a leaf node onto separate open/close lines when text contains line breaks", () => {
+    const roots = [
+      node("instructions", {
+        textContent: "Use clear, concise English.\nCompare options and explain tradeoffs.",
+      }),
+      node("input", {
+        children: [
+          node("goal", { textContent: "Help students plan a realistic week." }),
+          node("requirements", {
+            textContent: "Include classes and breaks.\n\nKeep the plan flexible.",
+          }),
+        ],
+      }),
+    ];
+    const { xml, lines } = buildPreview(roots);
+    expect(xml).toBe(
+      [
+        "<instructions>",
+        "  Use clear, concise English.",
+        "  Compare options and explain tradeoffs.",
+        "</instructions>",
+        "",
+        "<input>",
+        "  <goal>Help students plan a realistic week.</goal>",
+        "  <requirements>",
+        "    Include classes and breaks.",
+        "",
+        "    Keep the plan flexible.",
+        "  </requirements>",
+        "</input>",
+      ].join("\n")
+    );
+    expect(xml).toBe(lines.map((line) => line.text).join("\n"));
+    const keys = lines.map((line) => `${line.nodeId}-${line.kind}`);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it("indents every non-empty line of multi-line text on parent nodes and preserves < > & literally", () => {
+    const roots = [
+      node("section", {
+        textContent: "if (a < b && c > d) {\r\n  return true;\r\n}",
+        children: [node("note", { textContent: "ok" })],
+      }),
+    ];
+    expect(buildPreview(roots).xml).toBe(
+      [
+        "<section>",
+        "  if (a < b && c > d) {",
+        "    return true;",
+        "  }",
+        "  <note>ok</note>",
+        "</section>",
+      ].join("\n")
+    );
+  });
 });
 
 describe("validateDocument — forest walk", () => {

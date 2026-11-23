@@ -52,13 +52,12 @@ export function buildPreview(roots: XmlNode[]): {
 
 // Each node emits at most one line per `kind`:
 //   - "self-closing" alone (no children, no text)
-//   - "single-line"  alone (no children, has text)
-//   - "open" + optional "text" + zero or more child lines + "close"
-// Invariant: at most one line per (nodeId, kind) tuple. App.tsx uses
-// `${nodeId}-${kind}` as the React key for preview rows, so if a future
-// change splits text across multiple lines (e.g., paragraph wrapping),
-// that key uniqueness must be preserved — add a per-line index to the
-// kind, don't just emit two `kind: "text"` lines for the same node.
+//   - "single-line"  alone (no children, single-line text)
+//   - "open" + zero or more `text-${index}` lines + zero or more child lines + "close"
+//     (used whenever children are present OR text spans multiple lines)
+// Invariant: at most one line per (nodeId, kind) tuple. Preview rows use
+// `${nodeId}-${kind}` as their React key so sibling reordering and edits
+// preserve stable keys.
 function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   const indent = "  ".repeat(depth);
   // This trim is LOAD-BEARING, not redundant next to validation:
@@ -66,22 +65,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   // removing it would emit malformed "< feedback >" with copy
   // unblocked. Pinned by test.
   const tagName = node.tagName.trim();
-  // WYSIWYG: textContent is emitted verbatim. This is intentional — the tool
-  // outputs LLM-prompt markup, not strict XML, so users can write `<` `>` `&`
-  // and have them appear literally in the prompt. Don't reintroduce escaping
-  // unless adding an explicit "strict mode" toggle.
-  //
-  // Caveat for future maintainers: a single PreviewLine.text can render
-  // across multiple visual rows in two cases — (1) if textContent contains
-  // "\n" (preserved by `white-space: pre-wrap` in styles.css), and (2) if
-  // the line is long enough to wrap inside the preview column (also from
-  // `pre-wrap` + `overflow-wrap: anywhere`). The "1 PreviewLine = 1 visual
-  // row" assumption holds for short single-line content but breaks in both
-  // cases above. Virtualization (e.g., react-window) can't be wired in
-  // without first splitting newline-bearing text into one PreviewLine per
-  // physical line and accounting for variable wrap heights, while
-  // preserving the (nodeId, kind) key uniqueness above (likely by adding
-  // a per-line index to kind).
+  // WYSIWYG: `<`, `>`, and `&` inside textContent are emitted verbatim without
+  // entity escaping so code blocks and prompt operators stay intact.
   const textContent = node.textContent;
 
   // XML 1.0 §3.1 allows an empty element to use either `<x/>` or `<x></x>`.
@@ -100,8 +85,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
     ];
   }
 
-  if (node.children.length === 0) {
-    // Start-tag + char data + end-tag, single line
+  if (node.children.length === 0 && !hasLineBreak(textContent)) {
+    // Start-tag + single-line char data + end-tag on one line
     return [
       {
         text: `${indent}<${tagName}>${textContent}</${tagName}>`,
@@ -112,7 +97,8 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
     ];
   }
 
-  // Start-tag + (optional char data) + child elements + end-tag, multi-line
+  // Multi-line block: opening tag, optional indented text lines, optional
+  // child elements, and aligned closing tag on its own line.
   const lines: PreviewLine[] = [
     {
       text: `${indent}<${tagName}>`,
@@ -123,12 +109,7 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   ];
 
   if (textContent !== "") {
-    lines.push({
-      text: `${indent}  ${textContent}`,
-      nodeId: node.id,
-      primary: false,
-      kind: "text",
-    });
+    lines.push(...renderTextLines(node.id, indent, textContent));
   }
 
   node.children.forEach((child) => {
@@ -143,6 +124,20 @@ function renderNode(node: XmlNode, depth: number): PreviewLine[] {
   });
 
   return lines;
+}
+
+function hasLineBreak(value: string): boolean {
+  return value.includes("\n") || value.includes("\r");
+}
+
+function renderTextLines(nodeId: string, indent: string, textContent: string): PreviewLine[] {
+  const contentIndent = `${indent}  `;
+  return textContent.split(/\r\n|\r|\n/u).map((line, index) => ({
+    text: line === "" ? "" : `${contentIndent}${line}`,
+    nodeId,
+    primary: false,
+    kind: `text-${index}`,
+  }));
 }
 
 // W3C XML 1.0 Fifth Edition §2.3 Name production. Don't narrow this back to

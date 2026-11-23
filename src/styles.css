@@ -461,16 +461,15 @@ select {
    pathological docs. */
 .element-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(7.5rem, 1fr);
   align-items: center;
-  gap: 0.5rem;
 
-  /* `min-width: 100%` keeps shallow rows full-width inside the column;
-     `width: max-content` lets deeply-indented rows extend past the column
-     and trigger horizontal scroll on .element-list. Together they make the
-     indentation visible at any depth without clipping the label. */
-  min-width: 100%;
-  width: max-content;
+  /* `width: 100%` keeps shallow rows fitted to the column so `.element-label`
+     truncates with `…` instead of forcing a horizontal scrollbar;
+     `min-width: min-content` expands deeply indented rows once left padding
+     plus the 7.5rem label floor exceeds the column width. */
+  width: 100%;
+  min-width: min-content;
   border: none;
   background: var(--row-bg);
   color: inherit;
@@ -568,6 +567,7 @@ select {
 }
 
 .element-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1014,8 +1014,26 @@ select {
   min-height: 1lh;
 }
 
+/* Glue leading indentation to the first visible character so `pre-wrap` +
+   `overflow-wrap: anywhere` never wraps between the indent spaces and an
+   overlong unbroken token (which would otherwise leave a phantom blank line
+   and drop the indent on the wrapped line). */
+.preview-lead {
+  white-space: pre;
+}
+
 .preview-line.is-active {
   background: var(--preview-line-active);
+}
+
+.preview-line.is-active:has(+ .preview-line.is-active) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.preview-line.is-active + .preview-line.is-active {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .preview-indicator {
