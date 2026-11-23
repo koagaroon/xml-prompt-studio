@@ -19,6 +19,7 @@ import {
   nextAvailableSuffix,
   nextSelectionAfterDelete,
   salvagePresetChips,
+  splitPreviewLineLead,
   truncate,
   validatePresetName,
 } from "./helpers";
@@ -513,5 +514,32 @@ describe("createElementOutline and cx", () => {
 
   it("joins truthy class names and omits falsy entries", () => {
     expect(cx("row", false, null, undefined, "", "is-active")).toBe("row is-active");
+  });
+});
+
+describe("splitPreviewLineLead", () => {
+  it("returns null when there is no leading indentation or no visible character", () => {
+    expect(splitPreviewLineLead("")).toBeNull();
+    expect(splitPreviewLineLead("<feedback>")).toBeNull();
+    expect(splitPreviewLineLead("    ")).toBeNull();
+  });
+
+  it("glues leading spaces/tabs to the first code point and any combining marks", () => {
+    expect(splitPreviewLineLead("  asdfffffffffffffffffffffffffffaafasf")).toEqual({
+      lead: "  a",
+      rest: "sdfffffffffffffffffffffffffffaafasf",
+    });
+    expect(splitPreviewLineLead("    <requirements>")).toEqual({
+      lead: "    <",
+      rest: "requirements>",
+    });
+    expect(splitPreviewLineLead("  🦀crab")).toEqual({
+      lead: "  🦀",
+      rest: "crab",
+    });
+    expect(splitPreviewLineLead("  e\u0301clair")).toEqual({
+      lead: "  e\u0301",
+      rest: "clair",
+    });
   });
 });

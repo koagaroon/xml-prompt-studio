@@ -1014,8 +1014,26 @@ select {
   min-height: 1lh;
 }
 
+/* Glue leading indentation to the first visible character so `pre-wrap` +
+   `overflow-wrap: anywhere` never wraps between the indent spaces and an
+   overlong unbroken token (which would otherwise leave a phantom blank line
+   and drop the indent on the wrapped line). */
+.preview-lead {
+  white-space: pre;
+}
+
 .preview-line.is-active {
   background: var(--preview-line-active);
+}
+
+.preview-line.is-active:has(+ .preview-line.is-active) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.preview-line.is-active + .preview-line.is-active {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
 }
 
 .preview-indicator {

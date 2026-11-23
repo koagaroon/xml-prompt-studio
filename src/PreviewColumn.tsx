@@ -1,4 +1,4 @@
-import { cx } from "./helpers";
+import { cx, splitPreviewLineLead } from "./helpers";
 import type { PreviewLine } from "./types";
 
 type PreviewColumnProps = {
@@ -24,6 +24,7 @@ export function PreviewColumn({
           {xmlPreview ? (
             previewLines.map((line) => {
               const isActive = line.kind !== "separator" && line.nodeId === activeNodeId;
+              const split = splitPreviewLineLead(line.text);
               return (
                 <div
                   key={`${line.nodeId}-${line.kind}`}
@@ -32,7 +33,16 @@ export function PreviewColumn({
                   <span className="preview-indicator" aria-hidden="true">
                     {isActive && line.primary ? ">" : ""}
                   </span>
-                  <span>{line.text}</span>
+                  <span>
+                    {split ? (
+                      <>
+                        <span className="preview-lead">{split.lead}</span>
+                        {split.rest}
+                      </>
+                    ) : (
+                      line.text
+                    )}
+                  </span>
                 </div>
               );
             })

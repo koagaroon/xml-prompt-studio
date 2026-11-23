@@ -380,6 +380,25 @@ export function buildDeleteNodeConfirmation(node: XmlNode): DeleteConfirmationPr
   };
 }
 
+const LEADING_INDENT_AND_FIRST_CHAR = /^([ \t]+\P{White_Space}\p{Mark}*)/u;
+
+// Splits leading indentation plus the first visible non-whitespace character
+// (and any attached combining marks) from the rest of a preview line.
+// Rendering `lead` with `white-space: pre` prevents Chromium from breaking
+// between the indent spaces and an overlong unbroken token, which otherwise
+// leaves a phantom blank row and drops the token's indentation.
+export function splitPreviewLineLead(text: string): { lead: string; rest: string } | null {
+  const match = LEADING_INDENT_AND_FIRST_CHAR.exec(text);
+  if (!match) {
+    return null;
+  }
+  const lead = match[1];
+  return {
+    lead,
+    rest: text.slice(lead.length),
+  };
+}
+
 // Compose a className from base + conditional class names.
 export function cx(...names: (string | false | null | undefined)[]): string {
   return names.filter(Boolean).join(" ");
