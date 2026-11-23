@@ -1,4 +1,4 @@
-import type { XmlNode } from "./types";
+import type { NodeOutlineItem, XmlNode } from "./types";
 import { isValidXmlName } from "./xml";
 
 // Pure, React-free helpers extracted from App.tsx so their contracts are
@@ -326,4 +326,61 @@ export function buildElementLabel(node: XmlNode): string {
   const previewText = node.textContent.trim();
   const suffix = previewText ? ` ${truncate(previewText, ELEMENT_LABEL_PREVIEW_LENGTH)}` : "";
   return `${tagLabel}${suffix}`;
+}
+
+export function createElementOutline(roots: XmlNode[]): NodeOutlineItem[] {
+  const items: NodeOutlineItem[] = [];
+
+  const walk = (node: XmlNode, depth: number) => {
+    items.push({
+      id: node.id,
+      depth,
+      label: buildElementLabel(node),
+    });
+    node.children.forEach((child) => walk(child, depth + 1));
+  };
+
+  roots.forEach((root) => walk(root, 0));
+  return items;
+}
+
+export type DeleteConfirmationPrompt = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+};
+
+// Returns null for empty leaf stubs so stray Add Child / Add Sibling clicks
+// stay removable in one click; returns a confirmation prompt whenever
+// deleting the element would discard text content or nested elements.
+export function buildDeleteNodeConfirmation(node: XmlNode): DeleteConfirmationPrompt | null {
+  if (node.children.length === 0 && node.textContent === "") {
+    return null;
+  }
+
+  const trimmedTag = node.tagName.trim();
+  const targetLabel = trimmedTag ? `<${trimmedTag}>` : "this unnamed element";
+  const descendantCount = collectSubtreeIds(node).length - 1;
+
+  let description: string;
+  if (descendantCount > 0 && node.textContent !== "") {
+    const childNoun = descendantCount === 1 ? "nested element" : "nested elements";
+    description = `This will remove ${targetLabel}, its text content, and ${descendantCount} ${childNoun}.`;
+  } else if (descendantCount > 0) {
+    const childNoun = descendantCount === 1 ? "nested element" : "nested elements";
+    description = `This will remove ${targetLabel} and ${descendantCount} ${childNoun}.`;
+  } else {
+    description = `This will remove ${targetLabel} and its text content.`;
+  }
+
+  return {
+    title: `Delete ${targetLabel}?`,
+    description,
+    confirmLabel: "Delete",
+  };
+}
+
+// Compose a className from base + conditional class names.
+export function cx(...names: (string | false | null | undefined)[]): string {
+  return names.filter(Boolean).join(" ");
 }

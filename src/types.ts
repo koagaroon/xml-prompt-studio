@@ -34,9 +34,36 @@ export type NodeOutlineItem = {
 // `nodeId` is non-nullable: every line is tied to a concrete XmlNode
 // (separators to the preceding top-level section). The earlier
 // `string | null` type was defensive for a code path that doesn't exist.
+export type PreviewLineKind =
+  "self-closing" | "single-line" | "open" | `text-${number}` | "close" | "separator";
+
 export type PreviewLine = {
   text: string;
   nodeId: string;
   primary: boolean;
-  kind: "self-closing" | "single-line" | "open" | "text" | "close" | "separator";
+  kind: PreviewLineKind;
+};
+
+// Message strip shown at the bottom of the Input column. A fresh object on
+// every update avoids React bailing out on repeated identical rejections.
+// `forNodeId`: non-null scopes the message to one element; null = global.
+export type StripMessage = {
+  text: string;
+  severity: "error" | "warning";
+  forNodeId: string | null;
+};
+
+// Element-scoped warning rendered directly below its own form control.
+export type FieldMessage = {
+  text: string;
+  forNodeId: string;
+};
+
+// Shared confirmation-dialog descriptor for destructive actions.
+export type ConfirmRequest = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  confirmKind?: "danger";
+  onConfirm: () => void;
 };

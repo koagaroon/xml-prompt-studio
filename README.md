@@ -55,7 +55,7 @@ The portable executable requires Windows 10 / 11 (x64) and the [Microsoft Edge W
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **三栏编辑界面 / Three-column editor**                | 左侧元素列表，中间编辑当前元素，右侧实时预览 / Element outline on the left, focused element editor in the middle, live preview on the right                                                                                                       |
 | **多顶层提示词结构 / Multiple top-level sections**    | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，无需包裹进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root                                                                                     |
-| **嵌套元素编辑 / Nested element editing**             | 添加子元素、同级元素，上移 / 下移，删除元素 / Add children, add siblings, move elements up/down, and delete elements                                                                                                                              |
+| **嵌套元素编辑 / Nested element editing**             | 添加子元素、同级元素，上移 / 下移，删除元素（含正文或子元素时需确认） / Add children, add siblings, move elements up/down, and delete elements (with confirmation when removing text or child sections)                                           |
 | **同名标签有效 / Same-name tags are valid**           | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会产生警告 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings                                            |
 | **XML `Name` 校验 / XML Name validation**             | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names                         |
 | **可编辑预设标签 / Editable preset chips**            | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage`                                                    |
@@ -106,22 +106,19 @@ XML Prompt Studio outputs prompt markup, not strict data files meant for XML par
 
 ### 示例 | Example
 
-下面的示例展示多个顶层片段并列输出，中间用一个空行分隔。
+下面的示例展示多个顶层片段并列输出（中间用一个空行分隔）：单行文本保持单行输出，多行文本自动换行并缩进。
 
-The example below shows multiple top-level sections emitted side by side, separated by one blank line.
+The example below shows multiple top-level sections emitted side by side (separated by one blank line): single-line text stays on one line, while multi-line text expands onto indented lines.
 
 ```xml
 <instructions>
-  Be direct, precise, and explain tradeoffs.
+  Be direct and precise.
+  Explain tradeoffs clearly.
 </instructions>
 
-<context>
-  The user is editing a Tauri desktop app README.
-</context>
+<context>The user is editing a Tauri desktop app README.</context>
 
-<input>
-  Rewrite this section in a clearer public-facing style.
-</input>
+<input>Rewrite this section in a clearer public-facing style.</input>
 ```
 
 ### 预设标签 | Preset Chips
@@ -281,10 +278,11 @@ Rolldown updates select the newest Vite-compatible stable release fully publishe
 ```text
 +----------------------------------------------------------------------+
 | React + TypeScript frontend                                          |
-| - App.tsx: UI state, handlers, selection, confirmations              |
+| - App.tsx + UI components: state, layout, dialogs, and controls      |
+| - presets.ts / theme.ts: preset suffix memory and theme persistence  |
 | - document.ts: immutable tree operations                             |
 | - xml.ts: validation and preview rendering                           |
-| - helpers.ts: pure limits, copy readiness, preset helpers            |
+| - helpers.ts: pure limits, copy readiness, outline & delete helpers  |
 | - tauri.ts: clipboard bridge and startup show request                |
 +----------------------------------------------------------------------+
                                    |

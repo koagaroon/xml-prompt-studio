@@ -5,9 +5,12 @@ import {
   MAX_PRESET_CHIPS,
   MAX_PRESET_NAME_LENGTH,
   MAX_XML_BYTES,
+  buildDeleteNodeConfirmation,
   buildElementLabel,
   capCodePoints,
   collectSubtreeIds,
+  createElementOutline,
+  cx,
   exceedsByteCap,
   formatMegabytes,
   getCopyReadiness,
@@ -446,5 +449,69 @@ describe("getCopyReadiness", () => {
 
   it("allows copy only when no guard blocks it", () => {
     expect(getCopyReadiness(readyInput)).toEqual({ ready: true });
+  });
+});
+
+describe("buildDeleteNodeConfirmation", () => {
+  it("returns null for empty leaf elements so stub nodes delete immediately", () => {
+    expect(buildDeleteNodeConfirmation(createNode())).toBeNull();
+    expect(buildDeleteNodeConfirmation(createNode("feedback"))).toBeNull();
+  });
+
+  it("prompts before deleting a leaf element with text content", () => {
+    const leaf = { ...createNode("context"), textContent: "Some notes" };
+    expect(buildDeleteNodeConfirmation(leaf)).toEqual({
+      title: "Delete <context>?",
+      description: "This will remove <context> and its text content.",
+      confirmLabel: "Delete",
+    });
+  });
+
+  it("uses unnamed-element phrasing when the tag name is blank or whitespace", () => {
+    const unnamed = { ...createNode("   "), textContent: "draft" };
+    expect(buildDeleteNodeConfirmation(unnamed)).toEqual({
+      title: "Delete this unnamed element?",
+      description: "This will remove this unnamed element and its text content.",
+      confirmLabel: "Delete",
+    });
+  });
+
+  it("counts all nested descendants for singular and plural child trees", () => {
+    const singleParent = { ...createNode("input"), children: [createNode("goal")] };
+    expect(buildDeleteNodeConfirmation(singleParent)).toEqual({
+      title: "Delete <input>?",
+      description: "This will remove <input> and 1 nested element.",
+      confirmLabel: "Delete",
+    });
+
+    const deepParent = {
+      ...createNode("input"),
+      textContent: "Lead text",
+      children: [
+        createNode("goal"),
+        { ...createNode("constraints"), children: [createNode("item")] },
+      ],
+    };
+    expect(buildDeleteNodeConfirmation(deepParent)).toEqual({
+      title: "Delete <input>?",
+      description: "This will remove <input>, its text content, and 3 nested elements.",
+      confirmLabel: "Delete",
+    });
+  });
+});
+
+describe("createElementOutline and cx", () => {
+  it("flattens the forest in pre-order with depth and formatted labels", () => {
+    const child = { ...createNode("goal"), textContent: "Plan week" };
+    const root = { ...createNode("input"), children: [child] };
+    expect(createElementOutline([root, createNode()])).toEqual([
+      { id: root.id, depth: 0, label: "<input>" },
+      { id: child.id, depth: 1, label: "<goal> Plan week" },
+      expect.objectContaining({ depth: 0, label: "(empty tag)" }),
+    ]);
+  });
+
+  it("joins truthy class names and omits falsy entries", () => {
+    expect(cx("row", false, null, undefined, "", "is-active")).toBe("row is-active");
   });
 });

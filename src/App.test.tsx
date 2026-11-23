@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isValidElement, type ReactElement, type ReactNode } from "react";
 import App from "./App";
 
-// Exercise the handlers attached by App itself without adding a DOM emulator.
-// Effects and browser layout are outside this harness; state survives explicit renders.
+// Exercise the handlers attached by App and its child components without adding
+// a DOM emulator. Effects and browser layout are outside this harness; state
+// survives explicit renders.
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }));
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
@@ -41,6 +42,7 @@ type ElementProps = {
   children?: ReactNode;
   "aria-label"?: string;
   className?: string;
+  name?: string;
   role?: string;
   value?: string;
   onClick?: () => void | Promise<void>;
@@ -55,6 +57,10 @@ type ElementProps = {
 function elements(node: ReactNode): ReactElement<ElementProps>[] {
   if (Array.isArray(node)) return node.flatMap(elements);
   if (!isValidElement<ElementProps>(node)) return [];
+  if (typeof node.type === "function") {
+    const Component = node.type as (props: ElementProps) => ReactNode;
+    return elements(Component(node.props));
+  }
   return [node, ...elements(node.props.children)];
 }
 
@@ -67,6 +73,12 @@ function labeled(label: string) {
   const element = render().find((entry) => entry.props["aria-label"] === label);
   expect(element, label).toBeDefined();
   return element!;
+}
+
+function buttonWithText(text: string) {
+  const button = render().find((entry) => entry.type === "button" && entry.props.children === text);
+  expect(button, text).toBeDefined();
+  return button!;
 }
 
 function beginChipEdit(mode: "rename" | "add") {
@@ -97,7 +109,7 @@ describe("offline license surface", () => {
     await labeled("Third-party licenses").props.onClick!();
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith("./third-party-notices.txt");
     expect(labeled("License texts").props.children).toBe(text);
-    render().find((entry) => entry.props.children === "Close")!.props.onClick!();
+    buttonWithText("Close").props.onClick!();
     expect(render().some((entry) => entry.props.role === "dialog")).toBe(false);
     await labeled("Third-party licenses").props.onClick!();
     expect(fetchMock).toHaveBeenCalledOnce();
@@ -112,9 +124,61 @@ describe("offline license surface", () => {
     vi.stubGlobal("fetch", fetchMock);
     await labeled("Third-party licenses").props.onClick!();
     expect(render().some((entry) => entry.props.role === "alert")).toBe(true);
-    await render().find((entry) => entry.props.children === "Retry")!.props.onClick!();
+    await buttonWithText("Retry").props.onClick!();
     expect(labeled("License texts").props.children).toBe("Full license");
     expect(render().some((entry) => entry.props.role === "alert")).toBe(false);
+  });
+});
+
+describe("delete confirmation for non-empty elements", () => {
+  it("deletes an empty non-final sibling immediately without opening a dialog", () => {
+    buttonWithText("Add Sibling").props.onClick!();
+    expect(render().filter((entry) => entry.props.className?.includes("element-row"))).toHaveLength(
+      2
+    );
+
+    buttonWithText("Delete").props.onClick!();
+    expect(render().some((entry) => entry.props.role === "dialog")).toBe(false);
+    expect(render().filter((entry) => entry.props.className?.includes("element-row"))).toHaveLength(
+      1
+    );
+  });
+
+  it("asks for confirmation before deleting an element with text or children, and honors Cancel vs Delete", () => {
+    buttonWithText("Add Sibling").props.onClick!();
+    render().find((entry) => entry.props.name === "tagName")!.props.onChange!({
+      target: { value: "context" },
+    });
+    render().find((entry) => entry.props.name === "textContent")!.props.onChange!({
+      target: { value: "Important prompt body" },
+    });
+    buttonWithText("Add Child").props.onClick!();
+    // Re-select <context> (the second top-level row, index 1) to delete the parent subtree.
+    render().filter((entry) => entry.props.className?.includes("element-row"))[1]!.props.onClick!();
+
+    // Ribbon Delete opens the confirmation dialog instead of deleting right away.
+    buttonWithText("Delete").props.onClick!();
+    expect(render().some((entry) => entry.props.role === "dialog")).toBe(true);
+    expect(render().some((entry) => entry.props.children === "Delete <context>?")).toBe(true);
+
+    // Cancel keeps the subtree intact.
+    buttonWithText("Cancel").props.onClick!();
+    expect(render().some((entry) => entry.props.role === "dialog")).toBe(false);
+    expect(render().filter((entry) => entry.props.className?.includes("element-row"))).toHaveLength(
+      3
+    );
+
+    // Confirming Delete removes <context> and its child element.
+    buttonWithText("Delete").props.onClick!();
+    const deleteButtons = render().filter(
+      (entry) => entry.type === "button" && entry.props.children === "Delete"
+    );
+    expect(deleteButtons).toHaveLength(2);
+    deleteButtons[1]!.props.onClick!();
+    expect(render().some((entry) => entry.props.role === "dialog")).toBe(false);
+    expect(render().filter((entry) => entry.props.className?.includes("element-row"))).toHaveLength(
+      1
+    );
   });
 });
 
