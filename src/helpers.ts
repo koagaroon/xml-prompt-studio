@@ -350,6 +350,20 @@ export type DeleteConfirmationPrompt = {
   confirmLabel: string;
 };
 
+// True when closing the window would discard authored prompt content or added
+// structure. A single untouched or renamed empty leaf returns false so opening
+// and immediately closing the app stays one-click.
+export function hasUnsavedPromptWork(roots: XmlNode[]): boolean {
+  if (roots.length > 1) {
+    return true;
+  }
+  const onlyRoot = roots[0];
+  if (!onlyRoot) {
+    return false;
+  }
+  return onlyRoot.children.length > 0 || onlyRoot.textContent !== "";
+}
+
 // Returns null for empty leaf stubs so stray Add Child / Add Sibling clicks
 // stay removable in one click; returns a confirmation prompt whenever
 // deleting the element would discard text content or nested elements.

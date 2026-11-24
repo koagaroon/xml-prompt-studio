@@ -5,7 +5,18 @@ import App from "./App";
 // Exercise the handlers attached by App and its child components without adding
 // a DOM emulator. Effects and browser layout are outside this harness; state
 // survives explicit renders.
-const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0 }));
+const hooks = vi.hoisted(() => ({
+  values: [] as unknown[],
+  cursor: 0,
+  effects: [] as Array<() => void | (() => void)>,
+}));
+const tauriMocks = vi.hoisted(() => ({
+  confirmMainWindowClose: vi.fn(),
+  copyXmlToClipboard: vi.fn(),
+  registerMainWindowCloseGuard: vi.fn(() => () => {}),
+  requestMainWindowShowAfterFirstPaint: vi.fn(),
+  setMainWindowUnsavedWork: vi.fn(),
+}));
 vi.mock("react", async (importOriginal) => {
   const actual = await importOriginal<typeof import("react")>();
   return {
@@ -30,13 +41,12 @@ vi.mock("react", async (importOriginal) => {
     useMemo: (compute: () => unknown) => compute(),
     useCallback: (callback: unknown) => callback,
     useDeferredValue: (value: unknown) => value,
-    useEffect: () => {},
+    useEffect: (effect: () => void | (() => void)) => {
+      hooks.effects.push(effect);
+    },
   };
 });
-vi.mock("./tauri", () => ({
-  copyXmlToClipboard: vi.fn(),
-  requestMainWindowShowAfterFirstPaint: vi.fn(),
-}));
+vi.mock("./tauri", () => tauriMocks);
 
 type ElementProps = {
   children?: ReactNode;
@@ -66,6 +76,7 @@ function elements(node: ReactNode): ReactElement<ElementProps>[] {
 
 function render() {
   hooks.cursor = 0;
+  hooks.effects = [];
   return elements(App());
 }
 
@@ -97,6 +108,12 @@ function beginChipEdit(mode: "rename" | "add") {
 beforeEach(() => {
   hooks.values = [];
   hooks.cursor = 0;
+  hooks.effects = [];
+  tauriMocks.confirmMainWindowClose.mockReset().mockResolvedValue(undefined);
+  tauriMocks.copyXmlToClipboard.mockReset();
+  tauriMocks.registerMainWindowCloseGuard.mockReset().mockImplementation(() => () => {});
+  tauriMocks.requestMainWindowShowAfterFirstPaint.mockReset();
+  tauriMocks.setMainWindowUnsavedWork.mockReset();
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -179,6 +196,37 @@ describe("delete confirmation for non-empty elements", () => {
     expect(render().filter((entry) => entry.props.className?.includes("element-row"))).toHaveLength(
       1
     );
+  });
+});
+
+describe("window close confirmation", () => {
+  it("opens the close confirmation dialog when requested, canceling cleanly or confirming close", () => {
+    let triggerCloseRequest: (() => void) | undefined;
+    tauriMocks.registerMainWindowCloseGuard.mockImplementation(((handler: () => void) => {
+      triggerCloseRequest = handler;
+      return () => {};
+    }) as () => () => void);
+
+    vi.stubGlobal("document", { documentElement: { setAttribute: vi.fn() } });
+    render();
+    for (const effect of hooks.effects) {
+      effect();
+    }
+    expect(tauriMocks.setMainWindowUnsavedWork).toHaveBeenCalledWith(false);
+    expect(triggerCloseRequest).toBeTypeOf("function");
+
+    triggerCloseRequest!();
+    expect(
+      render().some((entry) => entry.props.children === "Discard current prompt and close?")
+    ).toBe(true);
+
+    buttonWithText("Cancel").props.onClick!();
+    expect(render().some((entry) => entry.props.role === "dialog")).toBe(false);
+    expect(tauriMocks.confirmMainWindowClose).not.toHaveBeenCalled();
+
+    triggerCloseRequest!();
+    buttonWithText("Close").props.onClick!();
+    expect(tauriMocks.confirmMainWindowClose).toHaveBeenCalledOnce();
   });
 });
 

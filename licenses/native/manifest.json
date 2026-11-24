@@ -2,7 +2,8 @@
   "schemaVersion": 1,
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
-  "inputFingerprint": "17379a5243b102c88d9c5552ceaf68bef61b9c8222e054fa85a26e0218a55a45",
+  "tauriBuildFeatures": ["tauri/custom-protocol"],
+  "inputFingerprint": "ba5e5bdbad5236de3f9b29d78a4e75e250586d26bac74edbe61113c4032b6544",
   "packages": [
     {
       "name": "adler2",
@@ -5988,6 +5989,5 @@
         "source": "https://static.rust-lang.org/dist/2026-11-12/rustc-1.100.0-x86_64-pc-windows-msvc.tar.xz"
       }
     ]
-  },
-  "tauriBuildFeatures": ["tauri/custom-protocol"]
+  }
 }

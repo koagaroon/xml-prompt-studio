@@ -51,17 +51,17 @@ The portable executable requires Windows 10 / 11 (x64) and the [Microsoft Edge W
 
 ## 功能 | Features
 
-| 功能 / Feature                                        | 说明 / Description                                                                                                                                                                                                                                |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **三栏编辑界面 / Three-column editor**                | 左侧元素列表，中间编辑当前元素，右侧实时预览 / Element outline on the left, focused element editor in the middle, live preview on the right                                                                                                       |
-| **多顶层提示词结构 / Multiple top-level sections**    | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，无需包裹进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root                                                                                     |
-| **嵌套元素编辑 / Nested element editing**             | 添加子元素、同级元素，上移 / 下移，删除元素（含正文或子元素时需确认） / Add children, add siblings, move elements up/down, and delete elements (with confirmation when removing text or child sections)                                           |
-| **同名标签有效 / Same-name tags are valid**           | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会产生警告 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings                                            |
-| **XML `Name` 校验 / XML Name validation**             | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names                         |
-| **可编辑预设标签 / Editable preset chips**            | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage`                                                    |
-| **预览内容 = 剪贴板内容 / Preview matches clipboard** | 右侧预览就是实际复制到剪贴板的文本 / The right-side preview is the text copied to the clipboard                                                                                                                                                   |
-| **剪贴板防护 / Clipboard safeguards**                 | 拒绝 NUL 字符、孤立 UTF-16 代理项以及超大 UTF-8 载荷，并在 Tauri 与浏览器两条剪贴板路径中均进行校验 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads, with validation on both the Tauri and browser clipboard paths |
-| **主题与窗口体验 / Theme and window polish**          | 支持深色 / 浅色主题，初始主题跟随系统偏好；启动时根据 DPI 调整窗口尺寸并居中显示 / Dark/light themes, system-preference default, DPI-aware startup sizing, and centered launch                                                                    |
+| 功能 / Feature                                        | 说明 / Description                                                                                                                                                                                                                                              |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **三栏编辑界面 / Three-column editor**                | 左侧元素列表，中间编辑当前元素，右侧实时预览 / Element outline on the left, focused element editor in the middle, live preview on the right                                                                                                                     |
+| **多顶层提示词结构 / Multiple top-level sections**    | 可并列创建 `<instructions>`、`<context>`、`<input>` 等顶层标签，无需包裹进隐藏根节点 / Create top-level tags side by side, with no forced hidden wrapper root                                                                                                   |
+| **嵌套元素编辑 / Nested element editing**             | 添加子元素、同级元素，上移 / 下移，删除元素（含正文或子元素时需确认） / Add children, add siblings, move elements up/down, and delete elements (with confirmation when removing text or child sections)                                                         |
+| **同名标签有效 / Same-name tags are valid**           | `<example>` / `<example>` 或 `<document>` / `<document>` 这类重复同级标签不会产生警告 / Repeated sibling tags such as `<example>` / `<example>` or `<document>` / `<document>` do not produce warnings                                                          |
+| **XML `Name` 校验 / XML Name validation**             | 标签名按 W3C XML 1.0 第五版 `Name` 规则校验，支持中文、日文、韩文、希腊文等 Unicode 名称 / Tag names are validated against the W3C XML 1.0 Fifth Edition `Name` production, including CJK, Greek, and other Unicode names                                       |
+| **可编辑预设标签 / Editable preset chips**            | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage`                                                                  |
+| **预览内容 = 剪贴板内容 / Preview matches clipboard** | 右侧预览就是实际复制到剪贴板的文本 / The right-side preview is the text copied to the clipboard                                                                                                                                                                 |
+| **剪贴板防护 / Clipboard safeguards**                 | 拒绝 NUL 字符、孤立 UTF-16 代理项以及超大 UTF-8 载荷，并在 Tauri 与浏览器两条剪贴板路径中均进行校验 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads, with validation on both the Tauri and browser clipboard paths               |
+| **主题与窗口体验 / Theme and window polish**          | 支持深色 / 浅色主题（初始跟随系统偏好）；启动时按 DPI 居中调整尺寸；存在未复制内容或新增片段时关闭窗口前提示确认 / Dark/light themes (system-preference default), DPI-aware centered launch, and close confirmation when prompt content or added sections exist |
 
 > [!TIP]
 > **中文标签名可用** — 例如 `<反馈>`、`<上下文>`、`<示例>` 都是有效标签名，只要符合 XML 1.0 `Name` 规则。
@@ -283,7 +283,7 @@ Rolldown updates select the newest Vite-compatible stable release fully publishe
 | - document.ts: immutable tree operations                             |
 | - xml.ts: validation and preview rendering                           |
 | - helpers.ts: pure limits, copy readiness, outline & delete helpers  |
-| - tauri.ts: clipboard bridge and startup show request                |
+| - tauri.ts: clipboard bridge, close guard, and startup show request  |
 +----------------------------------------------------------------------+
                                    |
                                 Tauri IPC
@@ -293,7 +293,7 @@ Rolldown updates select the newest Vite-compatible stable release fully publishe
 | - copy_xml_to_clipboard: serialized clipboard boundary               |
 | - arboard Windows clipboard access                                  |
 | - native fallback: trusted Windows clip.exe                         |
-| - launch sizing, centering, hidden-window show fallback              |
+| - close-confirmation guard, launch sizing, and show fallback         |
 +----------------------------------------------------------------------+
 ```
 
