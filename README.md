@@ -61,7 +61,7 @@ The portable executable requires Windows 10 / 11 (x64) and the [Microsoft Edge W
 | **可编辑预设标签 / Editable preset chips**            | 默认 `feedback` / `question` / `instruction` / `extra`，可重命名、删除、添加，并持久化到 `localStorage` / Default chips are editable, removable, addable, and persisted through `localStorage`                                                                  |
 | **预览内容 = 剪贴板内容 / Preview matches clipboard** | 右侧预览就是实际复制到剪贴板的文本 / The right-side preview is the text copied to the clipboard                                                                                                                                                                 |
 | **剪贴板防护 / Clipboard safeguards**                 | 拒绝 NUL 字符、孤立 UTF-16 代理项以及超大 UTF-8 载荷，并在 Tauri 与浏览器两条剪贴板路径中均进行校验 / Rejects NUL characters, lone UTF-16 surrogates, and oversized UTF-8 payloads, with validation on both the Tauri and browser clipboard paths               |
-| **主题与窗口体验 / Theme and window polish**          | 支持深色 / 浅色主题（初始跟随系统偏好）；启动时按 DPI 居中调整尺寸；存在未复制内容或新增片段时关闭窗口前提示确认 / Dark/light themes (system-preference default), DPI-aware centered launch, and close confirmation when prompt content or added sections exist |
+| **主题与窗口体验 / Theme and window polish**          | 支持深色 / 浅色主题（初始跟随系统偏好）；启动时按 DPI 居中调整尺寸；存在提示词正文或新增片段时关闭窗口前提示确认 / Dark/light themes (system-preference default), DPI-aware centered launch, and close confirmation when prompt content or added sections exist |
 
 > [!TIP]
 > **中文标签名可用** — 例如 `<反馈>`、`<上下文>`、`<示例>` 都是有效标签名，只要符合 XML 1.0 `Name` 规则。
