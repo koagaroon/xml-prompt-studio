@@ -1,10 +1,8 @@
 // Environment detection uses the official `isTauri()` helper from
 // @tauri-apps/api/core — the API package owns the probe, so it tracks
-// whatever internal marker Tauri uses across versions. Earlier versions
-// of this file probed `window.isTauri` (and before that the internal
-// `__TAURI_INTERNALS__` object) by hand with a local global declaration.
+// whatever internal marker Tauri uses across versions.
 
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
 import { MAX_XML_BYTES, exceedsByteCap, formatMegabytes, hasLoneSurrogate } from "./helpers";
 
 function isTauriEnvironment(): boolean {
@@ -12,6 +10,7 @@ function isTauriEnvironment(): boolean {
 }
 
 let mainWindowShowRequested = false;
+let browserHasUnsavedWork = false;
 
 function logStartup(message: string): void {
   if (import.meta.env.DEV) {
@@ -33,14 +32,8 @@ function afterNextPaint(callback: () => void): void {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(runOnce);
     });
-    // The timer deliberately RACES the double-rAF rather than backstopping
-    // it: this code runs while the window is still HIDDEN (visible: false
-    // until the show command), and Chromium throttles or suspends rAF in
-    // hidden pages — waiting on rAF alone can deadlock (paint signal
-    // waits for visibility, visibility waits for the paint signal), with
-    // only the Rust 5 s fallback breaking it. Worst case the timer fires
-    // ~100 ms before first paint and the user briefly sees the window's
-    // configured dark backgroundColor — far better than a 5 s no-show.
+    // Race a 100 ms timer against double-rAF because Chromium can throttle rAF
+    // while the native window is still hidden (`visible: false`).
     window.setTimeout(runOnce, 100);
     return;
   }
@@ -69,11 +62,60 @@ export function requestMainWindowShowAfterFirstPaint(): void {
   });
 }
 
+export function registerMainWindowCloseGuard(onCloseRequested: () => void): () => void {
+  if (isTauriEnvironment()) {
+    const onCloseChannel = new Channel<boolean>(() => {
+      onCloseRequested();
+    });
+    void invoke("register_close_guard", { onCloseRequested: onCloseChannel }).catch(
+      (error: unknown) => {
+        logStartup(
+          `close-guard registration failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    );
+    return () => {};
+  }
+
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") {
+    return () => {};
+  }
+
+  const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+    if (browserHasUnsavedWork) {
+      event.preventDefault();
+    }
+  };
+  window.addEventListener("beforeunload", handleBeforeUnload);
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
+}
+
+export function setMainWindowUnsavedWork(hasUnsavedWork: boolean): void {
+  browserHasUnsavedWork = hasUnsavedWork;
+  if (!isTauriEnvironment()) {
+    return;
+  }
+  void invoke("set_has_unsaved_work", { hasUnsavedWork }).catch((error: unknown) => {
+    logStartup(
+      `set_has_unsaved_work failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  });
+}
+
+export async function confirmMainWindowClose(): Promise<void> {
+  browserHasUnsavedWork = false;
+  if (isTauriEnvironment()) {
+    await invoke("confirm_close_window");
+    return;
+  }
+  if (typeof window !== "undefined" && typeof window.close === "function") {
+    window.close();
+  }
+}
+
 export async function copyXmlToClipboard(xml: string): Promise<void> {
-  // Frontend mirror of the Rust-side NUL guard, placed BEFORE the branch
-  // so the dev-only browser fallback below can't "successfully" copy a
-  // payload that C-string clipboard consumers would silently truncate.
-  // The Rust check stays as the IPC-boundary defense.
   if (xml.includes("\0")) {
     throw new Error(
       "XML payload contains a NUL (U+0000) character; paste targets would " +
@@ -81,14 +123,6 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     );
   }
 
-  // Unpaired-surrogate guard, same silent-corruption rationale as the
-  // NUL guard above: JSON.stringify escapes a lone surrogate as \uD800
-  // and what the IPC transport then does is implementation-defined —
-  // strict decoding fails with a cryptic invoke error; a lossy layer
-  // would put U+FFFD on the clipboard while the preview shows the
-  // original character. Refusing here makes the failure visible and
-  // attributable on every path, so the transport's exact behavior never
-  // matters.
   if (hasLoneSurrogate(xml)) {
     throw new Error(
       "XML payload contains an unpaired surrogate (a corrupted character); " +
@@ -97,9 +131,6 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     );
   }
 
-  // Frontend mirror of the Rust-side size gate, for the same reason as
-  // the NUL guard above: the dev-only browser fallback would otherwise
-  // attempt an arbitrarily large clipboard write with no cap at all.
   if (exceedsByteCap(xml, MAX_XML_BYTES)) {
     const bytes = new TextEncoder().encode(xml).length;
     throw new Error(
@@ -112,10 +143,5 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
     return;
   }
 
-  // Browser fallback: when the frontend runs in a plain browser (e.g.,
-  // `npm run dev` opened directly without `tauri dev`), there's no Rust
-  // backend to invoke. The browser Clipboard API works for development
-  // smoke testing; production builds always go through the Tauri path
-  // above for native clipboard access and the clip.exe fallback.
   await navigator.clipboard.writeText(xml);
 }

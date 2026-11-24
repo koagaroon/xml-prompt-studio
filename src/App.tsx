@@ -23,6 +23,7 @@ import {
   exceedsByteCap,
   formatMegabytes,
   getCopyReadiness,
+  hasUnsavedPromptWork,
   insertAfter,
   nextSelectionAfterDelete,
   validatePresetName,
@@ -39,7 +40,13 @@ import {
   type EditingChip,
   type ElementPresetMemory,
 } from "./presets";
-import { copyXmlToClipboard, requestMainWindowShowAfterFirstPaint } from "./tauri";
+import {
+  confirmMainWindowClose,
+  copyXmlToClipboard,
+  registerMainWindowCloseGuard,
+  requestMainWindowShowAfterFirstPaint,
+  setMainWindowUnsavedWork,
+} from "./tauri";
 import { persistTheme, readInitialTheme, type Theme } from "./theme";
 import type { ConfirmRequest, FieldMessage, StripMessage, XmlNode } from "./types";
 import { buildPreview, validateDocument } from "./xml";
@@ -216,6 +223,37 @@ export default function App() {
     setConfirmRequest(null);
     setNoticesOpen(false);
   }, []);
+
+  const hasUnsavedWork = useMemo(() => hasUnsavedPromptWork(roots), [roots]);
+
+  useEffect(() => {
+    setMainWindowUnsavedWork(hasUnsavedWork);
+  }, [hasUnsavedWork]);
+
+  const requestCloseWindow = useCallback(() => {
+    setNoticesOpen(false);
+    setConfirmRequest({
+      title: "Discard current prompt and close?",
+      description: "Closing now will discard your current prompt sections and text.",
+      confirmLabel: "Close",
+      confirmKind: "danger",
+      onConfirm: () => {
+        void confirmMainWindowClose().catch((error: unknown) => {
+          const message =
+            typeof error === "string"
+              ? error
+              : error instanceof Error
+                ? error.message
+                : "Failed to close window.";
+          setStripMessage({ text: message, severity: "error", forNodeId: null });
+        });
+      },
+    });
+  }, []);
+
+  useEffect(() => {
+    return registerMainWindowCloseGuard(requestCloseWindow);
+  }, [requestCloseWindow]);
 
   const openNotices = async () => {
     setNoticesOpen(true);

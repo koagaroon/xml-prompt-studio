@@ -10,10 +10,11 @@ use std::os::windows::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tauri::{LogicalSize, Manager, Size};
+use tauri::{LogicalSize, Manager, Size, WindowEvent};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
 // channel can carry arbitrarily large strings; without a cap, a runaway
@@ -70,6 +71,67 @@ impl StartupTiming {
     // show attempt can strand the window hidden.
     fn mark_main_window_shown(&self) {
         self.main_window_shown.store(true, Ordering::SeqCst);
+    }
+}
+
+struct CloseGuard {
+    has_unsaved_work: AtomicBool,
+    close_confirmed: AtomicBool,
+    on_close_requested: Mutex<Option<tauri::ipc::Channel<bool>>>,
+}
+
+impl CloseGuard {
+    fn new() -> Self {
+        Self {
+            has_unsaved_work: AtomicBool::new(false),
+            close_confirmed: AtomicBool::new(false),
+            on_close_requested: Mutex::new(None),
+        }
+    }
+
+    fn lock_listener(&self) -> MutexGuard<'_, Option<tauri::ipc::Channel<bool>>> {
+        self.on_close_requested
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn set_has_unsaved_work(&self, has_unsaved_work: bool) {
+        self.has_unsaved_work
+            .store(has_unsaved_work, Ordering::SeqCst);
+        if !has_unsaved_work {
+            self.close_confirmed.store(false, Ordering::SeqCst);
+        }
+    }
+
+    fn mark_close_confirmed(&self) {
+        self.close_confirmed.store(true, Ordering::SeqCst);
+    }
+
+    fn clear_close_confirmed(&self) {
+        self.close_confirmed.store(false, Ordering::SeqCst);
+    }
+
+    fn should_intercept_close(&self) -> bool {
+        self.has_unsaved_work.load(Ordering::SeqCst) && !self.close_confirmed.load(Ordering::SeqCst)
+    }
+
+    fn register_listener(&self, channel: tauri::ipc::Channel<bool>) {
+        *self.lock_listener() = Some(channel);
+    }
+
+    // Returns false when no frontend channel is registered or delivery fails,
+    // ensuring an unmounted or broken frontend can never trap the window open.
+    fn notify_close_requested(&self) -> bool {
+        let mut slot = self.lock_listener();
+        let Some(channel) = slot.as_ref() else {
+            return false;
+        };
+        if channel.send(true).is_ok() {
+            true
+        } else {
+            *slot = None;
+            false
+        }
     }
 }
 
@@ -181,6 +243,35 @@ fn show_main_window(
 ) -> Result<(), String> {
     log_startup(timing.inner(), "frontend show command received");
     show_main_window_with_handle(&app_handle, timing.inner(), "frontend show command")
+}
+
+#[tauri::command]
+fn register_close_guard(
+    on_close_requested: tauri::ipc::Channel<bool>,
+    close_guard: tauri::State<'_, CloseGuard>,
+) {
+    close_guard.register_listener(on_close_requested);
+}
+
+#[tauri::command]
+fn set_has_unsaved_work(has_unsaved_work: bool, close_guard: tauri::State<'_, CloseGuard>) {
+    close_guard.set_has_unsaved_work(has_unsaved_work);
+}
+
+#[tauri::command]
+fn confirm_close_window(
+    app_handle: tauri::AppHandle,
+    close_guard: tauri::State<'_, CloseGuard>,
+) -> Result<(), String> {
+    let window = app_handle
+        .get_webview_window("main")
+        .ok_or_else(|| "main window missing".to_string())?;
+    close_guard.mark_close_confirmed();
+    if let Err(error) = window.close() {
+        close_guard.clear_close_confirmed();
+        return Err(format!("failed to close main window: {error}"));
+    }
+    Ok(())
 }
 
 fn show_main_window_with_handle(
@@ -472,10 +563,27 @@ fn utf16le(value: &str) -> Vec<u8> {
 pub fn run() {
     tauri::Builder::default()
         .manage(StartupTiming::new())
+        .manage(CloseGuard::new())
         .invoke_handler(tauri::generate_handler![
             copy_xml_to_clipboard,
-            show_main_window
+            show_main_window,
+            register_close_guard,
+            set_has_unsaved_work,
+            confirm_close_window
         ])
+        .on_window_event(|window, event| {
+            if window.label() != "main" {
+                return;
+            }
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let close_guard = window.state::<CloseGuard>();
+                if close_guard.should_intercept_close() && close_guard.notify_close_requested() {
+                    api.prevent_close();
+                    let _ = window.unminimize();
+                    let _ = window.set_focus();
+                }
+            }
+        })
         .setup(|app| {
             let timing = app.state::<StartupTiming>();
             log_startup(timing.inner(), "setup entered");
@@ -657,6 +765,27 @@ mod tests {
 
         timing.mark_main_window_shown();
         assert!(timing.is_main_window_shown());
+    }
+
+    #[test]
+    fn close_guard_allows_immediate_close_when_clean_and_intercepts_when_dirty() {
+        let guard = CloseGuard::new();
+        assert!(!guard.should_intercept_close());
+
+        guard.set_has_unsaved_work(true);
+        assert!(guard.should_intercept_close());
+        // Without a registered frontend channel, notify_close_requested returns
+        // false so an unmounted/broken frontend never traps the window open.
+        assert!(!guard.notify_close_requested());
+
+        guard.mark_close_confirmed();
+        assert!(!guard.should_intercept_close());
+
+        guard.clear_close_confirmed();
+        assert!(guard.should_intercept_close());
+
+        guard.set_has_unsaved_work(false);
+        assert!(!guard.should_intercept_close());
     }
 
     #[test]

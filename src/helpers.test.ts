@@ -15,6 +15,7 @@ import {
   formatMegabytes,
   getCopyReadiness,
   hasLoneSurrogate,
+  hasUnsavedPromptWork,
   insertAfter,
   nextAvailableSuffix,
   nextSelectionAfterDelete,
@@ -541,5 +542,22 @@ describe("splitPreviewLineLead", () => {
       lead: "  e\u0301",
       rest: "clair",
     });
+  });
+});
+
+describe("hasUnsavedPromptWork", () => {
+  it("returns false for a single empty root regardless of tag name", () => {
+    expect(hasUnsavedPromptWork([])).toBe(false);
+    expect(hasUnsavedPromptWork([createNode("feedback")])).toBe(false);
+    expect(hasUnsavedPromptWork([createNode("renamed_1")])).toBe(false);
+    expect(hasUnsavedPromptWork([createNode()])).toBe(false);
+  });
+
+  it("returns true when the root has text content or nested/sibling sections exist", () => {
+    expect(hasUnsavedPromptWork([{ ...createNode("feedback"), textContent: "draft" }])).toBe(true);
+    expect(hasUnsavedPromptWork([{ ...createNode("feedback"), children: [createNode()] }])).toBe(
+      true
+    );
+    expect(hasUnsavedPromptWork([createNode("feedback"), createNode()])).toBe(true);
   });
 });
