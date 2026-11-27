@@ -17,7 +17,7 @@ rust-version = "1.100.0"
 name = "xml_prompt_studio_lib"
 
 [build-dependencies]
-tauri-build = { version = "2.7.5", features = [] }
+tauri-build = { version = "2.7.6", features = [] }
 
 # Tauri major upgrade checklist (only triggers when WE choose to bump from
 # `^2` to `^3`; SemVer pin prevents silent jumps):
@@ -31,7 +31,7 @@ tauri-build = { version = "2.7.5", features = [] }
 [dependencies]
 # The application only copies text, so image support is unnecessary.
 arboard = { version = "3.7.0", default-features = false }
-tauri = { version = "2.12.6", features = [] }
+tauri = { version = "2.12.7", features = [] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

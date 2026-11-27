@@ -183,7 +183,7 @@ If the preview is still updating, **Copy XML** refuses the copy and asks you to 
 These tool versions apply to development and source builds and may advance with verified dependency updates.
 
 - [Node.js](https://nodejs.org/) 24 LTS（长期支持版 / Long-Term Support）, satisfying `^24.21.0`
-- npm 12.2.2（由 `packageManager` 固定 / pinned by `packageManager`）
+- npm 12.2.3（由 `packageManager` 固定 / pinned by `packageManager`）
 - [Rust 工具链 / Rust toolchain](https://rustup.rs/) 1.100.0（由 `rust-toolchain.toml` 固定；Cargo 的 `rust-version` 与该构建基线保持一致，不单独承诺兼容更旧的编译器 / pinned by `rust-toolchain.toml`; Cargo's `rust-version` matches this build baseline, with no separate older-compiler compatibility promise）
 - Windows: Visual Studio Build Tools (MSVC linker)
 - Windows: WebView2 (Windows 10 / 11 通常已预装 / usually pre-installed on Windows 10 / 11)
