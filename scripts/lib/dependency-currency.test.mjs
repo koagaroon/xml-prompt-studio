@@ -810,6 +810,24 @@ rust-version = "1.88"
     assert.equal(update.status, "actionable");
     assert.match(update.reason, /exact resolved graph must be verified at Rust 1\.88/u);
   });
+
+  it("parses package rust-version strictly without bleeding into [[bin]] or accepting duplicate keys", () => {
+    assert.equal(
+      parseProjectRustVersion(
+        '[package] # comment\nrust-version = "1.100.0"\n[[bin]]\nname = "x"\n'
+      ).raw,
+      "1.100.0"
+    );
+    assert.throws(
+      () => parseProjectRustVersion('[package]\n[[bin]]\nrust-version = "1.100.0"\n'),
+      MonitorError
+    );
+    assert.throws(
+      () =>
+        parseProjectRustVersion('[package]\nrust-version = "1.99.0"\nrust-version = "1.100.0"\n'),
+      MonitorError
+    );
+  });
 });
 
 describe("GitHub Action pin inspection", () => {
@@ -1290,5 +1308,21 @@ describe("unsupported YAML key notation", () => {
     assert.deepEqual(parsed.errors, []);
     assert.equal(parsed.targets.length, 1);
     assert.deepEqual(parsed.targets[0].locations, ["ordinary.yml:5"]);
+  });
+
+  it("downgrades report-generation overflow to a bounded Monitor error report instead of crashing with exit code 1", async () => {
+    const { renderBoundedOutput } = await import("../check-dependency-currency.mjs");
+    const oversizedRows = Array.from({ length: 101 }, (_, index) => ({
+      ecosystem: "npm",
+      dependency: `pkg-${index}`,
+      locked: "1.0.0",
+      latest: "1.0.0",
+      status: /** @type {const} */ ("current"),
+      reason: "Locked release is current.",
+    }));
+    const rendered = renderBoundedOutput(oversizedRows);
+    assert.equal(rendered.failed, true);
+    assert.match(rendered.report, /report generation/u);
+    assert.match(rendered.report, /100-row safety limit/u);
   });
 });

@@ -335,6 +335,7 @@ describe("dependency audit policy", () => {
     "truncated",
     "permanent",
     "invalid-expiry",
+    "non-iso-expiry",
     "unexplained",
   ])("rejects a %s exception", (kind) => {
     const record = { active: true, notes: "Reviewed", expiry: expiry.toISOString() };
@@ -345,8 +346,42 @@ describe("dependency audit policy", () => {
     if (kind === "truncated") key += ">";
     if (kind === "permanent") record.expiry = "";
     if (kind === "invalid-expiry") record.expiry = "invalid";
+    if (kind === "non-iso-expiry") record.expiry = "notes 2099";
     if (kind === "unexplained") record.notes = " ";
     assert.throws(() => readAuditPolicy({ low: true, allowlist: [{ [key]: record }] }));
+  });
+
+  it("rejects duplicate allowlist keys and produces key-order-independent incompletePaths", () => {
+    const rule = { active: true, notes: "Reviewed", expiry: expiry.toISOString() };
+    const key = "GHSA-vfj7-8cjw-p6xm|stylelint>micromatch>braces";
+    assert.throws(
+      () => readAuditPolicy({ low: true, allowlist: [{ [key]: rule }, { [key]: rule }] }),
+      /Duplicate audit exception/u
+    );
+
+    // Child before parent vs parent before child must report identical incomplete paths.
+    const childFirst = report({
+      acorn: entry("acorn", [{ url: advisory }]),
+      espree: entry("espree", ["acorn"]),
+    });
+    const parentFirst = report({
+      espree: entry("espree", ["zimmer"]),
+      zimmer: entry("zimmer", [{ url: advisory }]),
+    });
+    assert.throws(
+      () => checkAuditReport(JSON.stringify(childFirst), 1),
+      (err) =>
+        err instanceof Error &&
+        err.message.includes("GHSA-vfj7-8cjw-p6xm|espree>acorn") &&
+        !err.message.includes("GHSA-vfj7-8cjw-p6xm|acorn\n")
+    );
+    assert.throws(
+      () => checkAuditReport(JSON.stringify(parentFirst), 1),
+      (err) =>
+        err instanceof Error &&
+        err.message.includes("GHSA-vfj7-8cjw-p6xm|espree>zimmer") &&
+        !err.message.includes("GHSA-vfj7-8cjw-p6xm|zimmer")
+    );
   });
 });
 

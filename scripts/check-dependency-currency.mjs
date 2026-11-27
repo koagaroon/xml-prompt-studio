@@ -63,6 +63,16 @@ async function readJson(path) {
   }
 }
 
+/** @param {import("./lib/dependency-currency.mjs").CurrencyRow[]} rows @param {string} [detail] */
+export function renderBoundedOutput(rows, detail = "") {
+  try {
+    return { report: renderReport(rows) + detail, failed: false };
+  } catch (error) {
+    const fallbackRows = [errorRow("Monitor", "report generation", "unknown", error)];
+    return { report: renderReport(fallbackRows), failed: true };
+  }
+}
+
 const npmHeaders = {
   Accept: "application/vnd.npm.install-v1+json",
   "User-Agent": userAgent,
@@ -406,12 +416,12 @@ async function main() {
   ).flat();
   const release = await releasedDependencies;
   rows.push(...release.rows);
-  const report = renderReport(rows) + release.detail;
-  console.log(report);
+  let rendered = renderBoundedOutput(rows, release.detail);
+  console.log(rendered.report);
   const summaryPath = process.env.GITHUB_STEP_SUMMARY;
   if (typeof summaryPath === "string" && summaryPath.trim() !== "") {
     try {
-      await appendFile(summaryPath, report, { encoding: "utf8" });
+      await appendFile(summaryPath, rendered.report, { encoding: "utf8" });
     } catch {
       rows.push(
         errorRow(
@@ -421,10 +431,21 @@ async function main() {
           new MonitorError("Unable to write the bounded report to the GitHub job summary.")
         )
       );
-      console.log(renderReport(rows) + release.detail);
+      rendered = renderBoundedOutput(rows, release.detail);
+      console.log(rendered.report);
     }
   }
-  process.exitCode = reportExitCode(rows);
+  process.exitCode = rendered.failed ? 2 : reportExitCode(rows);
 }
 
-await main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    await main();
+  } catch (error) {
+    const fallback = renderBoundedOutput([
+      errorRow("Monitor", "top-level execution", "unknown", error),
+    ]);
+    console.log(fallback.report);
+    process.exitCode = 2;
+  }
+}

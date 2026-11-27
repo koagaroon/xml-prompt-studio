@@ -2,6 +2,7 @@ import { Allowlist } from "audit-ci";
 
 const severities = ["info", "low", "moderate", "high", "critical"];
 const advisoryUrl = /^https:\/\/github\.com\/advisories\/(GHSA(?:-[a-z0-9]{4}){3})$/u;
+const isoUtcTimestamp = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 
 /** @param {unknown} value @returns {value is Record<string, unknown>} */
 function isRecord(value) {
@@ -18,11 +19,16 @@ export function readAuditPolicy(value) {
   if (!isRecord(value) || value.low !== true || !Array.isArray(value.allowlist)) {
     throw new Error("Audit policy must block every severity and provide an allowlist.");
   }
+  const seenKeys = new Set();
   for (const entry of value.allowlist) {
     if (!isRecord(entry) || Object.keys(entry).length !== 1) {
       throw new Error("Audit exceptions must be individual advisory-and-path records.");
     }
     const [key, rule] = Object.entries(entry)[0];
+    if (seenKeys.has(key)) {
+      throw new Error(`Duplicate audit exception: ${key}`);
+    }
+    seenKeys.add(key);
     const [id, path, extra] = key.split("|");
     if (
       !advisoryUrl.test(`https://github.com/advisories/${id}`) ||
@@ -35,6 +41,7 @@ export function readAuditPolicy(value) {
       typeof rule.notes !== "string" ||
       rule.notes.trim() === "" ||
       typeof rule.expiry !== "string" ||
+      !isoUtcTimestamp.test(rule.expiry) ||
       !Number.isFinite(Date.parse(rule.expiry))
     ) {
       throw new Error("Audit exceptions require an exact advisory/path, explanation, and expiry.");
@@ -143,9 +150,23 @@ export function checkAuditReport(output, status, exceptions = []) {
   for (const entry of Object.values(vulnerabilities)) {
     if (entry.isDirect) visit(entry.name, [], true);
   }
-  // npm can omit unaffected parents; partial paths must never match complete-path exceptions.
+  // npm can omit unaffected parents; seed from unvisited root-most packages
+  // first so incompletePaths do not depend on JSON key order, then sweep any
+  // remaining unvisited cycles so fail-closed cycle detection still fires.
+  const referencedByUnvisited = new Set();
   for (const entry of Object.values(vulnerabilities)) {
-    if (!visited.has(entry.name)) visit(entry.name, [], false);
+    if (visited.has(entry.name)) continue;
+    for (const via of entry.via) {
+      if (typeof via === "string" && !visited.has(via)) {
+        referencedByUnvisited.add(via);
+      }
+    }
+  }
+  for (const name of Object.keys(vulnerabilities).sort()) {
+    if (!visited.has(name) && !referencedByUnvisited.has(name)) visit(name, [], false);
+  }
+  for (const name of Object.keys(vulnerabilities).sort()) {
+    if (!visited.has(name)) visit(name, [], false);
   }
   const allowed = new Set(new Allowlist(exceptions).paths);
   const blocked = [...paths].filter((path) => !allowed.has(path)).sort();

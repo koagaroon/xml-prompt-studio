@@ -40,15 +40,40 @@ function readPackage(location) {
 }
 
 describe("frontend runtime notice inventory", () => {
-  it("includes runtime packages and the helpers from Vite and its resolved Rolldown copy", () => {
-    const entries = collectNpmNotices(lockfile, readPackage);
+  it("includes runtime packages, supports npm aliases, and excludes devOptional or non-Windows optional entries", () => {
+    const extended = structuredClone(lockfile);
+    extended.packages["node_modules/aliased-runtime"] = {
+      name: "@scope/real-runtime",
+      version: "1.0.0",
+      license: "MIT",
+    };
+    extended.packages["node_modules/dev-opt"] = {
+      version: "1.0.0",
+      license: "MIT",
+      devOptional: true,
+    };
+    extended.packages["node_modules/mac-only"] = {
+      version: "1.0.0",
+      license: "MIT",
+      optional: true,
+      os: ["darwin"],
+    };
+    const entries = collectNpmNotices(extended, (location) => {
+      const entry = extended.packages[location];
+      const name = entry.name ?? location.split("node_modules/").at(-1);
+      const files = [{ name: "LICENSE", text: "Copyright: fixture\nPermission: fixture\n" }];
+      if (name === "rolldown")
+        files.push({ name: "THIRD-PARTY-LICENSE", text: "upstream licenses" });
+      return { metadata: { name, ...entry }, files };
+    });
     assert.deepEqual(
-      entries.map(({ location }) => location),
+      entries.map(({ location, name }) => [location, name]),
       [
-        "node_modules/react",
-        "node_modules/scheduler",
-        "node_modules/vite",
-        "node_modules/vite/node_modules/rolldown",
+        ["node_modules/aliased-runtime", "@scope/real-runtime"],
+        ["node_modules/react", "react"],
+        ["node_modules/scheduler", "scheduler"],
+        ["node_modules/vite", "vite"],
+        ["node_modules/vite/node_modules/rolldown", "rolldown"],
       ]
     );
   });
@@ -150,11 +175,13 @@ describe("frontend runtime notice inventory", () => {
     for (const name of ["react", "react-dom", "scheduler", "@tauri-apps/api", "vite"]) {
       assert.ok(output.includes(`Locked location: node_modules/${name}\n`));
     }
-    const { texts } = loadNativeInventory(root);
+    const { inventory, texts } = loadNativeInventory(root);
     for (const text of texts.values())
       assert.ok(output.includes(text), "Missing full native notice text");
     assert.ok(output.includes("Copyright (c) 2021 Bill Avery"));
-    assert.ok(output.includes("Microsoft WebView2 static loader 1.0.3800.47"));
+    for (const artifact of inventory.artifacts) {
+      assert.ok(output.includes(`${artifact.name} ${artifact.version}`));
+    }
     assert.ok(!output.includes(root));
   });
 });

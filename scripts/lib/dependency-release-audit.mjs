@@ -23,6 +23,7 @@ export const RELEASE_AUDIT_LIMITS = Object.freeze({
 const NPM_NAME = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/u;
 const CRATE_NAME = /^[A-Za-z0-9_-]+$/u;
 const ADVISORY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const ISO_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
 
 /** @param {unknown} packages @returns {ReleaseAdvisoryResult[]} */
 function validatePackages(packages) {
@@ -227,7 +228,7 @@ export function readOsvAuditPolicy(value) {
       typeof notes !== "string" ||
       notes.trim() === "" ||
       typeof expiry !== "string" ||
-      expiry.trim() === ""
+      !ISO_UTC_TIMESTAMP.test(expiry)
     ) {
       throw new MonitorError(
         "OSV exceptions require an exact advisory, locked package version, valid scopes, explanation, and expiry."

@@ -14,7 +14,11 @@ import { loadNativeInventory } from "./lib/native-notices.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 try {
   const npmCli = process.env.npm_execpath;
-  if (!npmCli) throw new Error("Run this check with npm run audit:dependencies.");
+  if (!npmCli || !/\.[cm]?js$/iu.test(npmCli)) {
+    throw new Error(
+      "Run this check with npm run audit:dependencies (expected a JavaScript npm CLI entrypoint)."
+    );
+  }
   const rawPolicy = JSON.parse(readFileSync(new URL("../audit-ci.json", import.meta.url), "utf8"));
   const policy = readAuditPolicy(rawPolicy);
   const osvPolicy = readOsvAuditPolicy(rawPolicy);
@@ -43,7 +47,19 @@ try {
     );
     if (result.error) throw result.error;
     if (result.signal) throw new Error(`npm audit terminated with ${result.signal}.`);
-    const accepted = checkAuditReport(result.stdout, result.status, production ? [] : policy);
+    let accepted;
+    try {
+      accepted = checkAuditReport(result.stdout, result.status, production ? [] : policy);
+    } catch (auditError) {
+      const stderrSnippet = (result.stderr ?? "").trim().slice(0, 512);
+      if (result.status !== 0 && result.status !== 1 && stderrSnippet) {
+        throw new Error(
+          `${auditError instanceof Error ? auditError.message : "npm audit failed."} (${stderrSnippet})`,
+          { cause: auditError }
+        );
+      }
+      throw auditError;
+    }
     if (accepted.length > 0) {
       console.warn(
         `WARN: Accepted temporary development audit exceptions:\n${accepted.join("\n")}`

@@ -8,6 +8,7 @@ export const TAURI_BUILD_FEATURES = ["tauri/custom-protocol"];
 const compilerOverrides = [
   "RUSTC",
   "CARGO_BUILD_RUSTC",
+  "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTC",
   "RUSTC_WRAPPER",
   "RUSTC_WORKSPACE_WRAPPER",
   "CARGO_BUILD_RUSTC_WRAPPER",
@@ -15,7 +16,7 @@ const compilerOverrides = [
 ];
 const registrySource = "registry+https://github.com/rust-lang/crates.io-index";
 const cargoTreeLine =
-  /^(?<name>[A-Za-z0-9_-]+) v(?<version>\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.+-]+)?)(?: \([^)]+\))*$/u;
+  /^(?<name>[A-Za-z0-9_-]+) v(?<version>\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.+-]+)?)(?: \(.+\))?$/u;
 const licenseChoices = new Map([
   ["0BSD OR MIT OR Apache-2.0", ["MIT"]],
   ["Unlicense OR MIT", ["MIT"]],

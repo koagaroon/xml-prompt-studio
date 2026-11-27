@@ -104,4 +104,19 @@ describe("bounded metadata requests", () => {
       assert.equal(requests, 1);
     }
   );
+
+  it("evicts a rejected request from cache so a subsequent retry can succeed", async () => {
+    let calls = 0;
+    const request = createJsonRequester(async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("denied", { status: 403 });
+      }
+      return Response.json({ recovered: true });
+    });
+    const url = "https://example.test/evict-after-fail";
+    await assert.rejects(() => request(url, options), /HTTP 403/u);
+    assert.deepEqual(await request(url, options), { recovered: true });
+    assert.equal(calls, 2);
+  });
 });
