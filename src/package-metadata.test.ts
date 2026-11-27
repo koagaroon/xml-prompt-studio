@@ -6,7 +6,7 @@ import tsconfigNodeJson from "../tsconfig.node.json";
 import tsconfigTestJson from "../tsconfig.test.json";
 
 const SUPPORTED_NODE_RANGE = "^24.21.0";
-const PINNED_PACKAGE_MANAGER = "npm@12.2.2";
+const PINNED_PACKAGE_MANAGER = "npm@12.2.3";
 describe("package metadata", () => {
   it("keeps the root Node and npm contracts explicit", () => {
     expect(packageJson.engines.node).toBe(SUPPORTED_NODE_RANGE);

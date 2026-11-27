@@ -16,7 +16,7 @@
       "ecosystem": "crates.io",
       "package": "cookie",
       "version": "0.18.2",
-      "scopes": ["current", "released"],
+      "scopes": ["released"],
       "notes": "POSIX fork() private-cookie nonce reuse only; XML Prompt Studio supports Windows only, never calls fork(), and uses no encrypted HTTP cookies.",
       "expiry": "2027-05-27T00:00:00.000Z"
     },
@@ -25,7 +25,7 @@
       "ecosystem": "crates.io",
       "package": "url",
       "version": "2.5.8",
-      "scopes": ["current", "released"],
+      "scopes": ["released"],
       "notes": "Url::origin() stack overflow requires ~10,000 nested blob: URL prefixes; prompt text never passes through Url::origin() and the webview enforces a strict local CSP.",
       "expiry": "2027-05-27T00:00:00.000Z"
     }
