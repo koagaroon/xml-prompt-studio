@@ -154,7 +154,7 @@ export function classifyNpmToolchain(locked, metadata, minimum) {
     return {
       latest,
       status: "hold",
-      reason: `npm ${latest} requires Node ${latestRequirement}; review the source-build minimum ${minimum.raw} before updating.`,
+      reason: `npm ${latest} requires Node ${latestRequirement}; review the Node ${minimum.raw} build baseline before updating.`,
     };
   }
   return { latest, ...result };
@@ -237,7 +237,7 @@ export async function checkToolchains(packageJson, rustToolchain, requests) {
           ...result,
           reason:
             result.status === "actionable"
-              ? "A newer stable build compiler is available; review compiler notices and validation separately from the Cargo source-build minimum."
+              ? "A newer stable build compiler is available; review compiler notices and validation alongside Cargo's aligned rust-version."
               : result.reason,
         };
       } catch (error) {

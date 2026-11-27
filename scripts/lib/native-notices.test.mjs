@@ -13,6 +13,7 @@ import {
   nativePackageKey,
   nativeFeatureArguments,
   parseCargoMetadata,
+  parseCargoRuntimeTree,
   parseNativeInventory,
   renderNativeNotices,
   sha256,
@@ -139,6 +140,33 @@ describe("native notice graph coverage", () => {
       collectNativePackages(metadata).find(({ name }) => name === "builder")?.usage,
       "runtime"
     );
+  });
+
+  it("reclassifies metadata-unified crates absent from Cargo's runtime tree to build-support", () => {
+    const metadata = parseCargoMetadata(graph());
+    const runtimeKeys = parseCargoRuntimeTree(
+      "app v1.0.0 (/fixture/app)\nlibrary v1.0.0\nlibrary v1.0.0 (*)\n",
+      "app@1.0.0"
+    );
+    assert.deepEqual(
+      collectNativePackages(metadata, runtimeKeys).map((entry) => [
+        nativePackageKey(entry),
+        entry.usage,
+      ]),
+      [
+        ["builder@1.0.0", "build-support"],
+        ["library@1.0.0", "runtime"],
+        ["library@2.0.0", "build-support"],
+        ["macro-helper@1.0.0", "build-support"],
+        ["macro@1.0.0", "build-support"],
+      ]
+    );
+    assert.throws(
+      () => collectNativePackages(metadata, new Set(["builder@1.0.0"])),
+      /absent from Cargo metadata/u
+    );
+    assert.throws(() => parseCargoRuntimeTree("other v1.0.0\n", "app@1.0.0"), /does not match/u);
+    assert.throws(() => parseCargoRuntimeTree("invalid line\n", "app@1.0.0"), /Unsupported/u);
   });
 
   it("fails closed on a null resolution, missing edge target, unknown dependency kind or missing license", () => {

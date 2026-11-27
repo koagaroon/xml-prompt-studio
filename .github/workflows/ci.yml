@@ -15,19 +15,9 @@ concurrency:
 
 jobs:
   frontend:
-    name: Frontend quality (Node ${{ matrix.node }}, Windows)
+    name: Frontend quality (Node 24 LTS, Windows)
     runs-on: windows-2025
     timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - node: "24.21.0"
-            check_latest: false
-            audit: false
-          - node: "24"
-            check_latest: true
-            audit: true
 
     steps:
       - name: Check out the repository
@@ -38,8 +28,8 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: ${{ matrix.node }}
-          check-latest: ${{ matrix.check_latest }}
+          node-version: "24"
+          check-latest: true
           cache: npm
 
       - name: Use the declared npm version
@@ -54,8 +44,7 @@ jobs:
       - name: Install locked Node dependencies
         run: npm ci
 
-      - name: Audit production and complete Node dependency graphs
-        if: matrix.audit
+      - name: Audit npm graphs and Windows runtime package inventory
         run: npm run audit:dependencies
 
       - name: Check TypeScript 7 release and TypeScript 6 API compatibility

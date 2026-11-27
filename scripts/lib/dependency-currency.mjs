@@ -1,7 +1,7 @@
 /**
  * @typedef {{ major: number, minor: number, patch: number }} Version
  * @typedef {Version & { raw: string }} ParsedVersion
- * @typedef {{ status: "current" | "actionable" | "hold" | "error", reason: string }} CurrencyResult
+ * @typedef {{ status: "current" | "actionable" | "hold" | "advisory" | "error", reason: string }} CurrencyResult
  * @typedef {CurrencyResult & { ecosystem: string, dependency: string, locked: string, latest: string }} CurrencyRow
  * @typedef {{ declaredName: string, registryName: string, requested: string, locked: string, kind: string, major: number | null }} NpmTarget
  * @typedef {{ declaredName: string, registryName: string, requested: string, section: string }} CargoDeclaration
@@ -369,9 +369,9 @@ export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets 
   /** @param {string} version */
   const isCompatible = (version) => {
     const parsed = parseStableSemver(version);
-    return parsed !== null && parsed.major === minimum.major && parsed.minor <= minimum.minor;
+    return parsed !== null && parsed.major === minimum.major;
   };
-  const requested = parseStableSemver(/^(?:~)?(\d+\.\d+\.\d+)$/u.exec(target.requested)?.[1]);
+  const requested = parseStableSemver(/^(?:\^|~)?(\d+\.\d+\.\d+)$/u.exec(target.requested)?.[1]);
   const locked = parseStableSemver(target.locked);
   if (
     requested === null ||
@@ -381,11 +381,10 @@ export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets 
     !satisfiesNpmRequirement(target.locked, target.requested)
   ) {
     throw new MonitorError(
-      `@types/node must use an exact or tilde requirement with a matching lock, major ${minimum.major}, and an API minor no newer than ${minimum.minor} to preserve Node ${minimum.raw} compatibility.`
+      `@types/node must use an exact, tilde, or caret requirement with a matching lock on major ${minimum.major} to match the Node ${minimum.major} build baseline.`
     );
   }
 
-  // Type patches are independent of runtime patches; reviewed minor updates may exceed the declared tilde.
   const compatibleLatest = inspectNpmRangeMetadata(
     metadata,
     target.registryName,
@@ -395,20 +394,20 @@ export function classifyNpmCurrency(target, metadata, packageJson, cargoTargets 
   const result = classifyVersion(
     target.locked,
     compatibleLatest,
-    `Current stable type definitions compatible with the Node ${minimum.raw} minimum.`
+    `Current stable type definitions for the Node ${minimum.major} build baseline.`
   );
   if (result.status === "error") return { latest: compatibleLatest, ...result };
-  const newerOutsideMinimum =
+  const newerOutsideMajor =
     !isCompatible(latest) && classifyVersion(compatibleLatest, latest).status === "actionable";
-  const holdReason = `Newer Node type definitions are held to preserve the Node ${minimum.raw} API minimum.`;
+  const holdReason = `Newer major Node type definitions are held to match the Node ${minimum.major} build baseline.`;
   if (result.status === "actionable") {
     return {
       latest: compatibleLatest,
       status: "actionable",
-      reason: `A compatible stable Node type update is available.${newerOutsideMinimum ? ` ${holdReason}` : ""}`,
+      reason: `A newer stable Node ${minimum.major} type update is available.${newerOutsideMajor ? ` ${holdReason}` : ""}`,
     };
   }
-  if (newerOutsideMinimum) return { latest, status: "hold", reason: holdReason };
+  if (newerOutsideMajor) return { latest, status: "hold", reason: holdReason };
   return { latest: compatibleLatest, ...result };
 }
 
@@ -1214,7 +1213,7 @@ export function classifyRolldownCurrency({
 /** @param {Pick<CurrencyResult, "status">[]} rows */
 export function reportExitCode(rows) {
   if (rows.some((row) => row.status === "error")) return 2;
-  if (rows.some((row) => row.status === "actionable")) return 1;
+  if (rows.some((row) => row.status === "advisory")) return 1;
   return 0;
 }
 
@@ -1238,7 +1237,7 @@ export function renderReport(rows) {
   if (!Array.isArray(rows) || rows.length > 100) {
     throw new MonitorError("Dependency report exceeds the 100-row safety limit.");
   }
-  const statusOrder = { error: 0, actionable: 1, hold: 2, current: 3 };
+  const statusOrder = { error: 0, advisory: 1, actionable: 2, hold: 3, current: 4 };
   if (rows.some((row) => !Object.hasOwn(statusOrder, row.status))) {
     throw new MonitorError("Dependency report contains an invalid status.");
   }
@@ -1249,7 +1248,7 @@ export function renderReport(rows) {
       left.dependency.localeCompare(right.dependency)
   );
   const counts = Object.fromEntries(
-    ["current", "actionable", "hold", "error"].map((status) => [
+    ["current", "actionable", "hold", "advisory", "error"].map((status) => [
       status,
       sorted.filter((row) => row.status === status).length,
     ])
@@ -1257,11 +1256,11 @@ export function renderReport(rows) {
   const lines = [
     "# Dependency Watch",
     "",
-    `current=${counts.current} actionable=${counts.actionable} hold=${counts.hold} error=${counts.error}`,
+    `current=${counts.current} actionable=${counts.actionable} hold=${counts.hold} advisory=${counts.advisory} error=${counts.error}`,
     "",
     "Development currency coverage: direct npm/Cargo dependencies, selected derived packages, pinned build tools, and GitHub Actions.",
-    "Runtime dependencies may contribute to the executable; development, build, test, and toolchain entries describe build inputs.",
-    "This is not a complete transitive or shipped-component inventory. Released-package advisory results appear below; full-build npm audits and Dependabot alerts remain separate.",
+    "Runtime dependencies may contribute to the executable; development, build, test, and toolchain entries describe maintainer build inputs.",
+    "Routine version updates (actionable) exit 0; unreviewed released-package advisories exit 1 and monitor errors exit 2. Full-build npm and current Windows runtime OSV audits run via audit:dependencies; Dependabot alerts remain separate.",
     "",
     "| Status | Ecosystem | Dependency | Locked | Latest | Detail |",
     "| --- | --- | --- | --- | --- | --- |",

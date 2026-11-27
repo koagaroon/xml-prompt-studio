@@ -1,12 +1,11 @@
 import {
   MonitorError,
-  findRolldownLock,
   isRecord,
   mapWithConcurrency,
   parseStableSemver,
   sanitizeReportField,
 } from "./dependency-currency.mjs";
-import { queryReleaseAdvisories } from "./dependency-release-audit.mjs";
+import { evaluateOsvAdvisories, queryReleaseAdvisories } from "./dependency-release-audit.mjs";
 
 export const RELEASE_REPOSITORY = "koagaroon/xml-prompt-studio";
 const snapshotPaths = [
@@ -160,7 +159,6 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
     if (!isRecord(entry) || entry.dev)
       throw new MonitorError("Release npm runtime root is missing: " + name);
   }
-  const rolldownLocation = findRolldownLock(npmLock).location;
   /** @type {Map<string, ReleasePackage>} */
   const packages = new Map();
   /** @param {ReleasePackage} entry */
@@ -171,7 +169,7 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
     if (!isRecord(value) || (value.dev !== undefined && typeof value.dev !== "boolean")) {
       throw new MonitorError("Release npm lock contains an invalid package entry.");
     }
-    if (value.dev === true && path !== "node_modules/vite" && path !== rolldownLocation) continue;
+    if (value.dev === true) continue;
     const name = value.name ?? path.slice(path.lastIndexOf("node_modules/") + 13);
     if (
       !path.startsWith("node_modules/") ||
@@ -250,7 +248,7 @@ export function compareReleasePackages(released, development) {
 /**
  * @param {ReleaseSnapshot} development
  * @param {string} revision
- * @param {{ fetchGitHub: (path: string) => Promise<unknown>, queryBatch: (payload: { queries: { package: { ecosystem: string, name: string }, version: string, page_token?: string }[] }) => Promise<unknown> }} requests
+ * @param {{ fetchGitHub: (path: string) => Promise<unknown>, queryBatch: (payload: { queries: { package: { ecosystem: string, name: string }, version: string, page_token?: string }[] }) => Promise<unknown>, osvExceptions?: import("./dependency-release-audit.mjs").OsvAuditException[] }} requests
  * @returns {Promise<{ rows: import("./dependency-currency.mjs").CurrencyRow[], detail: string }>}
  */
 export async function checkReleasedDependencies(development, revision, requests) {
@@ -294,7 +292,7 @@ export async function checkReleasedDependencies(development, revision, requests)
     const packages = collectReleasePackages(snapshot);
     const changes = compareReleasePackages(packages, collectReleasePackages(development));
     lines.push(
-      "Compared npm runtime packages (including helpers emitted by Vite and Rolldown) and reviewed Windows runtime crates.",
+      "Compared shipped npm runtime packages and reviewed Windows runtime crates.",
       "Unreleased package-version differences: " +
         changes.length +
         ". These are release-planning context, not release approval.",
@@ -312,43 +310,68 @@ export async function checkReleasedDependencies(development, revision, requests)
       "",
       "### Released dependency advisories",
       "",
-      "OSV queries exact released npm/crates.io versions. Matches require applicability review; absence of matches is not a security guarantee.",
-      "Matches may include maintenance notices. Vite and Rolldown are included for their emitted helpers. Package advisories can concern development functionality outside the executable.",
-      "Coverage excludes Rust standard-library code, bundled non-package assets, the external WebView2 runtime, build-only packages, and older/prerelease releases. Current full-build npm audits and Dependabot alerts remain separate.",
+      "OSV queries exact released npm/crates.io runtime versions. Unreviewed matches fail Dependency Watch (exit 1); unexpired reviewed exceptions in audit-ci.json keep status current while remaining visible below.",
+      "Matches may include maintenance notices. Dev-only bundlers and build-only/unlinked crates are excluded when classified as build-support.",
+      "Coverage excludes Rust standard-library code, bundled non-package assets, the external WebView2 runtime, build-only packages, and older/prerelease releases. Current full-build npm and Windows runtime OSV audits run via audit:dependencies; Dependabot alerts remain separate.",
       ""
     );
-    const matches = (await queryReleaseAdvisories(packages, requests.queryBatch)).filter(
-      (entry) => entry.advisories.length > 0
+    const evaluation = evaluateOsvAdvisories(
+      await queryReleaseAdvisories(packages, requests.queryBatch),
+      requests.osvExceptions ?? [],
+      "released"
     );
+    const matches = evaluation.packages;
+    const unacceptedPackages = matches.filter((entry) => entry.unaccepted.length > 0).length;
     rows.push({
       ecosystem: "Released advisories",
       dependency: tag + " Windows runtime packages",
       locked: commit,
-      latest: matches.length + " package matches",
-      status: matches.length ? "actionable" : "current",
-      reason: matches.length
-        ? "OSV package matches need applicability review; they may concern maintenance notices or unshipped code. See release details."
-        : "No OSV matches for " +
-          packages.length +
-          " released package versions; bounded scope, not proof of safety.",
+      latest: unacceptedPackages
+        ? unacceptedPackages + " unaccepted package matches"
+        : matches.length
+          ? matches.length + " reviewed package matches"
+          : "0 package matches",
+      status: unacceptedPackages ? "advisory" : "current",
+      reason: unacceptedPackages
+        ? "Unaccepted OSV package matches affect the published release inventory; review applicability or ship a patched release. See release details."
+        : matches.length
+          ? "OSV package matches are covered by unexpired reviewed exceptions in audit-ci.json. See release details."
+          : "No OSV matches for " +
+            packages.length +
+            " released package versions; bounded scope, not proof of safety.",
     });
     lines.push(
       "Queried " +
         packages.length +
         " package versions; " +
         matches.length +
-        " have advisory matches."
+        " have advisory matches (" +
+        evaluation.unaccepted.length +
+        " unaccepted, " +
+        evaluation.accepted.length +
+        " accepted)."
     );
     for (const entry of matches) {
+      const links = [
+        ...entry.unaccepted.map(
+          (id) => "[" + id + "](https://osv.dev/vulnerability/" + encodeURIComponent(id) + ")"
+        ),
+        ...entry.accepted.map(
+          ({ id, expiry }) =>
+            "[" +
+            id +
+            "](https://osv.dev/vulnerability/" +
+            encodeURIComponent(id) +
+            ") (accepted until " +
+            sanitizeReportField(expiry) +
+            ")"
+        ),
+      ];
       lines.push(
         "- " +
           sanitizeReportField(entry.ecosystem + " " + entry.name + "@" + entry.version) +
           ": " +
-          entry.advisories
-            .map(
-              (id) => "[" + id + "](https://osv.dev/vulnerability/" + encodeURIComponent(id) + ")"
-            )
-            .join(", ")
+          links.join(", ")
       );
     }
   } catch (error) {

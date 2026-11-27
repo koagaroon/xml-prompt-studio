@@ -445,21 +445,26 @@ describe("Node type compatibility policy", () => {
     ),
   });
 
-  it("accepts types older than the minimum runtime without requiring an unpublished type minor", () => {
+  it("accepts exact, tilde, and caret declarations on the declared Node major", () => {
     const current = metadata(["24.19.1"], "24.19.1");
-    assert.equal(classifyNpmCurrency(target, current, manifest).status, "current");
+    for (const requested of ["24.19.1", "~24.19.1", "^24.19.1"]) {
+      assert.equal(
+        classifyNpmCurrency({ ...target, requested }, current, manifest).status,
+        "current"
+      );
+    }
   });
 
-  it.each(["24.22.0", "26.6.4"])("holds %s beyond the minimum runtime API", (latest) => {
-    const held = classifyNpmCurrency(target, metadata(["24.19.1", latest], latest), manifest);
+  it("holds a newer major beyond the declared Node build baseline", () => {
+    const held = classifyNpmCurrency(target, metadata(["24.19.1", "26.6.4"], "26.6.4"), manifest);
     assert.equal(held.status, "hold");
-    assert.equal(held.latest, latest);
-    assert.match(held.reason, /Node 24\.21\.0/u);
+    assert.equal(held.latest, "26.6.4");
+    assert.match(held.reason, /Node 24 build baseline/u);
     assert.equal(reportExitCode([held]), 0);
   });
 
-  it.each(["~24.19.1", "24.19.1"])(
-    "reports an eligible patch for %s even when a newer major is held",
+  it.each(["~24.19.1", "24.19.1", "^24.19.1"])(
+    "reports an eligible same-major update for %s even when a newer major is held",
     (requested) => {
       const result = classifyNpmCurrency(
         { ...target, requested },
@@ -469,42 +474,26 @@ describe("Node type compatibility policy", () => {
       assert.equal(result.status, "actionable");
       assert.equal(result.latest, "24.19.2");
       assert.match(result.reason, /held/u);
-      assert.equal(reportExitCode([result]), 1);
+      assert.equal(reportExitCode([result]), 0);
     }
   );
 
-  it.each(["24.20.0", "24.21.99"])(
-    "reports compatible minor %s outside the declared tilde while holding a newer major",
+  it.each(["24.20.0", "24.22.0"])(
+    "reports newer same-major minor %s without freezing behind an older Node minor floor",
     (version) => {
       const result = classifyNpmCurrency(
         target,
-        metadata(["24.19.1", version, "24.22.0", "26.6.4"], "26.6.4"),
+        metadata(["24.19.1", version, "26.6.4"], "26.6.4"),
         manifest
       );
       assert.equal(result.status, "actionable");
       assert.equal(result.latest, version);
       assert.match(result.reason, /held/u);
-      assert.equal(reportExitCode([result]), 1);
+      assert.equal(reportExitCode([result]), 0);
     }
   );
 
-  it("accepts a lock at the runtime's API minor boundary", () => {
-    const result = classifyNpmCurrency(
-      { ...target, requested: "~24.21.99", locked: "24.21.99" },
-      metadata(["24.21.99"], "24.21.99"),
-      manifest
-    );
-    assert.equal(result.status, "current");
-  });
-
-  it("does not confuse runtime patch numbers with type-package patch numbers", () => {
-    const result = classifyNpmCurrency(target, metadata(["24.19.1"], "24.19.1"), {
-      engines: { node: "^24.21.99" },
-    });
-    assert.equal(result.status, "current");
-  });
-
-  it("selects stable compatible minors independently of latest tag ordering", () => {
+  it("selects stable same-major minors independently of latest tag ordering", () => {
     const releases = metadata(
       ["24.19.0", "24.19.1", "24.20.0", "24.21.0-rc.1", "24.21.0"],
       "24.19.0"
@@ -522,15 +511,13 @@ describe("Node type compatibility policy", () => {
   });
 
   it.each([
-    { requested: "^24.19.1", locked: "24.19.1" },
-    { requested: "~24.22.0", locked: "24.22.0" },
     { requested: "~26.6.4", locked: "26.6.4" },
+    { requested: "^26.6.4", locked: "26.6.4" },
     { requested: "~22.13.17", locked: "22.13.17" },
-    { requested: "~24.19.1", locked: "24.22.0" },
     { requested: "~24.19.1", locked: "26.6.4" },
     { requested: "~24.19.1", locked: "24.20.0" },
     { requested: "~24.19.2", locked: "24.19.1" },
-  ])("refuses a declaration or lock outside the policy: %j", (change) => {
+  ])("refuses a declaration or lock outside the declared Node major: %j", (change) => {
     assert.throws(
       () =>
         classifyNpmCurrency(
@@ -538,7 +525,7 @@ describe("Node type compatibility policy", () => {
           metadata(["24.19.1", "24.22.0", "26.6.4"], "26.6.4"),
           manifest
         ),
-      /exact or tilde.*Node 24\.21\.0/u
+      /exact, tilde, or caret.*Node 24 build baseline/u
     );
   });
 
@@ -591,7 +578,7 @@ describe("Node type compatibility policy", () => {
           metadata(["26.6.4"], "26.6.4"),
           manifest
         ),
-      /exact or tilde/u
+      /exact, tilde, or caret/u
     );
   });
 
@@ -605,7 +592,7 @@ describe("Node type compatibility policy", () => {
     }
   );
 
-  it("uses the oldest declared runtime regardless of engine alternative order", () => {
+  it("uses the oldest declared runtime major regardless of engine alternative order", () => {
     const alternatives = { engines: { node: "^26.10.0 || ^24.21.0" } };
     assert.equal(
       classifyNpmCurrency(target, metadata(["24.19.1", "26.6.4"], "26.6.4"), alternatives).status,
@@ -613,7 +600,7 @@ describe("Node type compatibility policy", () => {
     );
   });
 
-  it("requires a new type major when the minimum runtime major changes", () => {
+  it("requires a new type major when the declared Node major changes", () => {
     const changedManifest = { engines: { node: "^26.10.0" } };
     const releases = metadata(["24.19.1", "26.6.4"], "26.6.4");
     assert.throws(() => classifyNpmCurrency(target, releases, changedManifest), /major 26/u);
@@ -1189,32 +1176,43 @@ describe("deterministic reporting", () => {
     },
   ];
 
-  it("prints deterministic counts and returns success for current and held rows", () => {
+  it("prints deterministic counts and returns success for current, held, and routine actionable rows", () => {
     const report = renderReport(rows);
-    assert.match(report, /current=1 actionable=0 hold=1 error=0/u);
+    assert.match(report, /current=1 actionable=0 hold=1 advisory=0 error=0/u);
     assert.ok(report.indexOf("held-package") < report.indexOf("current-package"));
     assert.equal(reportExitCode(rows), 0);
   });
 
-  it("states coverage limits and preserves runtime and build-input roles", () => {
+  it("states coverage limits, sorts advisories above routine updates, and preserves roles", () => {
     const report = renderReport([
       { ...rows[0], ecosystem: "npm runtime" },
-      { ...rows[0], ecosystem: "npm development", dependency: "lint-tool" },
+      { ...rows[0], status: "actionable", ecosystem: "npm development", dependency: "lint-tool" },
+      {
+        ...rows[0],
+        status: "advisory",
+        ecosystem: "Released advisories",
+        dependency: "v1.0.0 Windows runtime packages",
+      },
       { ...rows[1], ecosystem: "Cargo build" },
     ]);
     assert.match(report, /direct npm\/Cargo dependencies, selected derived packages/u);
     assert.match(report, /pinned build tools, and GitHub Actions/u);
     assert.match(report, /Runtime dependencies may contribute to the executable/u);
-    assert.match(report, /not a complete transitive or shipped-component inventory/u);
-    assert.match(report, /full-build npm audits and Dependabot alerts remain separate/u);
+    assert.match(report, /Routine version updates \(actionable\) exit 0/u);
+    assert.match(report, /audit:dependencies; Dependabot alerts remain separate/u);
+    assert.ok(report.indexOf("v1.0.0 Windows runtime packages") < report.indexOf("lint-tool"));
     assert.match(report, /\| npm runtime \| current-package \|/u);
     assert.match(report, /\| npm development \| lint-tool \|/u);
     assert.match(report, /\| Cargo build \| held-package \|/u);
   });
 
-  it("uses distinct nonzero codes for actionable updates and monitor errors", () => {
-    assert.equal(reportExitCode([{ status: "actionable" }]), 1);
-    assert.equal(reportExitCode([{ status: "error" }, { status: "actionable" }]), 2);
+  it("returns 0 for routine updates and distinct nonzero codes for advisories and monitor errors", () => {
+    assert.equal(reportExitCode([{ status: "actionable" }]), 0);
+    assert.equal(reportExitCode([{ status: "advisory" }, { status: "actionable" }]), 1);
+    assert.equal(
+      reportExitCode([{ status: "error" }, { status: "advisory" }, { status: "actionable" }]),
+      2
+    );
   });
 
   it("neutralizes Markdown and HTML syntax in report fields", () => {

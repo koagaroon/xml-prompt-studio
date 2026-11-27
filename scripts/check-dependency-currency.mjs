@@ -20,6 +20,7 @@ import {
   validateInstallScriptPolicy,
 } from "./lib/dependency-currency.mjs";
 import { createJsonRequester } from "./lib/dependency-requests.mjs";
+import { readOsvAuditPolicy } from "./lib/dependency-release-audit.mjs";
 import { checkReleasedDependencies } from "./lib/dependency-release.mjs";
 import { checkRolldown } from "./lib/dependency-rolldown.mjs";
 import { checkToolchains, parseRustBuildBaseline } from "./lib/dependency-toolchains.mjs";
@@ -316,8 +317,8 @@ function developmentRevision() {
   });
 }
 
-/** @param {unknown} npmLock */
-async function checkRelease(npmLock) {
+/** @param {unknown} npmLock @param {import("./lib/dependency-release-audit.mjs").OsvAuditException[]} osvExceptions */
+async function checkRelease(npmLock, osvExceptions) {
   try {
     const [cargoLock, nativeInventory, revision] = await Promise.all([
       readText(resolve(projectRoot, "src-tauri", "Cargo.lock")),
@@ -326,6 +327,7 @@ async function checkRelease(npmLock) {
     ]);
     return await checkReleasedDependencies({ npmLock, cargoLock, nativeInventory }, revision, {
       fetchGitHub: fetchGitHubJson,
+      osvExceptions,
       queryBatch: (jsonBody) =>
         requestJson("https://api.osv.dev/v1/querybatch", {
           headers: {
@@ -349,23 +351,28 @@ async function main() {
   const paths = {
     packageJson: resolve(projectRoot, "package.json"),
     packageLock: resolve(projectRoot, "package-lock.json"),
+    auditPolicy: resolve(projectRoot, "audit-ci.json"),
     npmrc: resolve(projectRoot, ".npmrc"),
     cargoManifest: resolve(projectRoot, "src-tauri", "Cargo.toml"),
     rustToolchain: resolve(projectRoot, "rust-toolchain.toml"),
   };
   let packageJson;
   let lockfile;
+  let osvExceptions;
   let npmrc;
   let cargoManifest;
   let rustToolchain;
   try {
-    [packageJson, lockfile, npmrc, cargoManifest, rustToolchain] = await Promise.all([
+    let auditPolicy;
+    [packageJson, lockfile, auditPolicy, npmrc, cargoManifest, rustToolchain] = await Promise.all([
       readJson(paths.packageJson),
       readJson(paths.packageLock),
+      readJson(paths.auditPolicy),
       readText(paths.npmrc),
       readText(paths.cargoManifest),
       readText(paths.rustToolchain),
     ]);
+    osvExceptions = readOsvAuditPolicy(auditPolicy);
   } catch (error) {
     const rows = [errorRow("Monitor", "local project metadata", "unknown", error)];
     console.log(renderReport(rows));
@@ -376,7 +383,7 @@ async function main() {
   const cargoTargets = runCargoMetadata(paths.cargoManifest).then((metadataText) =>
     collectCargoTargets(JSON.parse(metadataText))
   );
-  const releasedDependencies = checkRelease(lockfile);
+  const releasedDependencies = checkRelease(lockfile, osvExceptions);
   const rows = (
     await Promise.all([
       checkNpm(packageJson, lockfile, npmrc, cargoTargets),
