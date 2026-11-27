@@ -67,7 +67,7 @@ describe("Rolldown request-to-report classification", () => {
   it("reports an update only with valid new binding metadata", async () => {
     const rows = await inspect(() => Response.json(bindingMetadata("1.2.6")));
     assert.equal(rows[0].status, "actionable");
-    assert.equal(reportExitCode(rows), 1);
+    assert.equal(reportExitCode(rows), 0);
     assert.equal(rows[0].locked, "1.2.5");
     assert.equal(rows[0].latest, "1.2.6");
   });
@@ -177,7 +177,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
       ]
     );
     assert.match(incomplete.rows[1].reason, /unpublished native packages/u);
-    assert.equal(reportExitCode(incomplete.rows), 1);
+    assert.equal(reportExitCode(incomplete.rows), 0);
     assert.equal(restored.rows.length, 1);
     assert.equal(restored.rows[0].latest, "1.2.7");
     assert.equal(restored.rows[0].status, "actionable");
@@ -210,7 +210,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
         { missing: versions.map((version) => `${name}@${version}`) }
       );
       assert.equal(rows[0].status, update ? "actionable" : "current");
-      assert.equal(reportExitCode(rows), update ? 1 : 0);
+      assert.equal(reportExitCode(rows), 0);
       assert.match(rows[0].reason, /Build host: Windows x64 MSVC\./u);
       assert.match(rows[0].reason, /publication gaps \(informational\)/u);
       const platform = name.slice("@rolldown/binding-".length);
@@ -273,7 +273,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     if (name !== bindingName) {
       assert.equal(rows[0].status, "actionable");
       assert.equal(rows[0].latest, "1.2.6");
-      assert.equal(reportExitCode(rows), 1);
+      assert.equal(reportExitCode(rows), 0);
       assert.match(rows[0].reason, /Other-platform checks incomplete \(informational\)/u);
       assert.ok(rows[0].reason.includes(`${name.slice("@rolldown/binding-".length)}@1.2.6`));
       assert.doesNotMatch(rows[0].reason, /publication gaps/u);
@@ -308,7 +308,7 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
       releaseInventory(["1.2.5", "1.2.6"], [bindingName])
     );
     assert.equal(rows[0].status, "actionable");
-    assert.equal(reportExitCode(rows), 1);
+    assert.equal(reportExitCode(rows), 0);
     assert.equal(requests.length, 2);
     assert.ok(requests.every((identity) => identity.startsWith(`${bindingName}@`)));
   });

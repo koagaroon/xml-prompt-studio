@@ -1,6 +1,8 @@
 import { MonitorError, isRecord, parseStableSemver } from "./dependency-currency.mjs";
 
 /**
+ * @typedef {"current" | "released"} OsvAuditScope
+ * @typedef {{ id: string, ecosystem: "npm" | "crates.io", package: string, version: string, scopes: OsvAuditScope[], notes: string, expiry: string, expiresAt: number }} OsvAuditException
  * @typedef {{ ecosystem: "npm" | "crates.io", name: string, version: string }} ReleasePackage
  * @typedef {ReleasePackage & { advisories: string[] }} ReleaseAdvisoryResult
  * @typedef {{ package: { ecosystem: "npm" | "crates.io", name: string }, version: string, page_token?: string }} AdvisoryQuery
@@ -181,4 +183,130 @@ export async function queryReleaseAdvisories(packages, queryBatch) {
   }
 
   return results;
+}
+
+const OSV_EXCEPTION_KEYS = ["id", "ecosystem", "package", "version", "scopes", "notes", "expiry"];
+const OSV_SCOPES = new Set(["current", "released"]);
+
+/**
+ * @param {unknown} value
+ * @returns {OsvAuditException[]}
+ */
+export function readOsvAuditPolicy(value) {
+  if (!isRecord(value) || !Array.isArray(value.osvAllowlist)) {
+    throw new MonitorError("Audit policy must provide an osvAllowlist array.");
+  }
+  const seen = new Set();
+  return value.osvAllowlist.map((entry) => {
+    if (
+      !isRecord(entry) ||
+      Object.keys(entry).length !== OSV_EXCEPTION_KEYS.length ||
+      OSV_EXCEPTION_KEYS.some((key) => !Object.hasOwn(entry, key))
+    ) {
+      throw new MonitorError(
+        "OSV exceptions must specify exact id, ecosystem, package, version, scopes, notes, and expiry fields."
+      );
+    }
+    const { id, ecosystem, package: packageName, version, scopes, notes, expiry } = entry;
+    if (
+      typeof id !== "string" ||
+      !ADVISORY_ID.test(id) ||
+      id.includes("*") ||
+      (ecosystem !== "npm" && ecosystem !== "crates.io") ||
+      typeof packageName !== "string" ||
+      packageName.includes("*") ||
+      (ecosystem === "npm"
+        ? packageName.length > 214 || !NPM_NAME.test(packageName)
+        : packageName.length > 64 || !CRATE_NAME.test(packageName)) ||
+      typeof version !== "string" ||
+      parseStableSemver(version) === null ||
+      !Array.isArray(scopes) ||
+      scopes.length === 0 ||
+      scopes.some((scope) => typeof scope !== "string" || !OSV_SCOPES.has(scope)) ||
+      new Set(scopes).size !== scopes.length ||
+      typeof notes !== "string" ||
+      notes.trim() === "" ||
+      typeof expiry !== "string" ||
+      expiry.trim() === ""
+    ) {
+      throw new MonitorError(
+        "OSV exceptions require an exact advisory, locked package version, valid scopes, explanation, and expiry."
+      );
+    }
+    const expiresAt = Date.parse(expiry);
+    if (!Number.isFinite(expiresAt)) {
+      throw new MonitorError("OSV exceptions require a valid ISO expiry timestamp.");
+    }
+    const identity = `${id}|${ecosystem}|${packageName}@${version}`;
+    if (seen.has(identity)) {
+      throw new MonitorError(`Duplicate OSV exception: ${identity}`);
+    }
+    seen.add(identity);
+    return {
+      id,
+      ecosystem,
+      package: packageName,
+      version,
+      scopes: /** @type {OsvAuditScope[]} */ ([...scopes]),
+      notes,
+      expiry,
+      expiresAt,
+    };
+  });
+}
+
+/**
+ * @param {ReleaseAdvisoryResult[]} results
+ * @param {OsvAuditException[]} exceptions
+ * @param {OsvAuditScope} scope
+ * @param {number} [now]
+ */
+export function evaluateOsvAdvisories(results, exceptions, scope, now = Date.now()) {
+  if (!OSV_SCOPES.has(scope)) {
+    throw new MonitorError(`Invalid OSV evaluation scope: ${String(scope)}`);
+  }
+  if (!Array.isArray(exceptions)) {
+    throw new MonitorError("OSV exception policy must be an array.");
+  }
+  /** @type {Map<string, OsvAuditException>} */
+  const active = new Map();
+  for (const rule of exceptions) {
+    if (rule.scopes.includes(scope) && now < rule.expiresAt) {
+      active.set(`${rule.id}|${rule.ecosystem}|${rule.package}@${rule.version}`, rule);
+    }
+  }
+  /** @type {string[]} */
+  const accepted = [];
+  /** @type {string[]} */
+  const unaccepted = [];
+  /** @type {{ ecosystem: "npm" | "crates.io", name: string, version: string, unaccepted: string[], accepted: { id: string, expiry: string }[] }[]} */
+  const packages = [];
+
+  for (const entry of results) {
+    if (!Array.isArray(entry.advisories) || entry.advisories.length === 0) continue;
+    /** @type {string[]} */
+    const entryUnaccepted = [];
+    /** @type {{ id: string, expiry: string }[]} */
+    const entryAccepted = [];
+    for (const id of entry.advisories) {
+      const rule = active.get(`${id}|${entry.ecosystem}|${entry.name}@${entry.version}`);
+      const target = `${id}|${entry.ecosystem} ${entry.name}@${entry.version}`;
+      if (rule !== undefined) {
+        accepted.push(`${target} (expires ${rule.expiry})`);
+        entryAccepted.push({ id, expiry: rule.expiry });
+      } else {
+        unaccepted.push(target);
+        entryUnaccepted.push(id);
+      }
+    }
+    packages.push({
+      ecosystem: entry.ecosystem,
+      name: entry.name,
+      version: entry.version,
+      unaccepted: entryUnaccepted,
+      accepted: entryAccepted,
+    });
+  }
+
+  return { accepted, unaccepted, packages };
 }

@@ -84,7 +84,7 @@ describe("Tauri npm compatibility", () => {
     );
     assert.match(rows[0].reason, /match locked tauri 2\.11\.6/u);
     assert.match(rows[1].reason, /static-runtime/u);
-    assert.match(renderReport(rows), /current=0 actionable=0 hold=2 error=0/u);
+    assert.match(renderReport(rows), /current=0 actionable=0 hold=2 advisory=0 error=0/u);
     assert.equal(reportExitCode(rows), 0);
   });
 
@@ -103,7 +103,7 @@ describe("Tauri npm compatibility", () => {
       assert.equal(result.status, "actionable");
       assert.equal(result.latest, entry.patch);
       assert.match(result.reason, /held/u);
-      assert.equal(reportExitCode([result]), 1);
+      assert.equal(reportExitCode([result]), 0);
     });
 
     it(`reports ${entry.npm} as current when there is no newer stable release`, () => {
@@ -287,6 +287,6 @@ describe("Tauri npm compatibility", () => {
       assert.equal(cargoResult.status, "actionable");
       return [npmResult, cargoResult];
     });
-    assert.equal(reportExitCode(results), 1);
+    assert.equal(reportExitCode(results), 0);
   });
 });

@@ -14,6 +14,8 @@ const compilerOverrides = [
   "CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER",
 ];
 const registrySource = "registry+https://github.com/rust-lang/crates.io-index";
+const cargoTreeLine =
+  /^(?<name>[A-Za-z0-9_-]+) v(?<version>\d+\.\d+\.\d+(?:[-+][A-Za-z0-9.+-]+)?)(?: \([^)]+\))*$/u;
 const licenseChoices = new Map([
   ["0BSD OR MIT OR Apache-2.0", ["MIT"]],
   ["Unlicense OR MIT", ["MIT"]],
@@ -384,8 +386,42 @@ export function parseCargoMetadata(value) {
   return { packages, resolve: { root: string(resolve.root, "Cargo root"), nodes } };
 }
 
-/** @param {CargoMetadata} metadata */
-export function collectNativePackages(metadata) {
+/**
+ * @param {string} output
+ * @param {string} rootKey
+ * @returns {Set<string>}
+ */
+export function parseCargoRuntimeTree(output, rootKey) {
+  if (typeof output !== "string" || !output.trim() || output.length > 4 * 1024 * 1024) {
+    throw new Error("Cargo runtime tree output is missing or oversized.");
+  }
+  const lines = normalizeNativeText(output)
+    .split("\n")
+    .filter((line) => line.length > 0);
+  if (lines.length === 0) throw new Error("Cargo runtime tree output contains no packages.");
+  const keys = new Set();
+  for (const [index, line] of lines.entries()) {
+    const match = cargoTreeLine.exec(line);
+    if (!match?.groups) {
+      throw new Error(`Unsupported Cargo runtime tree line: ${line}`);
+    }
+    const key = `${match.groups.name}@${match.groups.version}`;
+    if (index === 0) {
+      if (key !== rootKey) {
+        throw new Error(`Cargo runtime tree root ${key} does not match ${rootKey}.`);
+      }
+      continue;
+    }
+    if (key !== rootKey) keys.add(key);
+  }
+  return keys;
+}
+
+/**
+ * @param {CargoMetadata} metadata
+ * @param {Set<string>} [runtimeKeys]
+ */
+export function collectNativePackages(metadata, runtimeKeys) {
   const packages = new Map(metadata.packages.map((entry) => [entry.id, entry]));
   const nodes = new Map(metadata.resolve.nodes.map((entry) => [entry.id, entry]));
   const root = metadata.resolve.root;
@@ -412,6 +448,25 @@ export function collectNativePackages(metadata) {
           todo.push({ id: dep.pkg, isRuntime: isRuntime && !isProcMacro && kind === null });
       }
   }
+  if (runtimeKeys !== undefined) {
+    if (!(runtimeKeys instanceof Set) || runtimeKeys.size === 0) {
+      throw new Error("Cargo runtime tree contains no linked runtime dependencies.");
+    }
+    const metadataRuntimeKeys = new Set(
+      [...runtime]
+        .filter((id) => id !== root)
+        .map((id) => {
+          const entry = packages.get(id);
+          if (!entry) throw new Error(`Missing resolved Cargo package: ${id}`);
+          return nativePackageKey(entry);
+        })
+    );
+    for (const key of runtimeKeys) {
+      if (!metadataRuntimeKeys.has(key)) {
+        throw new Error(`Cargo runtime tree package is absent from Cargo metadata: ${key}`);
+      }
+    }
+  }
   return [...ids]
     .filter((id) => id !== root)
     .map((id) => {
@@ -420,13 +475,17 @@ export function collectNativePackages(metadata) {
       if (!entry || !node) throw new Error(`Missing resolved Cargo package: ${id}`);
       if (!entry.license || entry.source !== registrySource)
         throw new Error(`Unreviewed Cargo license/source: ${entry.name}@${entry.version}`);
+      const isLinkedRuntime =
+        runtimeKeys === undefined
+          ? runtime.has(id)
+          : runtime.has(id) && runtimeKeys.has(nativePackageKey(entry));
       return {
         name: entry.name,
         version: entry.version,
         source: entry.source,
         license: entry.license,
         features: [...node.features].sort(),
-        usage: runtime.has(id) ? "runtime" : "build-support",
+        usage: isLinkedRuntime ? "runtime" : "build-support",
         manifestPath: entry.manifest_path,
       };
     })

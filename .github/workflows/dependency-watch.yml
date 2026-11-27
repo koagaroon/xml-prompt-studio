@@ -42,7 +42,19 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Install the pinned Rust toolchain
+        shell: pwsh
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustc --version --verbose
+
+      - name: Audit npm graphs and Windows runtime package inventory
+        run: npm run audit:dependencies
+        env:
+          RUSTUP_AUTO_INSTALL: "0"
+
       - name: Check dependency currency and released advisories
         run: npm run check:dependency-currency
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          RUSTUP_AUTO_INSTALL: "0"

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "vitest";
+import { reportExitCode } from "./dependency-currency.mjs";
+import { readOsvAuditPolicy } from "./dependency-release-audit.mjs";
 import {
   checkReleasedDependencies,
   collectReleasePackages,
@@ -151,12 +153,10 @@ describe("released Windows dependency scope", () => {
     }
   });
 
-  it("includes Vite, its resolved Rolldown and runtime crates, excludes build-only packages, and deduplicates copies", () => {
+  it("includes shipped npm runtime packages and linked runtime crates, excludes dev bundlers and build-support crates, and deduplicates copies", () => {
     assert.deepEqual(collectReleasePackages(snapshot()), [
       { ecosystem: "crates.io", name: "tauri", version: "2.0.0" },
       { ecosystem: "npm", name: "react", version: "1.0.0" },
-      { ecosystem: "npm", name: "rolldown", version: "1.2.4" },
-      { ecosystem: "npm", name: "vite", version: "8.0.0" },
     ]);
   });
 
@@ -208,10 +208,49 @@ describe("released Windows dependency scope", () => {
         };
       },
     });
-    assert.equal(result.rows[0].status, "actionable");
+    assert.equal(result.rows[0].status, "advisory");
+    assert.equal(reportExitCode(result.rows), 1);
     assert.match(result.detail, /v1\.0\.0 at a{40}/u);
     assert.match(result.detail, /npm react \| 1\.0\.0 \| 1\.0\.1/u);
     assert.match(result.detail, /https:\/\/osv\.dev\/vulnerability\/GHSA-abcd-1234-abcd/u);
+  });
+
+  it("keeps status current when unexpired released OSV exceptions cover all matches, and flags expired or current-only rules", async () => {
+    /** @param {{ queries: { package: { name: string } }[] }} payload */
+    const queryBatch = async ({ queries }) => ({
+      results: queries.map((query) =>
+        query.package.name === "tauri" ? { vulns: [{ id: "RUSTSEC-2026-0001" }] } : {}
+      ),
+    });
+    const activePolicy = readOsvAuditPolicy({
+      osvAllowlist: [
+        {
+          id: "RUSTSEC-2026-0001",
+          ecosystem: "crates.io",
+          package: "tauri",
+          version: "2.0.0",
+          scopes: ["released"],
+          notes: "Reviewed Windows-non-applicable finding.",
+          expiry: "2099-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+    const covered = await checkReleasedDependencies(snapshot(), commit, {
+      fetchGitHub,
+      queryBatch,
+      osvExceptions: activePolicy,
+    });
+    assert.equal(covered.rows[0].status, "current");
+    assert.equal(reportExitCode(covered.rows), 0);
+    assert.match(covered.detail, /accepted until 2099-01-01T00:00:00\.000Z/u);
+
+    const currentOnly = await checkReleasedDependencies(snapshot(), commit, {
+      fetchGitHub,
+      queryBatch,
+      osvExceptions: [{ ...activePolicy[0], scopes: ["current"] }],
+    });
+    assert.equal(currentOnly.rows[0].status, "advisory");
+    assert.equal(reportExitCode(currentOnly.rows), 1);
   });
 
   it("keeps release differences informational when the released advisory query is clean", async () => {
@@ -221,7 +260,7 @@ describe("released Windows dependency scope", () => {
     });
     assert.equal(result.rows[0].status, "current");
     assert.match(result.detail, /Unreleased package-version differences: 1/u);
-    assert.match(result.detail, /not a security guarantee/u);
+    assert.match(result.detail, /Unreviewed matches fail Dependency Watch/u);
   });
 
   it("reports incomplete remote evidence as an error", async () => {

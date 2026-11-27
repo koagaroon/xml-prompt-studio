@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, it, vi } from "vitest";
 import { checkAuditReport, readAuditPolicy } from "./dependency-audit.mjs";
 
@@ -351,11 +351,16 @@ describe("dependency audit policy", () => {
 });
 
 describe("audit command orchestration", () => {
-  /** @param {{output: string, status: number}} production @param {{output: string, status: number}} complete */
-  function run(production, complete) {
+  /**
+   * @param {{output: string, status: number}} production
+   * @param {{output: string, status: number}} complete
+   * @param {{ mode?: "clean" | "unaccepted" | "malformed" }} [osv]
+   */
+  function run(production, complete, osv = { mode: "clean" }) {
     const directory = mkdtempSync(join(tmpdir(), "dependency-audit-"));
     try {
       const npmCli = join(directory, "npm-fixture.mjs");
+      const osvPreload = join(directory, "osv-preload.mjs");
       writeFileSync(
         npmCli,
         `import { appendFileSync } from 'node:fs';
@@ -365,6 +370,25 @@ const cases = ${JSON.stringify({ production, complete })};
 const result = process.argv.includes('--omit=dev') ? cases.production : cases.complete;
 process.stdout.write(result.output);
 process.exitCode = result.status;
+`,
+        { encoding: "utf8", flag: "wx" }
+      );
+      writeFileSync(
+        osvPreload,
+        `import { appendFileSync } from 'node:fs';
+const osvCalls = new URL('./osv-calls.jsonl', import.meta.url);
+const mode = ${JSON.stringify(osv.mode ?? "clean")};
+globalThis.fetch = async (url, init = {}) => {
+  const payload = JSON.parse(String(init.body ?? '{}'));
+  appendFileSync(osvCalls, JSON.stringify({ url: String(url), count: payload.queries?.length ?? 0, names: (payload.queries ?? []).map((q) => q.package.name) }) + '\\n', 'utf8');
+  if (mode === 'malformed') return new Response('{', { status: 200 });
+  const results = (payload.queries ?? []).map((query) =>
+    mode === 'unaccepted' && query.package.name === 'tauri'
+      ? { vulns: [{ id: 'RUSTSEC-2099-9999' }] }
+      : {}
+  );
+  return Response.json({ results });
+};
 `,
         { encoding: "utf8", flag: "wx" }
       );
@@ -378,26 +402,36 @@ process.exitCode = result.status;
         )
           delete env[key];
       }
-      const result = spawnSync(process.execPath, [join(root, "scripts/audit-dependencies.mjs")], {
-        cwd: directory,
-        encoding: "utf8",
-        windowsHide: true,
-        timeout: 10_000,
-        env: {
-          ...env,
-          npm_execpath: npmCli,
-          npm_config_omit: "dev",
-          npm_config_include: "dev",
-          NODE_ENV: "production",
-        },
-      });
+      const result = spawnSync(
+        process.execPath,
+        ["--import", pathToFileURL(osvPreload).href, join(root, "scripts/audit-dependencies.mjs")],
+        {
+          cwd: directory,
+          encoding: "utf8",
+          windowsHide: true,
+          timeout: 10_000,
+          env: {
+            ...env,
+            npm_execpath: npmCli,
+            npm_config_omit: "dev",
+            npm_config_include: "dev",
+            NODE_ENV: "production",
+          },
+        }
+      );
       assert.equal(result.error, undefined);
       assert.ok(existsSync(join(directory, "calls.jsonl")), result.stderr || result.stdout);
       const calls = readFileSync(join(directory, "calls.jsonl"), "utf8")
         .trim()
         .split("\n")
         .map((line) => JSON.parse(line));
-      return { ...result, calls };
+      const osvCalls = existsSync(join(directory, "osv-calls.jsonl"))
+        ? readFileSync(join(directory, "osv-calls.jsonl"), "utf8")
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line))
+        : [];
+      return { ...result, calls, osvCalls };
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -405,12 +439,18 @@ process.exitCode = result.status;
 
   const clean = { output: JSON.stringify(report()), status: 0 };
 
-  it("runs production first, includes every dependency class explicitly, and resolves files from the project", () => {
+  it("runs production first, then complete npm audit, then queries OSV for linked Windows runtime packages", () => {
     const result = run(clean, clean);
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.calls.length, 2);
     assert.ok(result.calls[0].includes("--omit=dev"));
     assert.ok(result.calls[1].includes("--include=dev"));
+    assert.ok(result.osvCalls.length >= 1);
+    const queriedNames = result.osvCalls.flatMap((batch) => batch.names);
+    assert.ok(queriedNames.includes("tauri"));
+    assert.ok(queriedNames.includes("react"));
+    assert.ok(!queriedNames.includes("vite"));
+    assert.ok(!queriedNames.includes("chrono"));
     for (const call of result.calls) {
       for (const flag of [
         "--include=prod",
@@ -423,11 +463,23 @@ process.exitCode = result.status;
     }
   });
 
-  it("blocks production findings before running the complete audit", () => {
+  it("blocks production findings before running the complete audit or OSV", () => {
     const result = run({ output: JSON.stringify(stylelintReport()), status: 1 }, clean);
     assert.equal(result.status, 1);
     assert.equal(result.calls.length, 1);
+    assert.equal(result.osvCalls.length, 0);
     assert.match(result.stderr, /Unaccepted/u);
+  });
+
+  it("blocks unaccepted Windows runtime OSV findings and malformed OSV responses", () => {
+    const unaccepted = run(clean, clean, { mode: "unaccepted" });
+    assert.equal(unaccepted.status, 1);
+    assert.match(unaccepted.stderr, /Unaccepted Windows runtime OSV findings/u);
+    assert.match(unaccepted.stderr, /RUSTSEC-2099-9999\|crates\.io tauri@/u);
+
+    const malformed = run(clean, clean, { mode: "malformed" });
+    assert.equal(malformed.status, 1);
+    assert.match(malformed.stderr, /not valid JSON/u);
   });
 
   it("reports and blocks indirect-only findings from the complete audit", () => {

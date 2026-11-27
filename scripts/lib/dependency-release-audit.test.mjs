@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "vitest";
-import { RELEASE_AUDIT_LIMITS, queryReleaseAdvisories } from "./dependency-release-audit.mjs";
+import {
+  RELEASE_AUDIT_LIMITS,
+  evaluateOsvAdvisories,
+  queryReleaseAdvisories,
+  readOsvAuditPolicy,
+} from "./dependency-release-audit.mjs";
 
 /** @type {import("./dependency-release-audit.mjs").ReleasePackage[]} */
 const packages = [
@@ -339,5 +345,68 @@ describe("released-package advisory queries", () => {
         }),
       failure
     );
+  });
+});
+
+describe("OSV audit exception policy", () => {
+  const expiry = "2027-05-27T00:00:00.000Z";
+  const validEntry = {
+    id: "RUSTSEC-2026-0594",
+    ecosystem: "crates.io",
+    package: "cookie",
+    version: "0.18.2",
+    scopes: ["current", "released"],
+    notes: "POSIX fork() only; Windows desktop app does not fork or encrypt cookies.",
+    expiry,
+  };
+
+  it("validates the checked-in audit-ci.json osvAllowlist", () => {
+    const policy = JSON.parse(
+      readFileSync(new URL("../../audit-ci.json", import.meta.url), "utf8")
+    );
+    const rules = readOsvAuditPolicy(policy);
+    assert.ok(Array.isArray(rules));
+  });
+
+  it("enforces exact scope and expiry boundaries when evaluating matches", () => {
+    const rules = readOsvAuditPolicy({ osvAllowlist: [validEntry] });
+    /** @type {import("./dependency-release-audit.mjs").ReleaseAdvisoryResult[]} */
+    const results = [
+      {
+        ecosystem: "crates.io",
+        name: "cookie",
+        version: "0.18.2",
+        advisories: ["RUSTSEC-2026-0594"],
+      },
+      {
+        ecosystem: "crates.io",
+        name: "cookie",
+        version: "0.18.3",
+        advisories: ["RUSTSEC-2026-0594"],
+      },
+    ];
+    const before = evaluateOsvAdvisories(results, rules, "current", Date.parse(expiry) - 1);
+    assert.equal(before.accepted.length, 1);
+    assert.deepEqual(before.unaccepted, ["RUSTSEC-2026-0594|crates.io cookie@0.18.3"]);
+
+    const atExpiry = evaluateOsvAdvisories(results, rules, "current", Date.parse(expiry));
+    assert.deepEqual(atExpiry.accepted, []);
+    assert.equal(atExpiry.unaccepted.length, 2);
+  });
+
+  it.each([
+    ["missing osvAllowlist", {}],
+    ["wildcard advisory", { osvAllowlist: [{ ...validEntry, id: "RUSTSEC-*" }] }],
+    ["wildcard package", { osvAllowlist: [{ ...validEntry, package: "cookie*" }] }],
+    ["version range", { osvAllowlist: [{ ...validEntry, version: "^0.18.2" }] }],
+    ["empty scopes", { osvAllowlist: [{ ...validEntry, scopes: [] }] }],
+    ["duplicate scopes", { osvAllowlist: [{ ...validEntry, scopes: ["current", "current"] }] }],
+    ["unknown scope", { osvAllowlist: [{ ...validEntry, scopes: ["all"] }] }],
+    ["blank notes", { osvAllowlist: [{ ...validEntry, notes: " " }] }],
+    ["invalid expiry", { osvAllowlist: [{ ...validEntry, expiry: "never" }] }],
+    ["extra field", { osvAllowlist: [{ ...validEntry, extra: true }] }],
+    ["duplicate rule", { osvAllowlist: [validEntry, validEntry] }],
+  ])("rejects an invalid OSV policy (%s)", (_label, input) => {
+    assert.throws(() => readOsvAuditPolicy(input));
   });
 });

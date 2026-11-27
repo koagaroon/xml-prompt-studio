@@ -11,6 +11,7 @@ import {
   nativeFeatureArguments,
   nativePackageKey,
   parseCargoMetadata,
+  parseCargoRuntimeTree,
   parseNativeInventory,
   validateNativeArtifacts,
   validateNativeGraph,
@@ -48,18 +49,43 @@ if (target !== NATIVE_NOTICE_TARGET) {
     config,
     process.env.TAURI_CONFIG === undefined ? undefined : JSON.parse(process.env.TAURI_CONFIG)
   );
+  const lockFlag = args.includes("--offline") ? "--frozen" : "--locked";
+  const manifestPath = join(root, "src-tauri/Cargo.toml");
+  const featureList = features.join(",");
   const metadataArgs = [
     "metadata",
+    "--color",
+    "never",
     "--format-version",
     "1",
-    args.includes("--offline") ? "--frozen" : "--locked",
+    lockFlag,
     "--all-features",
     "--filter-platform",
     target,
     "--manifest-path",
-    join(root, "src-tauri/Cargo.toml"),
+    manifestPath,
+    "--features",
+    featureList,
   ];
-  metadataArgs.push("--features", features.join(","));
+  const treeArgs = [
+    "tree",
+    "--color",
+    "never",
+    lockFlag,
+    "--all-features",
+    "--target",
+    target,
+    "--edges",
+    "no-dev,no-build,no-proc-macro",
+    "--manifest-path",
+    manifestPath,
+    "--features",
+    featureList,
+    "--prefix",
+    "none",
+    "--format",
+    "{p}",
+  ];
   console.error(
     "Coverage profile: committed Cargo and Tauri configuration with the pinned compiler. Custom Cargo/platform configuration and extra CLI features need separate graph and license review before distribution."
   );
@@ -67,7 +93,13 @@ if (target !== NATIVE_NOTICE_TARGET) {
     `Checking locked native dependency notices for ${target}${args.includes("--offline") ? " using cached Cargo inputs" : " (Cargo may fetch locked dependency metadata)"}.`
   );
   const metadata = parseCargoMetadata(JSON.parse(execFileSync("cargo", metadataArgs, options)));
-  const packages = collectNativePackages(metadata);
+  const rootPackage = metadata.packages.find((entry) => entry.id === metadata.resolve.root);
+  if (!rootPackage) throw new Error("Missing root Cargo package in metadata.");
+  const runtimeKeys = parseCargoRuntimeTree(
+    execFileSync("cargo", treeArgs, options),
+    nativePackageKey(rootPackage)
+  );
+  const packages = collectNativePackages(metadata, runtimeKeys);
   if (args.includes("--print-inventory")) {
     const previous = parseNativeInventory(
       JSON.parse(readFileSync(join(root, "licenses/native/manifest.json"), "utf8"))

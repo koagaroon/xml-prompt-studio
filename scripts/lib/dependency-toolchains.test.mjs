@@ -156,8 +156,8 @@ describe("toolchain request-to-report classification", () => {
     assert.equal(rows[1].locked, "1.98.0");
     assert.equal(rows[1].latest, "1.99.0");
     assert.equal(rows[1].status, "actionable");
-    assert.match(rows[1].reason, /separately from the Cargo source-build minimum/u);
-    assert.equal(reportExitCode(rows), 1);
+    assert.match(rows[1].reason, /alongside Cargo's aligned rust-version/u);
+    assert.equal(reportExitCode(rows), 0);
   });
 
   it("reports a same-major npm update without a major-migration warning", async () => {
@@ -172,7 +172,7 @@ describe("toolchain request-to-report classification", () => {
       rust: [rustRelease("1.98.0")],
     });
     assert.equal(rows[0].status, "hold");
-    assert.match(rows[0].reason, /source-build minimum 24\.21\.0/u);
+    assert.match(rows[0].reason, /Node 24\.21\.0 build baseline/u);
     assert.equal(reportExitCode(rows), 0);
   });
 
@@ -201,7 +201,7 @@ describe("toolchain request-to-report classification", () => {
       packageJson: { ...manifest, engines: { node: "^26.0.0 || ^22.22.0" } },
     });
     assert.equal(rows[0].status, "hold");
-    assert.match(rows[0].reason, /minimum 22\.22\.0/u);
+    assert.match(rows[0].reason, /Node 22\.22\.0 build baseline/u);
   });
 
   it.each([
