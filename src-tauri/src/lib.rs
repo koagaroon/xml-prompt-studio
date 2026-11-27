@@ -14,7 +14,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use tauri::{LogicalSize, Manager, Size, WindowEvent};
+use tauri::webview::PageLoadEvent;
+use tauri::{LogicalSize, Manager, PhysicalPosition, PhysicalSize, Position, Size, WindowEvent};
 
 // Hard cap on the size of any XML payload sent through the IPC. Tauri's
 // channel can carry arbitrarily large strings; without a cap, a runaway
@@ -34,7 +35,8 @@ const MAX_LAUNCH_WINDOW_WIDTH: f64 = 1600.0;
 const MAX_LAUNCH_WINDOW_HEIGHT: f64 = 1100.0;
 const LAUNCH_AREA_FRACTION: f64 = 2.0 / 3.0;
 const FALLBACK_HELPER_TIMEOUT: Duration = Duration::from_secs(10);
-const STDIN_WRITER_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
+const WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(1);
+const CLOSE_ACK_TIMEOUT: Duration = Duration::from_millis(1500);
 
 #[link(name = "kernel32")]
 unsafe extern "system" {
@@ -74,64 +76,133 @@ impl StartupTiming {
     }
 }
 
+struct CloseGuardState {
+    latest_registration_seq: u64,
+    latest_unsaved_seq: u64,
+    has_unsaved_work: bool,
+    close_confirmed: bool,
+    active_listener_id: Option<u32>,
+    on_close_requested: Option<tauri::ipc::Channel<bool>>,
+    pending_ack_since: Option<Instant>,
+}
+
+impl CloseGuardState {
+    fn new() -> Self {
+        Self {
+            latest_registration_seq: 0,
+            latest_unsaved_seq: 0,
+            has_unsaved_work: false,
+            close_confirmed: false,
+            active_listener_id: None,
+            on_close_requested: None,
+            pending_ack_since: None,
+        }
+    }
+}
+
 struct CloseGuard {
-    has_unsaved_work: AtomicBool,
-    close_confirmed: AtomicBool,
-    on_close_requested: Mutex<Option<tauri::ipc::Channel<bool>>>,
+    state: Mutex<CloseGuardState>,
 }
 
 impl CloseGuard {
     fn new() -> Self {
         Self {
-            has_unsaved_work: AtomicBool::new(false),
-            close_confirmed: AtomicBool::new(false),
-            on_close_requested: Mutex::new(None),
+            state: Mutex::new(CloseGuardState::new()),
         }
     }
 
-    fn lock_listener(&self) -> MutexGuard<'_, Option<tauri::ipc::Channel<bool>>> {
-        self.on_close_requested
+    fn lock_state(&self) -> MutexGuard<'_, CloseGuardState> {
+        self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn set_has_unsaved_work(&self, has_unsaved_work: bool) {
-        self.has_unsaved_work
-            .store(has_unsaved_work, Ordering::SeqCst);
+    fn reset_for_navigation(&self) {
+        *self.lock_state() = CloseGuardState::new();
+    }
+
+    fn set_has_unsaved_work(&self, seq: u64, has_unsaved_work: bool) {
+        let mut state = self.lock_state();
+        if seq < state.latest_unsaved_seq {
+            return;
+        }
+        state.latest_unsaved_seq = seq;
+        state.has_unsaved_work = has_unsaved_work;
         if !has_unsaved_work {
-            self.close_confirmed.store(false, Ordering::SeqCst);
+            state.close_confirmed = false;
+            state.pending_ack_since = None;
         }
     }
 
     fn mark_close_confirmed(&self) {
-        self.close_confirmed.store(true, Ordering::SeqCst);
+        let mut state = self.lock_state();
+        state.close_confirmed = true;
+        state.pending_ack_since = None;
     }
 
     fn clear_close_confirmed(&self) {
-        self.close_confirmed.store(false, Ordering::SeqCst);
+        self.lock_state().close_confirmed = false;
     }
 
-    fn should_intercept_close(&self) -> bool {
-        self.has_unsaved_work.load(Ordering::SeqCst) && !self.close_confirmed.load(Ordering::SeqCst)
+    fn register_listener(&self, seq: u64, channel: tauri::ipc::Channel<bool>) {
+        let mut state = self.lock_state();
+        if seq < state.latest_registration_seq {
+            return;
+        }
+        state.latest_registration_seq = seq;
+        state.active_listener_id = Some(channel.id());
+        state.on_close_requested = Some(channel);
+        state.close_confirmed = false;
+        state.pending_ack_since = None;
     }
 
-    fn register_listener(&self, channel: tauri::ipc::Channel<bool>) {
-        *self.lock_listener() = Some(channel);
+    fn unregister_listener(&self, seq: u64, channel_id: u32) {
+        let mut state = self.lock_state();
+        state.latest_registration_seq = state.latest_registration_seq.max(seq);
+        if state.active_listener_id == Some(channel_id) {
+            state.active_listener_id = None;
+            state.on_close_requested = None;
+            state.pending_ack_since = None;
+        }
     }
 
-    // Returns false when no frontend channel is registered or delivery fails,
-    // ensuring an unmounted or broken frontend can never trap the window open.
-    fn notify_close_requested(&self) -> bool {
-        let mut slot = self.lock_listener();
-        let Some(channel) = slot.as_ref() else {
+    fn ack_close_requested(&self) {
+        self.lock_state().pending_ack_since = None;
+    }
+
+    // Returns false when clean, already confirmed, lacking a registered channel,
+    // channel send fails, or an earlier close request went unacknowledged past
+    // CLOSE_ACK_TIMEOUT — ensuring an unmounted, wedged, or crashed frontend
+    // can never trap the native window open.
+    fn intercept_close_at(&self, now: Instant) -> bool {
+        let mut state = self.lock_state();
+        if !state.has_unsaved_work || state.close_confirmed {
+            return false;
+        }
+        if let Some(since) = state.pending_ack_since {
+            if now.saturating_duration_since(since) >= CLOSE_ACK_TIMEOUT {
+                state.active_listener_id = None;
+                state.on_close_requested = None;
+                state.pending_ack_since = None;
+                return false;
+            }
+        }
+        let Some(channel) = state.on_close_requested.as_ref() else {
             return false;
         };
         if channel.send(true).is_ok() {
+            state.pending_ack_since.get_or_insert(now);
             true
         } else {
-            *slot = None;
+            state.active_listener_id = None;
+            state.on_close_requested = None;
+            state.pending_ack_since = None;
             false
         }
+    }
+
+    fn intercept_close(&self) -> bool {
+        self.intercept_close_at(Instant::now())
     }
 }
 
@@ -168,11 +239,11 @@ fn check_payload_size(len: usize) -> Result<(), String> {
 // formatMegabytes (helpers.ts) formats its size errors the same way;
 // change both or neither.
 fn format_megabytes(bytes: usize) -> String {
-    let tenths = (bytes as f64 / 100_000.0).ceil();
-    if tenths % 10.0 == 0.0 {
-        format!("{} MB", tenths / 10.0)
+    let tenths = bytes.div_ceil(100_000);
+    if tenths.is_multiple_of(10) {
+        format!("{} MB", tenths / 10)
     } else {
-        format!("{:.1} MB", tenths / 10.0)
+        format!("{}.{} MB", tenths / 10, tenths % 10)
     }
 }
 
@@ -247,15 +318,30 @@ fn show_main_window(
 
 #[tauri::command]
 fn register_close_guard(
+    seq: u64,
     on_close_requested: tauri::ipc::Channel<bool>,
     close_guard: tauri::State<'_, CloseGuard>,
 ) {
-    close_guard.register_listener(on_close_requested);
+    close_guard.register_listener(seq, on_close_requested);
 }
 
 #[tauri::command]
-fn set_has_unsaved_work(has_unsaved_work: bool, close_guard: tauri::State<'_, CloseGuard>) {
-    close_guard.set_has_unsaved_work(has_unsaved_work);
+fn unregister_close_guard(seq: u64, channel_id: u32, close_guard: tauri::State<'_, CloseGuard>) {
+    close_guard.unregister_listener(seq, channel_id);
+}
+
+#[tauri::command]
+fn set_has_unsaved_work(
+    seq: u64,
+    has_unsaved_work: bool,
+    close_guard: tauri::State<'_, CloseGuard>,
+) {
+    close_guard.set_has_unsaved_work(seq, has_unsaved_work);
+}
+
+#[tauri::command]
+fn ack_close_requested(close_guard: tauri::State<'_, CloseGuard>) {
+    close_guard.ack_close_requested();
 }
 
 #[tauri::command]
@@ -299,8 +385,16 @@ fn show_main_window_with_handle(
 }
 
 fn launch_window_size_for_work_area(work_area_size: LogicalSize<f64>) -> LogicalSize<f64> {
-    let available_width = work_area_size.width.max(1.0);
-    let available_height = work_area_size.height.max(1.0);
+    let available_width = if work_area_size.width.is_finite() {
+        work_area_size.width.max(1.0)
+    } else {
+        CONFIG_MIN_WINDOW_WIDTH
+    };
+    let available_height = if work_area_size.height.is_finite() {
+        work_area_size.height.max(1.0)
+    } else {
+        CONFIG_MIN_WINDOW_HEIGHT
+    };
     let max_width = MAX_LAUNCH_WINDOW_WIDTH.min(available_width.max(CONFIG_MIN_WINDOW_WIDTH));
     let max_height = MAX_LAUNCH_WINDOW_HEIGHT.min(available_height.max(CONFIG_MIN_WINDOW_HEIGHT));
     let area_ratio = LAUNCH_AREA_FRACTION.sqrt();
@@ -308,6 +402,34 @@ fn launch_window_size_for_work_area(work_area_size: LogicalSize<f64>) -> Logical
     let height = (available_height * area_ratio).clamp(CONFIG_MIN_WINDOW_HEIGHT, max_height);
 
     LogicalSize::new(width, height)
+}
+
+fn centered_window_position_in_work_area(
+    work_area_pos: PhysicalPosition<i32>,
+    work_area_size: PhysicalSize<u32>,
+    outer_size: PhysicalSize<u32>,
+) -> PhysicalPosition<i32> {
+    let work_w = i64::from(work_area_size.width);
+    let work_h = i64::from(work_area_size.height);
+    let win_w = i64::from(outer_size.width);
+    let win_h = i64::from(outer_size.height);
+    let origin_x = i64::from(work_area_pos.x);
+    let origin_y = i64::from(work_area_pos.y);
+
+    let centered_x = origin_x + (work_w - win_w) / 2;
+    let centered_y = origin_y + (work_h - win_h) / 2;
+    // Clamp against right/bottom first, then enforce >= work_area origin so
+    // the title bar and window controls stay reachable on compact high-DPI
+    // displays even when outer height exceeds the available work area.
+    let max_x = (origin_x + work_w - win_w).max(origin_x);
+    let max_y = (origin_y + work_h - win_h).max(origin_y);
+    let clamped_x = centered_x.clamp(origin_x, max_x);
+    let clamped_y = centered_y.clamp(origin_y, max_y);
+
+    PhysicalPosition::new(
+        clamped_x.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        clamped_y.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+    )
 }
 
 // Windows fallback for sessions where arboard cannot access the clipboard.
@@ -366,9 +488,9 @@ fn trusted_helper(name: &str, path: &Path) -> Result<PathBuf, String> {
     Ok(path.to_path_buf())
 }
 
-// Write through an anonymous pipe on a worker thread so the helper timeout
-// still applies when the child stops reading. Check the writer after the
-// child settles so a failed write cannot be reported as a successful copy.
+// Write stdin and drain stderr concurrently on worker threads so neither pipe
+// can deadlock on a full Win32 buffer and an unkillable child handle can never
+// block COPY_LIFECYCLE past WORKER_JOIN_TIMEOUT.
 fn spawn_and_pipe(
     cmd: &str,
     program: &Path,
@@ -393,31 +515,41 @@ fn spawn_and_pipe(
         .stdin
         .take()
         .ok_or_else(|| format!("{cmd}: child stdin pipe unavailable"))?;
+    let stderr_pipe = child.stderr.take();
     let writer = spawn_stdin_writer(cmd.to_string(), stdin, payload);
+    let stderr_reader = spawn_stderr_reader(stderr_pipe);
     let label = format!("{cmd} ({})", program.display());
 
     let status = match wait_for_child(&label, &mut child, FALLBACK_HELPER_TIMEOUT) {
         Ok(status) => status,
         Err(error) => {
             let writer_error = finish_stdin_writer(&label, writer).err();
-            let stderr = read_child_stderr(&mut child);
+            let stderr = finish_stderr_reader(stderr_reader);
             return Err(format_helper_run_error(error, stderr, writer_error));
         }
     };
     let writer_error = finish_stdin_writer(&label, writer).err();
+    let stderr = finish_stderr_reader(stderr_reader);
     if status.success() && writer_error.is_none() {
         return Ok(());
     }
-    if let Some(error) = writer_error {
-        return Err(error);
+    if !status.success() {
+        let primary = if stderr.is_empty() {
+            format!("{label}: exited with {status} and no stderr output.")
+        } else {
+            format!("{label}: {stderr}")
+        };
+        return Err(format_helper_run_error(
+            primary,
+            String::new(),
+            writer_error,
+        ));
     }
-
-    let stderr = read_child_stderr(&mut child);
-    Err(if stderr.is_empty() {
-        format!("{label}: exited with {status} and no stderr output.")
-    } else {
-        format!("{label}: {stderr}")
-    })
+    Err(format_helper_run_error(
+        writer_error.unwrap_or_else(|| format!("{label}: helper stdin write failed")),
+        stderr,
+        None,
+    ))
 }
 
 fn spawn_stdin_writer(
@@ -432,6 +564,7 @@ fn spawn_stdin_writer(
         stdin
             .flush()
             .map_err(|error| format!("{cmd}: failed to flush helper stdin: {error}"))?;
+        drop(stdin);
         Ok(())
     })
 }
@@ -439,10 +572,10 @@ fn spawn_stdin_writer(
 fn finish_stdin_writer(label: &str, writer: JoinHandle<Result<(), String>>) -> Result<(), String> {
     let started = Instant::now();
     while !writer.is_finished() {
-        if started.elapsed() >= STDIN_WRITER_JOIN_TIMEOUT {
+        if started.elapsed() >= WORKER_JOIN_TIMEOUT {
             return Err(format!(
                 "{label}: stdin writer did not finish after {} seconds",
-                STDIN_WRITER_JOIN_TIMEOUT.as_secs()
+                WORKER_JOIN_TIMEOUT.as_secs()
             ));
         }
         thread::sleep(Duration::from_millis(10));
@@ -528,21 +661,41 @@ fn wait_for_child(cmd: &str, child: &mut Child, timeout: Duration) -> Result<Exi
 // would load them all and ship them over IPC into the message strip.
 const STDERR_CAPTURE_LIMIT_BYTES: u64 = 4096;
 
-// Read back (a bounded head of) a stderr pipe after the child settled.
-// Decoding caveat: on Chinese
-// Windows the OEM codepage is CP936/GBK, not UTF-8, so
-// `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD. Acceptable
-// for this rare failure path. Don't "simplify" this away.
-fn read_child_stderr(child: &mut Child) -> String {
-    let Some(stderr) = child.stderr.take() else {
-        return String::new();
-    };
-    let mut bytes = Vec::new();
-    let mut limited = stderr.take(STDERR_CAPTURE_LIMIT_BYTES);
-    if limited.read_to_end(&mut bytes).is_err() {
-        return String::new();
+// Concurrently read a bounded head of stderr while draining any remainder so
+// a chatty helper (> 4 KiB) never blocks on a full pipe buffer. Decoding
+// caveat: on Chinese Windows the OEM codepage is CP936/GBK, not UTF-8, so
+// `from_utf8_lossy` may replace non-UTF-8 bytes with U+FFFD.
+fn decode_captured_stderr(bytes: &[u8]) -> String {
+    String::from_utf8_lossy(bytes).trim().to_string()
+}
+
+fn spawn_stderr_reader(stderr: Option<std::process::ChildStderr>) -> JoinHandle<String> {
+    thread::spawn(move || {
+        let Some(mut stderr) = stderr else {
+            return String::new();
+        };
+        let mut bytes = Vec::new();
+        if (&mut stderr)
+            .take(STDERR_CAPTURE_LIMIT_BYTES)
+            .read_to_end(&mut bytes)
+            .is_err()
+        {
+            return String::new();
+        }
+        let _ = std::io::copy(&mut stderr, &mut std::io::sink());
+        decode_captured_stderr(&bytes)
+    })
+}
+
+fn finish_stderr_reader(reader: JoinHandle<String>) -> String {
+    let started = Instant::now();
+    while !reader.is_finished() {
+        if started.elapsed() >= WORKER_JOIN_TIMEOUT {
+            return String::new();
+        }
+        thread::sleep(Duration::from_millis(10));
     }
-    String::from_utf8_lossy(&bytes).trim().to_string()
+    reader.join().unwrap_or_default()
 }
 
 // No BOM on purpose — see the WHY at the clip.exe callsite: clip.exe
@@ -568,16 +721,23 @@ pub fn run() {
             copy_xml_to_clipboard,
             show_main_window,
             register_close_guard,
+            unregister_close_guard,
             set_has_unsaved_work,
+            ack_close_requested,
             confirm_close_window
         ])
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && matches!(payload.event(), PageLoadEvent::Started) {
+                webview.state::<CloseGuard>().reset_for_navigation();
+            }
+        })
         .on_window_event(|window, event| {
             if window.label() != "main" {
                 return;
             }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let close_guard = window.state::<CloseGuard>();
-                if close_guard.should_intercept_close() && close_guard.notify_close_requested() {
+                if close_guard.intercept_close() {
                     api.prevent_close();
                     let _ = window.unminimize();
                     let _ = window.set_focus();
@@ -600,25 +760,50 @@ pub fn run() {
 
                 if let Some(monitor) = monitor {
                     let scale_factor = monitor.scale_factor();
-                    let work_area_size = monitor.work_area().size.to_logical::<f64>(scale_factor);
-                    let launch_size = launch_window_size_for_work_area(work_area_size);
-                    match window.set_size(Size::Logical(launch_size)) {
-                        Ok(()) => log_startup(timing.inner(), "work-area-derived size applied"),
-                        Err(error) => log_startup(
+                    if scale_factor.is_finite() && scale_factor > 0.0 {
+                        let work_area = monitor.work_area();
+                        let work_area_size = work_area.size.to_logical::<f64>(scale_factor);
+                        let launch_size = launch_window_size_for_work_area(work_area_size);
+                        match window.set_size(Size::Logical(launch_size)) {
+                            Ok(()) => log_startup(timing.inner(), "work-area-derived size applied"),
+                            Err(error) => log_startup(
+                                timing.inner(),
+                                &format!(
+                                    "work-area-derived size failed; using config size: {error}"
+                                ),
+                            ),
+                        }
+                        if let Ok(outer_size) = window.outer_size() {
+                            let target_pos = centered_window_position_in_work_area(
+                                work_area.position,
+                                work_area.size,
+                                outer_size,
+                            );
+                            match window.set_position(Position::Physical(target_pos)) {
+                                Ok(()) => log_startup(timing.inner(), "window centered"),
+                                Err(error) => log_startup(
+                                    timing.inner(),
+                                    &format!(
+                                        "window center failed; continuing uncentered: {error}"
+                                    ),
+                                ),
+                            }
+                        } else if let Err(error) = window.center() {
+                            log_startup(
+                                timing.inner(),
+                                &format!("window center failed; continuing uncentered: {error}"),
+                            );
+                        }
+                    } else {
+                        log_startup(
                             timing.inner(),
-                            &format!("work-area-derived size failed; using config size: {error}"),
-                        ),
+                            "invalid monitor scale factor; using config size",
+                        );
+                        let _ = window.center();
                     }
                 } else {
                     log_startup(timing.inner(), "monitor unavailable; using config size");
-                }
-
-                match window.center() {
-                    Ok(()) => log_startup(timing.inner(), "window centered"),
-                    Err(error) => log_startup(
-                        timing.inner(),
-                        &format!("window center failed; continuing uncentered: {error}"),
-                    ),
+                    let _ = window.center();
                 }
             } else {
                 log_startup(timing.inner(), "main window missing during setup");
@@ -655,6 +840,8 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
+    use std::sync::Arc;
 
     fn assert_size_close(actual: LogicalSize<f64>, expected_width: f64, expected_height: f64) {
         assert!(
@@ -688,6 +875,39 @@ mod tests {
         let size = launch_window_size_for_work_area(LogicalSize::new(800.0, 600.0));
 
         assert_size_close(size, CONFIG_MIN_WINDOW_WIDTH, CONFIG_MIN_WINDOW_HEIGHT);
+    }
+
+    #[test]
+    fn launch_size_handles_sub_minimum_zero_and_non_finite_work_areas() {
+        for degenerate in [
+            LogicalSize::new(500.0, 400.0),
+            LogicalSize::new(0.0, 0.0),
+            LogicalSize::new(-100.0, -50.0),
+            LogicalSize::new(f64::NAN, f64::INFINITY),
+        ] {
+            let size = launch_window_size_for_work_area(degenerate);
+            assert_size_close(size, CONFIG_MIN_WINDOW_WIDTH, CONFIG_MIN_WINDOW_HEIGHT);
+        }
+    }
+
+    #[test]
+    fn centered_window_position_keeps_title_bar_on_screen_for_compact_high_dpi_work_areas() {
+        // Normal desktop: centered symmetrically inside work area.
+        let pos = centered_window_position_in_work_area(
+            PhysicalPosition::new(0, 40),
+            PhysicalSize::new(1920, 1040),
+            PhysicalSize::new(1520, 840),
+        );
+        assert_eq!(pos, PhysicalPosition::new(200, 140));
+
+        // 1366x768 @ 150% DPI or 1920x1080 @ 200% DPI where outer height exceeds
+        // the work-area height: y must clamp to work_area.top (never negative).
+        let compact = centered_window_position_in_work_area(
+            PhysicalPosition::new(-1920, 36),
+            PhysicalSize::new(1366, 720),
+            PhysicalSize::new(1080, 837),
+        );
+        assert_eq!(compact, PhysicalPosition::new(-1777, 36));
     }
 
     #[test]
@@ -770,22 +990,96 @@ mod tests {
     #[test]
     fn close_guard_allows_immediate_close_when_clean_and_intercepts_when_dirty() {
         let guard = CloseGuard::new();
-        assert!(!guard.should_intercept_close());
+        let delivered = Arc::new(AtomicUsize::new(0));
+        let delivered_clone = Arc::clone(&delivered);
+        let channel = tauri::ipc::Channel::new(move |_| {
+            delivered_clone.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
 
-        guard.set_has_unsaved_work(true);
-        assert!(guard.should_intercept_close());
-        // Without a registered frontend channel, notify_close_requested returns
-        // false so an unmounted/broken frontend never traps the window open.
-        assert!(!guard.notify_close_requested());
+        assert!(!guard.intercept_close());
+
+        guard.set_has_unsaved_work(1, true);
+        // Without a registered frontend channel, intercept_close returns false
+        // so an unmounted/broken frontend never traps the window open.
+        assert!(!guard.intercept_close());
+
+        guard.register_listener(1, channel);
+        let now = Instant::now();
+        assert!(guard.intercept_close_at(now));
+        assert_eq!(delivered.load(Ordering::SeqCst), 1);
+
+        // Frontend acknowledges delivery; subsequent close requests continue
+        // intercepting until confirmed or cleaned.
+        guard.ack_close_requested();
+        assert!(guard.intercept_close_at(now + Duration::from_secs(5)));
+        assert_eq!(delivered.load(Ordering::SeqCst), 2);
 
         guard.mark_close_confirmed();
-        assert!(!guard.should_intercept_close());
+        assert!(!guard.intercept_close());
 
         guard.clear_close_confirmed();
-        assert!(guard.should_intercept_close());
+        assert!(guard.intercept_close());
 
-        guard.set_has_unsaved_work(false);
-        assert!(!guard.should_intercept_close());
+        guard.set_has_unsaved_work(2, false);
+        assert!(!guard.intercept_close());
+    }
+
+    #[test]
+    fn close_guard_fails_open_on_channel_error_unacked_timeout_or_unmount() {
+        let guard = CloseGuard::new();
+        guard.set_has_unsaved_work(1, true);
+
+        // 1. Failing channel clears listener and allows close immediately.
+        let failing_channel =
+            tauri::ipc::Channel::new(|_| Err(tauri::Error::Io(std::io::Error::other("broken"))));
+        guard.register_listener(1, failing_channel);
+        assert!(!guard.intercept_close());
+
+        // 2. Unacknowledged close request past CLOSE_ACK_TIMEOUT fails open on
+        // the user's retry click instead of trapping the window open.
+        let silent_channel = tauri::ipc::Channel::new(|_| Ok(()));
+        guard.register_listener(2, silent_channel);
+        let first_try = Instant::now();
+        assert!(guard.intercept_close_at(first_try));
+        assert!(!guard.intercept_close_at(first_try + CLOSE_ACK_TIMEOUT));
+
+        // 3. StrictMode / out-of-order unregister does not clobber a newer
+        // channel, whereas matching unregister and navigation reset do.
+        let first = tauri::ipc::Channel::new(|_| Ok(()));
+        let first_id = first.id();
+        let second = tauri::ipc::Channel::new(|_| Ok(()));
+        let second_id = second.id();
+        guard.register_listener(3, first);
+        guard.register_listener(4, second);
+        guard.unregister_listener(5, first_id);
+        assert!(guard.intercept_close_at(first_try));
+        guard.ack_close_requested();
+        guard.unregister_listener(6, second_id);
+        assert!(!guard.intercept_close_at(first_try));
+
+        // 4. Stale sequence numbers are ignored, and navigation resets all state.
+        let active = tauri::ipc::Channel::new(|_| Ok(()));
+        guard.register_listener(7, active);
+        guard.set_has_unsaved_work(0, false);
+        assert!(guard.intercept_close_at(first_try));
+        guard.reset_for_navigation();
+        assert!(!guard.intercept_close_at(first_try));
+    }
+
+    #[test]
+    fn close_guard_recovers_from_mutex_poison() {
+        let guard = Arc::new(CloseGuard::new());
+        let poisoned = Arc::clone(&guard);
+        assert!(thread::spawn(move || {
+            let _lock = poisoned.state.lock().unwrap();
+            panic!("simulate panic while holding CloseGuard lock");
+        })
+        .join()
+        .is_err());
+
+        guard.set_has_unsaved_work(1, true);
+        assert!(!guard.intercept_close());
     }
 
     #[test]
@@ -832,20 +1126,26 @@ mod tests {
     }
 
     fn spawn_sleeper() -> Child {
-        // `ping -n 6` ≈ 5 s of runtime, no shell needed.
-        Command::new("ping")
-            .args(["-n", "6", "127.0.0.1"])
+        use std::os::windows::process::CommandExt;
+
+        // `sort.exe` with a held anonymous stdin pipe blocks directly in
+        // ReadFile with zero network sockets and zero child subprocesses.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let sort = windows_system32_helper("sort.exe").expect("resolve Windows sort.exe");
+        let mut command = Command::new(sort);
+        command
+            .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .spawn()
-            .expect("spawn sleeper child")
+            .creation_flags(CREATE_NO_WINDOW);
+        command.spawn().expect("spawn sleeper child")
     }
 
     #[test]
     fn wait_for_child_times_out_and_terminates_a_wedged_helper() {
         let mut child = spawn_sleeper();
         let error = wait_for_child("sleeper", &mut child, Duration::from_millis(100))
-            .expect_err("a 5 s child must trip a 100 ms timeout");
+            .expect_err("a blocked child must trip a 100 ms timeout");
         assert!(error.contains("timed out"));
         // The kill path must have reaped the child — a still-running or
         // zombie child shows up as Ok(None)/Err here.
@@ -854,10 +1154,14 @@ mod tests {
 
     #[test]
     fn wait_for_child_returns_success_for_a_fast_exit() {
-        let mut child = Command::new("cmd")
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let cmd = windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe");
+        let mut child = Command::new(cmd)
             .args(["/C", "exit 0"])
             .stdout(Stdio::null())
             .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .expect("spawn fast child");
 
@@ -873,6 +1177,63 @@ mod tests {
             Ok(()) => {}
             Err(error) => panic!("stdin drain helper failed: {error}"),
         }
+    }
+
+    #[test]
+    fn spawn_and_pipe_rejects_early_zero_exit_when_large_payload_is_not_consumed() {
+        let cmd = windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe");
+        let error = spawn_and_pipe(
+            "early-zero",
+            &cmd,
+            &["/C", "exit 0"],
+            vec![b'x'; 512 * 1024],
+        )
+        .expect_err("broken pipe on unconsumed payload must not report success");
+        assert!(error.contains("failed to write helper stdin"));
+    }
+
+    #[test]
+    fn spawn_and_pipe_preserves_primary_stderr_even_when_stdin_breaks_and_caps_chatty_stderr() {
+        let cmd = windows_system32_helper("cmd.exe").expect("resolve Windows cmd.exe");
+
+        // Non-zero exit with stderr + >64 KiB unconsumed stdin: primary stderr
+        // must survive alongside the secondary stdin write failure.
+        let error = spawn_and_pipe(
+            "fail-with-stderr",
+            &cmd,
+            &["/C", "echo clipboard access denied 1>&2 & exit /b 5"],
+            vec![b'x'; 256 * 1024],
+        )
+        .expect_err("non-zero helper exit must fail");
+        assert!(
+            error.contains("clipboard access denied"),
+            "expected stderr in error, got: {error}"
+        );
+
+        // Non-zero exit with empty stderr reports exit code explicitly.
+        let silent_err = spawn_and_pipe("fail-silent", &cmd, &["/C", "exit /b 7"], Vec::new())
+            .expect_err("non-zero helper exit must fail");
+        assert!(silent_err.contains("no stderr output"));
+
+        // Chatty stderr (> 4 KiB pipe buffer) must drain without deadlocking
+        // and truncate to STDERR_CAPTURE_LIMIT_BYTES.
+        let chatty_err = spawn_and_pipe(
+            "chatty-stderr",
+            &cmd,
+            &[
+                "/C",
+                "for /L %i in (1,1,200) do @echo 0123456789abcdef0123456789abcdef0123456789abcdef 1>&2 & exit /b 3",
+            ],
+            Vec::new(),
+        )
+        .expect_err("chatty failing helper must fail promptly");
+        assert!(chatty_err.len() <= (STDERR_CAPTURE_LIMIT_BYTES as usize) + 256);
+
+        // Lossy UTF-8 decoding handles non-UTF-8 OEM bytes cleanly.
+        assert_eq!(
+            decode_captured_stderr(b"  err \xFF\xFE  "),
+            "err \u{FFFD}\u{FFFD}"
+        );
     }
 
     fn stdin_drain_command() -> (PathBuf, Vec<&'static str>) {
