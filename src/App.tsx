@@ -187,6 +187,11 @@ export default function App() {
     () => findNode(roots, selectedNodeId) ?? roots[0],
     [roots, selectedNodeId]
   );
+  const [tagComposition, setTagComposition] = useState<{ nodeId: string; draft: string } | null>(
+    null
+  );
+  const displayedTagName =
+    tagComposition?.nodeId === activeNode.id ? tagComposition.draft : activeNode.tagName;
 
   useEffect(() => {
     isTagComposingRef.current = false;
@@ -384,7 +389,7 @@ export default function App() {
       forgetPresetChipInMemory(presetMemoryRef.current, removedName);
     }
     setPresetMessage(null);
-    if (!editingChip) {
+    if (!editingChip || (!editingChip.isNew && editingChip.index === index)) {
       setChipEditMessage(null);
     }
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
@@ -393,7 +398,6 @@ export default function App() {
         return current;
       }
       if (current.index === index) {
-        setChipEditMessage(null);
         return null;
       }
       if (current.index > index) {
@@ -455,17 +459,21 @@ export default function App() {
     setChipEditMessage(null);
   };
 
-  const commitChipEdit = () => {
+  const commitChipEdit = (draftOverride?: string) => {
     if (!editingChip) {
       return;
     }
-    const trimmed = editingChip.draft.trim();
+    const sourceDraft = draftOverride !== undefined ? draftOverride : editingChip.draft;
+    const trimmed = sourceDraft.trim();
     const error = validatePresetName(
       trimmed,
       presetChips,
       editingChip.isNew ? -1 : editingChip.index
     );
     if (error) {
+      if (draftOverride !== undefined && draftOverride !== editingChip.draft) {
+        setEditingChip({ ...editingChip, draft: draftOverride });
+      }
       setChipEditMessage({ text: error, severity: "error" });
       return;
     }
@@ -486,7 +494,7 @@ export default function App() {
     setPresetMessage(null);
   };
 
-  const blurChipEdit = () => {
+  const blurChipEdit = (liveValue: string) => {
     if (!editingChip) {
       return;
     }
@@ -496,11 +504,15 @@ export default function App() {
     if (modalOpenRef.current) {
       return;
     }
-    if (editingChip.isNew && editingChip.draft.trim() === "") {
+    // Read and cap the live DOM input value directly so synchronous native
+    // `compositionend` + `blur` transitions never read a stale React closure
+    // or fail validation on uncapped IME preedit slack.
+    const capped = capCodePoints(liveValue, MAX_PRESET_NAME_LENGTH);
+    if (editingChip.isNew && capped.trim() === "") {
       cancelChipEdit();
       return;
     }
-    commitChipEdit();
+    commitChipEdit(capped);
   };
 
   const addChild = () => {
@@ -548,26 +560,24 @@ export default function App() {
   };
 
   const executeDeleteSelectedNode = (nodeId: string) => {
-    setRoots((current) => {
-      const targetNode = findNode(current, nodeId);
-      if (!targetNode) {
-        return current;
-      }
-      const parent = findParent(current, nodeId);
-      if (!parent && current.length === 1) {
-        return current;
-      }
-      const siblings = parent ? parent.children : current;
-      const nextSelected = nextSelectionAfterDelete(
-        siblings,
-        nodeId,
-        parent?.id ?? null,
-        current[0].id
-      );
-      sweepDeletedSubtreeFromMemory(presetMemoryRef.current, targetNode);
-      setSelectedNodeId(nextSelected);
-      return deleteNode(current, nodeId);
-    });
+    const targetNode = findNode(roots, nodeId);
+    if (!targetNode) {
+      return;
+    }
+    const parent = findParent(roots, nodeId);
+    if (!parent && roots.length === 1) {
+      return;
+    }
+    const siblings = parent ? parent.children : roots;
+    const nextSelected = nextSelectionAfterDelete(
+      siblings,
+      nodeId,
+      parent?.id ?? null,
+      roots[0].id
+    );
+    sweepDeletedSubtreeFromMemory(presetMemoryRef.current, targetNode);
+    setRoots((current) => deleteNode(current, nodeId));
+    setSelectedNodeId(nextSelected);
     clearMessage();
     clearFieldMessages();
   };
@@ -607,18 +617,7 @@ export default function App() {
     clearMessage();
   };
 
-  const setActiveTagName = (rawTagName: string, isComposing = false) => {
-    if (isComposing) {
-      const slackCapped = capCodePoints(
-        rawTagName,
-        MAX_TAG_NAME_LENGTH * IME_COMPOSITION_SLACK_MULTIPLIER
-      );
-      setRoots((current) =>
-        updateNode(current, activeNode.id, (node) => ({ ...node, tagName: slackCapped }))
-      );
-      clearMessage();
-      return;
-    }
+  const setActiveTagName = (rawTagName: string) => {
     const tagName = capCodePoints(rawTagName, MAX_TAG_NAME_LENGTH);
     const truncated = tagName !== rawTagName;
     setRoots((current) => updateNode(current, activeNode.id, (node) => ({ ...node, tagName })));
@@ -661,6 +660,8 @@ export default function App() {
       return;
     }
 
+    isTagComposingRef.current = false;
+    setTagComposition(null);
     setRoots((current) =>
       updateNode(current, activeNode.id, (node) => ({
         ...node,
@@ -744,6 +745,7 @@ export default function App() {
         canMoveUp={canMoveUp}
         canMoveDown={canMoveDown}
         theme={theme}
+        preserveFocusOnNoticesMouseDown={editingChip !== null}
         onNewBlank={requestNewBlank}
         onAddChild={addChild}
         onAddSibling={addSibling}
@@ -772,29 +774,46 @@ export default function App() {
           <input
             id={TAG_NAME_INPUT_ID}
             name="tagName"
-            value={activeNode.tagName}
+            value={displayedTagName}
             aria-invalid={tagNameHasIssue || undefined}
             className={cx("tag-name-input", tagNameHasIssue && "input-error")}
             onCompositionStart={() => {
               isTagComposingRef.current = true;
+              setTagComposition({ nodeId: activeNode.id, draft: activeNode.tagName });
             }}
             onCompositionEnd={(event) => {
+              const committed = event.currentTarget.value;
               isTagComposingRef.current = false;
-              setActiveTagName(event.currentTarget.value, false);
+              setTagComposition(null);
+              setActiveTagName(committed);
               clearElementLastAppliedPreset(presetMemoryRef.current, activeNode.id);
               setPresetMessage(null);
             }}
             onBlur={(event) => {
-              if (isTagComposingRef.current) {
+              if (isTagComposingRef.current || tagComposition?.nodeId === activeNode.id) {
+                const current = event.currentTarget.value;
                 isTagComposingRef.current = false;
-                setActiveTagName(event.currentTarget.value, false);
+                setTagComposition(null);
+                setActiveTagName(current);
+                clearElementLastAppliedPreset(presetMemoryRef.current, activeNode.id);
+                setPresetMessage(null);
               }
             }}
             onChange={(event) => {
               const nativeComposing = Boolean(
                 (event.nativeEvent as { isComposing?: boolean } | undefined)?.isComposing
               );
-              setActiveTagName(event.target.value, isTagComposingRef.current || nativeComposing);
+              if (isTagComposingRef.current || nativeComposing) {
+                const slackCapped = capCodePoints(
+                  event.target.value,
+                  MAX_TAG_NAME_LENGTH * IME_COMPOSITION_SLACK_MULTIPLIER
+                );
+                setTagComposition({ nodeId: activeNode.id, draft: slackCapped });
+                clearMessage();
+                return;
+              }
+              setTagComposition(null);
+              setActiveTagName(event.target.value);
               clearElementLastAppliedPreset(presetMemoryRef.current, activeNode.id);
               setPresetMessage(null);
             }}

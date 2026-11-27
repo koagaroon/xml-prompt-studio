@@ -22,7 +22,7 @@ function canRestoreFocusTo(element: HTMLElement | null): element is HTMLElement 
   if (element === document.body || element === document.documentElement) {
     return false;
   }
-  return !element.matches(":disabled");
+  return element.tabIndex >= 0 && !element.matches(":disabled");
 }
 
 // Shared modal surface for destructive confirmations and offline license text.
@@ -55,24 +55,8 @@ export function ModalDialog({
   const noticesOpen = modal?.kind === "notices";
   const confirmRequest = modal?.kind === "confirm" ? modal.request : null;
 
-  useEffect(() => {
-    overlayPressedRef.current = false;
-    overlayReleasedRef.current = false;
-    if (modalId !== null) {
-      cancelButtonRef.current?.focus();
-    }
-  }, [modalId]);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const active = document.activeElement;
-    if (!dialogRef.current?.contains(active)) {
-      cancelButtonRef.current?.focus();
-    }
-  });
-
+  // Run the open/close lifecycle effect FIRST so `previouslyFocused` is captured
+  // before the `[modalId]` effect below moves focus onto Cancel/Close.
   useEffect(() => {
     if (!isOpen) {
       return;
@@ -106,6 +90,24 @@ export function ModalDialog({
       }
     };
   }, [isOpen, ribbonRef, bodyRef, fallbackFocusId]);
+
+  useEffect(() => {
+    overlayPressedRef.current = false;
+    overlayReleasedRef.current = false;
+    if (modalId !== null) {
+      cancelButtonRef.current?.focus();
+    }
+  }, [modalId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const active = document.activeElement;
+    if (!dialogRef.current?.contains(active)) {
+      cancelButtonRef.current?.focus();
+    }
+  });
 
   if (!isOpen) {
     return null;

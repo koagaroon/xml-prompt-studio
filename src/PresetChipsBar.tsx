@@ -16,7 +16,7 @@ type PresetChipsBarProps = {
   onStartRenameChip: (index: number) => void;
   onUpdateEditingDraft: (draft: string, isComposing: boolean) => void;
   onCommitChipEdit: () => void;
-  onBlurChipEdit: () => void;
+  onBlurChipEdit: (liveValue: string) => void;
   onCancelChipEdit: () => void;
   onRemoveChip: (index: number) => void;
   onRequestResetPresets: () => void;
@@ -96,13 +96,15 @@ export function PresetChipsBar({
                     isComposingRef.current = true;
                   }}
                   onCompositionEnd={(event) => {
+                    const committed = event.currentTarget.value;
                     isComposingRef.current = false;
-                    onUpdateEditingDraft(event.currentTarget.value, false);
+                    onUpdateEditingDraft(committed, false);
                   }}
                   onChange={handleChipInputChange}
-                  onBlur={() => {
+                  onBlur={(event) => {
+                    const liveValue = event.currentTarget.value;
                     isComposingRef.current = false;
-                    onBlurChipEdit();
+                    onBlurChipEdit(liveValue);
                   }}
                   onKeyDown={handleChipInputKeyDown}
                 />
@@ -156,13 +158,15 @@ export function PresetChipsBar({
                 isComposingRef.current = true;
               }}
               onCompositionEnd={(event) => {
+                const committed = event.currentTarget.value;
                 isComposingRef.current = false;
-                onUpdateEditingDraft(event.currentTarget.value, false);
+                onUpdateEditingDraft(committed, false);
               }}
               onChange={handleChipInputChange}
-              onBlur={() => {
+              onBlur={(event) => {
+                const liveValue = event.currentTarget.value;
                 isComposingRef.current = false;
-                onBlurChipEdit();
+                onBlurChipEdit(liveValue);
               }}
               onKeyDown={handleChipInputKeyDown}
             />

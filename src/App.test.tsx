@@ -35,6 +35,9 @@ const runtime = vi.hoisted(() => ({
   effectCursor: 0,
   pendingEffects: [] as PendingEffect[],
   deferring: false,
+  strictMode: false,
+  batchDepth: 0,
+  batchDirty: false,
   scheduleRerender: () => {},
 }));
 
@@ -75,11 +78,19 @@ vi.mock("react", async (importOriginal) => {
         fiber.values[slot],
         (next: unknown) => {
           const prev = fiber.values[slot];
+          if (runtime.strictMode && typeof next === "function") {
+            // React StrictMode double-invokes state updaters to surface impure side effects.
+            void (next as (p: unknown) => unknown)(prev);
+          }
           const resolved =
             typeof next === "function" ? (next as (p: unknown) => unknown)(prev) : next;
           if (!Object.is(prev, resolved)) {
             fiber.values[slot] = resolved;
-            runtime.scheduleRerender();
+            if (runtime.batchDepth > 0) {
+              runtime.batchDirty = true;
+            } else {
+              runtime.scheduleRerender();
+            }
           }
         },
       ];
@@ -164,11 +175,13 @@ type HostProps = Record<string, unknown> & {
 };
 
 class TestElement {
+  nodeType = 1;
   tagName: string;
   props: HostProps;
   parent: TestElement | null = null;
   children: TestElement[] = [];
   textParts: string[] = [];
+  liveValue: string | undefined;
   inert = false;
   isConnected = true;
   ownerDocument: TestDocument;
@@ -176,6 +189,7 @@ class TestElement {
   constructor(tagName: string, props: HostProps, ownerDocument: TestDocument) {
     this.tagName = tagName.toUpperCase();
     this.props = props;
+    this.liveValue = typeof props.value === "string" ? props.value : undefined;
     this.ownerDocument = ownerDocument;
   }
 
@@ -202,6 +216,9 @@ class TestElement {
   }
 
   get value(): string {
+    if (this.liveValue !== undefined) {
+      return this.liveValue;
+    }
     return typeof this.props.value === "string" ? this.props.value : "";
   }
 
@@ -210,8 +227,22 @@ class TestElement {
     return `${this.textParts.join("")}${childText}`;
   }
 
+  isInert(): boolean {
+    if (this.inert) {
+      return true;
+    }
+    let cursor = this.parent;
+    while (cursor) {
+      if (cursor.inert) {
+        return true;
+      }
+      cursor = cursor.parent;
+    }
+    return false;
+  }
+
   focus(): void {
-    if (!this.isConnected || this.disabled) {
+    if (!this.isConnected || this.disabled || this.isInert()) {
       return;
     }
     const previous = this.ownerDocument.activeElement;
@@ -258,6 +289,10 @@ class TestElement {
 
   getClientRects(): Array<{ width: number; height: number }> {
     return this.isConnected ? [{ width: 100, height: 24 }] : [];
+  }
+
+  getAttributeNames(): string[] {
+    return [];
   }
 
   querySelectorAll(selector: string): TestElement[] {
@@ -355,6 +390,13 @@ function createHarness(options: { strictMode?: boolean } = {}) {
   let isRendering = false;
   let dirtyDuringRender = false;
   let unmounted = false;
+  runtime.fibers.clear();
+  runtime.seenPaths.clear();
+  runtime.pendingEffects = [];
+  runtime.deferring = false;
+  runtime.strictMode = Boolean(options.strictMode);
+  runtime.batchDepth = 0;
+  runtime.batchDirty = false;
 
   const buildTree = (
     node: ReactNode,
@@ -380,7 +422,7 @@ function createHarness(options: { strictMode?: boolean } = {}) {
     if (!isValidElement<HostProps>(node)) {
       return [];
     }
-    const keyPart = node.key !== null ? String(node.key) : path;
+    const keyPart = node.key !== null ? `${path}[${String(node.key)}]` : path;
     if (typeof node.type === "function") {
       const fn = node.type as (props: HostProps) => ReactNode;
       const fiberKey = `${keyPart}:${fn.name || "Component"}`;
@@ -419,6 +461,7 @@ function createHarness(options: { strictMode?: boolean } = {}) {
         ? existing
         : new TestElement(hostTag, node.props, doc);
     element.props = node.props;
+    element.liveValue = typeof node.props.value === "string" ? node.props.value : undefined;
     element.parent = parent;
     element.children = [];
     element.textParts = [];
@@ -581,8 +624,21 @@ function createHarness(options: { strictMode?: boolean } = {}) {
       runtime.deferring = false;
       commitRender();
     },
+    batch(fn: () => void) {
+      runtime.batchDepth += 1;
+      try {
+        fn();
+      } finally {
+        runtime.batchDepth -= 1;
+        if (runtime.batchDepth === 0 && runtime.batchDirty) {
+          runtime.batchDirty = false;
+          commitRender();
+        }
+      }
+    },
     unmount() {
       unmounted = true;
+      runtime.strictMode = false;
       for (const binding of attachedRefs.values()) {
         binding.refObj.current = null;
       }
@@ -617,20 +673,53 @@ function createHarness(options: { strictMode?: boolean } = {}) {
     byClass(token: string): TestElement[] {
       return allNodes.filter((el) => el.className.split(/\s+/u).includes(token));
     },
-    async click(target: TestElement, button = 0) {
-      if (target.disabled) {
+    clickSync(target: TestElement, button = 0) {
+      if (target.disabled || target.isInert()) {
         return;
       }
-      const down = bubble(target, "onMouseDown", { button });
-      if (button === 0 && !down.defaultPrevented) {
-        if (["BUTTON", "INPUT", "TEXTAREA"].includes(target.tagName)) {
-          target.focus();
-        } else if (doc.activeElement !== doc.body) {
-          doc.activeElement.blur();
+      this.batch(() => {
+        const down = bubble(target, "onMouseDown", { button });
+        if (button === 0 && !down.defaultPrevented) {
+          if (["BUTTON", "INPUT", "TEXTAREA"].includes(target.tagName)) {
+            target.focus();
+          } else if (doc.activeElement !== doc.body) {
+            doc.activeElement.blur();
+          }
         }
+        bubble(target, "onMouseUp", { button });
+        if (button === 0) {
+          let cursor: TestElement | null = target;
+          while (cursor) {
+            if (typeof cursor.props.onClick === "function") {
+              void cursor.props.onClick({
+                target,
+                currentTarget: cursor,
+                button: 0,
+                preventDefault: () => {},
+              });
+            }
+            cursor = cursor.parent;
+          }
+        }
+      });
+    },
+    async click(target: TestElement, button = 0) {
+      if (target.disabled || target.isInert()) {
+        return;
       }
-      bubble(target, "onMouseUp", { button });
+      this.clickSync(target, button);
       if (button === 0) {
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 0);
+        });
+      }
+    },
+    async activateViaKeyboard(target: TestElement) {
+      if (target.disabled || target.isInert()) {
+        return;
+      }
+      this.batch(() => {
+        target.focus();
         let cursor: TestElement | null = target;
         while (cursor) {
           if (typeof cursor.props.onClick === "function") {
@@ -638,54 +727,41 @@ function createHarness(options: { strictMode?: boolean } = {}) {
               target,
               currentTarget: cursor,
               button: 0,
+              detail: 0,
               preventDefault: () => {},
             });
           }
           cursor = cursor.parent;
         }
-        await new Promise<void>((resolve) => {
-          setTimeout(resolve, 0);
-        });
-      }
-    },
-    async activateViaKeyboard(target: TestElement) {
-      if (target.disabled) {
-        return;
-      }
-      target.focus();
-      let cursor: TestElement | null = target;
-      while (cursor) {
-        if (typeof cursor.props.onClick === "function") {
-          void cursor.props.onClick({
-            target,
-            currentTarget: cursor,
-            button: 0,
-            detail: 0,
-            preventDefault: () => {},
-          });
-        }
-        cursor = cursor.parent;
-      }
+      });
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0);
       });
     },
     type(target: TestElement, value: string, isComposing = false) {
-      target.focus();
-      target.props.onChange?.({
-        target: { value },
-        currentTarget: { value },
-        nativeEvent: { isComposing },
+      this.batch(() => {
+        target.focus();
+        target.liveValue = value;
+        target.props.onChange?.({
+          target,
+          currentTarget: target,
+          nativeEvent: { isComposing },
+        });
       });
     },
     composeStart(target: TestElement) {
-      target.focus();
-      target.props.onCompositionStart?.({ target, currentTarget: target });
+      this.batch(() => {
+        target.focus();
+        target.props.onCompositionStart?.({ target, currentTarget: target });
+      });
     },
     composeEnd(target: TestElement, value: string) {
-      target.props.onCompositionEnd?.({
-        target: { value },
-        currentTarget: { value },
+      this.batch(() => {
+        target.liveValue = value;
+        target.props.onCompositionEnd?.({
+          target,
+          currentTarget: target,
+        });
       });
     },
     keyDown(
@@ -908,14 +984,39 @@ describe("ModalDialog focus management, backdrop gestures, and modal replacement
     expect(body.inert).toBe(false);
     expect(view.doc.activeElement).toBe(tagInput);
 
+    // Restores focus cleanly to non-fallback controls (#text-content-input and Licenses)
+    // and enforces `inert` on background controls while a modal is open!
+    const textArea = view.byName("textContent");
+    textArea.focus();
+    expect(view.doc.activeElement).toBe(textArea);
+    await view.click(view.button("New Blank"));
+    // Background controls inside inert regions ignore focus/click while modal is open:
+    tagInput.focus();
+    expect(view.doc.activeElement).toBe(view.button("Cancel"));
+    view.clickSync(view.button("Add Sibling"));
+    expect(view.byClass("element-row")).toHaveLength(1);
+    // Integrated Tab / Shift+Tab wraps inside ModalDialog:
+    expect(view.keyDown(view.button("Cancel"), "Tab", { shiftKey: true }).defaultPrevented).toBe(
+      true
+    );
+    expect(view.doc.activeElement).toBe(view.button("Confirm"));
+    expect(view.keyDown(view.button("Confirm"), "Tab").defaultPrevented).toBe(true);
+    expect(view.doc.activeElement).toBe(view.button("Cancel"));
+    await view.click(view.button("Cancel"));
+    expect(view.doc.activeElement).toBe(textArea);
+
+    // Keyboard activation of Licenses -> Escape restores focus to the Licenses button itself!
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Offline notices")));
+    const licensesBtn = view.byLabel("Third-party licenses");
+    await view.activateViaKeyboard(licensesBtn);
+    expect(view.doc.activeElement).toBe(view.button("Close"));
+    view.keyDown(view.button("Close"), "Escape", { keyCode: 27 });
+    expect(view.doc.activeElement).toBe(licensesBtn);
+
     // When opened with document.body focused, closing falls back to #tag-name-input.
     view.doc.activeElement = view.doc.body;
     await view.click(view.button("New Blank"));
-    // Actually test body-focused open by triggering close-guard directly:
     await view.click(view.button("Cancel"));
-    view.doc.activeElement = view.doc.body;
-    await view.click(view.byLabel("Third-party licenses"));
-    await view.click(view.button("Close"));
     expect(view.doc.activeElement.id).toBe("tag-name-input");
   });
 
@@ -1051,6 +1152,29 @@ describe("tree authoring, delete confirmations, selection messages, and ceilings
       view.nodes.some((el) => el.textContent === "Tag name reached the 32-character limit.")
     ).toBe(false);
   });
+
+  it("enforces MAX_DEPTH (256) and MAX_SIBLINGS (1000) tree ceilings without crashing", () => {
+    const depthView = createHarness({ strictMode: true });
+    const addChildBtn = depthView.button("Add Child");
+    for (let d = 0; d < 256; d++) {
+      depthView.clickSync(addChildBtn);
+    }
+    depthView.clickSync(addChildBtn);
+    expect(depthView.byClass("message-strip")[0]?.textContent).toBe(
+      "Element nesting depth limit reached (256)."
+    );
+
+    const siblingView = createHarness();
+    const addSiblingBtn = siblingView.button("Add Sibling");
+    for (let s = 1; s < 1000; s++) {
+      siblingView.clickSync(addSiblingBtn);
+    }
+    expect(siblingView.byClass("element-row")).toHaveLength(1000);
+    siblingView.clickSync(addSiblingBtn);
+    expect(siblingView.byClass("message-strip")[0]?.textContent).toBe(
+      "Sibling count limit reached (1000)."
+    );
+  });
 });
 
 describe("IME composition preedit safety and preset chip workflows", () => {
@@ -1129,22 +1253,56 @@ describe("IME composition preedit safety and preset chip workflows", () => {
     expect(view.nodes.some((el) => el.textContent === "Chip name cannot be empty.")).toBe(true);
     view.keyDown(view.byLabel("Name the new preset chip"), "Escape", { keyCode: 27 });
 
-    // Editing "feedback" -> "temp" and clicking Reset -> Cancel MUST NOT commit "temp" or wipe history!
+    // Editing "feedback" -> "temp" and clicking Reset / New Blank / Delete / Licenses -> Cancel/Close
+    // MUST NOT commit "temp" to storage or lose focus on the active chip editor!
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Notice body")));
     await view.click(chipButtons()[0]!);
     const renameInput = view.byLabel("Rename preset feedback");
     view.type(renameInput, "temp");
-    await view.click(view.button("Reset"));
-    expect(view.nodes.some((el) => el.textContent === "Restore default preset chips?")).toBe(true);
-    await view.click(view.button("Cancel"));
-    expect(storage.store.get(PRESET_CHIPS_STORAGE_KEY)).toBeUndefined();
-    expect(view.byLabel("Rename preset feedback").value).toBe("temp");
+    for (const modalTrigger of [
+      () => view.button("Reset"),
+      () => view.button("New Blank"),
+      () => view.button("Delete"),
+      () => view.byLabel("Third-party licenses"),
+    ]) {
+      await view.click(modalTrigger());
+      expect(view.nodes.some((el) => el.props.role === "dialog")).toBe(true);
+      const dismissBtn = view.buttons("Cancel")[0] ?? view.button("Close");
+      await view.click(dismissBtn);
+      expect(storage.store.get(PRESET_CHIPS_STORAGE_KEY)).toBeUndefined();
+      expect(view.byLabel("Rename preset feedback").value).toBe("temp");
+      expect(view.doc.activeElement).toBe(view.byLabel("Rename preset feedback"));
+    }
 
     // Clicking Cog exits edit mode and discards the uncommitted rename cleanly.
     await view.click(view.byLabel("Exit chip edit mode"));
     expect(chipButtons().map((el) => el.textContent)).toEqual([...DEFAULT_PRESET_CHIPS]);
 
-    // Removing a sibling chip while editing keeps the active rename input and shifts its index.
+    // Synchronous native `compositionend` + `blur` in a single event batch commits the IME text
+    // instead of reading a stale empty `editingChip.draft`, and `blur` before `compositionend`
+    // caps oversized preedit to 24 characters instead of failing length validation!
     await view.click(view.byLabel("Edit preset chips"));
+    await view.click(view.byLabel("Add preset chip"));
+    const syncImeInput = view.byLabel("Name the new preset chip");
+    view.composeStart(syncImeInput);
+    view.type(syncImeInput, "shuoming", true);
+    view.batch(() => {
+      view.composeEnd(syncImeInput, "说明");
+      view.byName("tagName").focus();
+    });
+    expect(chipButtons().map((el) => el.textContent)).toContain("说明");
+
+    await view.click(view.byLabel("Add preset chip"));
+    const preeditBlurInput = view.byLabel("Name the new preset chip");
+    view.composeStart(preeditBlurInput);
+    view.type(preeditBlurInput, "段".repeat(30), true);
+    view.byName("tagName").focus();
+    expect(chipButtons().map((el) => el.textContent)).toContain("段".repeat(24));
+
+    await view.click(view.byLabel("Remove preset 说明"));
+    await view.click(view.byLabel(`Remove preset ${"段".repeat(24)}`));
+
+    // Removing a sibling chip while editing keeps the active rename input and shifts its index.
     await view.click(chipButtons()[1]!); // rename "question" (index 1)
     view.type(view.byLabel("Rename preset question"), "prompt_goal");
     await view.click(view.byLabel("Remove preset feedback")); // remove index 0
