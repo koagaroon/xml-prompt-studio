@@ -54,6 +54,8 @@ if (target !== NATIVE_NOTICE_TARGET) {
   const featureList = features.join(",");
   const metadataArgs = [
     "metadata",
+    "--color",
+    "never",
     "--format-version",
     "1",
     lockFlag,
@@ -67,6 +69,8 @@ if (target !== NATIVE_NOTICE_TARGET) {
   ];
   const treeArgs = [
     "tree",
+    "--color",
+    "never",
     lockFlag,
     "--all-features",
     "--target",
