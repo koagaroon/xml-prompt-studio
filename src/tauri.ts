@@ -3,7 +3,13 @@
 // whatever internal marker Tauri uses across versions.
 
 import { Channel, invoke, isTauri } from "@tauri-apps/api/core";
-import { MAX_XML_BYTES, exceedsByteCap, formatMegabytes, hasLoneSurrogate } from "./helpers";
+import {
+  MAX_XML_BYTES,
+  exceedsByteCap,
+  formatMegabytes,
+  hasLoneSurrogate,
+  utf8ByteLength,
+} from "./helpers";
 
 function isTauriEnvironment(): boolean {
   return typeof window !== "undefined" && isTauri();
@@ -11,6 +17,8 @@ function isTauriEnvironment(): boolean {
 
 let mainWindowShowRequested = false;
 let browserHasUnsavedWork = false;
+let closeGuardSeq = 0;
+let unsavedWorkSeq = 0;
 
 function logStartup(message: string): void {
   if (import.meta.env.DEV) {
@@ -55,6 +63,7 @@ export function requestMainWindowShowAfterFirstPaint(): void {
         logStartup("show command completed");
       })
       .catch((error: unknown) => {
+        mainWindowShowRequested = false;
         logStartup(
           `show command failed: ${error instanceof Error ? error.message : String(error)}`
         );
@@ -62,25 +71,10 @@ export function requestMainWindowShowAfterFirstPaint(): void {
   });
 }
 
-export function registerMainWindowCloseGuard(onCloseRequested: () => void): () => void {
-  if (isTauriEnvironment()) {
-    const onCloseChannel = new Channel<boolean>(() => {
-      onCloseRequested();
-    });
-    void invoke("register_close_guard", { onCloseRequested: onCloseChannel }).catch(
-      (error: unknown) => {
-        logStartup(
-          `close-guard registration failed: ${error instanceof Error ? error.message : String(error)}`
-        );
-      }
-    );
-    return () => {};
-  }
-
+function attachBeforeUnloadGuard(): () => void {
   if (typeof window === "undefined" || typeof window.addEventListener !== "function") {
     return () => {};
   }
-
   const handleBeforeUnload = (event: BeforeUnloadEvent) => {
     if (browserHasUnsavedWork) {
       event.preventDefault();
@@ -92,12 +86,52 @@ export function registerMainWindowCloseGuard(onCloseRequested: () => void): () =
   };
 }
 
+export function registerMainWindowCloseGuard(onCloseRequested: () => void): () => void {
+  // Attach `beforeunload` in both browser and Tauri modes so accidental
+  // F5 / Ctrl+R reloads in WebView2 cannot silently discard unsaved work.
+  // Confirmed window closes clear `browserHasUnsavedWork` beforehand.
+  const removeBeforeUnload = attachBeforeUnloadGuard();
+
+  if (isTauriEnvironment()) {
+    let disposed = false;
+    const seq = ++closeGuardSeq;
+    const onCloseChannel = new Channel<boolean>(() => {
+      if (disposed) {
+        return;
+      }
+      void invoke("ack_close_requested").catch(() => {});
+      onCloseRequested();
+    });
+    void invoke("register_close_guard", {
+      seq,
+      onCloseRequested: onCloseChannel,
+    }).catch((error: unknown) => {
+      logStartup(
+        `close-guard registration failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    });
+    return () => {
+      disposed = true;
+      onCloseChannel.onmessage = () => {};
+      removeBeforeUnload();
+      const unregisterSeq = ++closeGuardSeq;
+      void invoke("unregister_close_guard", {
+        seq: unregisterSeq,
+        channelId: onCloseChannel.id,
+      }).catch(() => {});
+    };
+  }
+
+  return removeBeforeUnload;
+}
+
 export function setMainWindowUnsavedWork(hasUnsavedWork: boolean): void {
   browserHasUnsavedWork = hasUnsavedWork;
   if (!isTauriEnvironment()) {
     return;
   }
-  void invoke("set_has_unsaved_work", { hasUnsavedWork }).catch((error: unknown) => {
+  const seq = ++unsavedWorkSeq;
+  void invoke("set_has_unsaved_work", { seq, hasUnsavedWork }).catch((error: unknown) => {
     logStartup(
       `set_has_unsaved_work failed: ${error instanceof Error ? error.message : String(error)}`
     );
@@ -105,13 +139,22 @@ export function setMainWindowUnsavedWork(hasUnsavedWork: boolean): void {
 }
 
 export async function confirmMainWindowClose(): Promise<void> {
+  const previousUnsavedWork = browserHasUnsavedWork;
   browserHasUnsavedWork = false;
   if (isTauriEnvironment()) {
-    await invoke("confirm_close_window");
+    try {
+      await invoke("confirm_close_window");
+    } catch (error) {
+      browserHasUnsavedWork = previousUnsavedWork;
+      throw error;
+    }
     return;
   }
   if (typeof window !== "undefined" && typeof window.close === "function") {
     window.close();
+    if (!window.closed) {
+      browserHasUnsavedWork = previousUnsavedWork;
+    }
   }
 }
 
@@ -132,7 +175,7 @@ export async function copyXmlToClipboard(xml: string): Promise<void> {
   }
 
   if (exceedsByteCap(xml, MAX_XML_BYTES)) {
-    const bytes = new TextEncoder().encode(xml).length;
+    const bytes = utf8ByteLength(xml);
     throw new Error(
       `XML payload too large to copy (${formatMegabytes(bytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
     );

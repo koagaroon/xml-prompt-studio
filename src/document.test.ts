@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createBlankDocument,
   createNode,
@@ -9,6 +9,11 @@ import {
   updateNode,
 } from "./document";
 import type { XmlNode } from "./types";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 // Hand-built fixture forest:
 //   <alpha>            (top-level)
@@ -53,56 +58,52 @@ describe("updateNode", () => {
     expect(findNode(next, beta.id)?.tagName).toBe("renamed");
   });
 
-  it("applies the updater to a nested node without touching siblings", () => {
-    const { roots, grandchild, childA } = fixtureForest();
+  it("applies the updater to a nested node while preserving untouched sibling references", () => {
+    const { roots, beta, grandchild, childA } = fixtureForest();
     const next = updateNode(roots, grandchild.id, (node) => ({
       ...node,
       textContent: "hello",
     }));
     expect(findNode(next, grandchild.id)?.textContent).toBe("hello");
     expect(findNode(next, childA.id)?.textContent).toBe("");
+    expect(next[1]).toBe(beta);
+    expect(findNode(next, childA.id)).toBe(childA);
   });
 
-  it("returns a fully cloned structural no-op when the id matches nothing", () => {
-    // Pins the clone-always shape moveNode's missing-id test cites as
-    // its reference contract — without this, a short-circuit refactor
-    // here would break that citation with zero failures.
+  it("returns the exact same forest reference when the id matches nothing", () => {
     const { roots } = fixtureForest();
     const next = updateNode(roots, "missing-id", (node) => ({
       ...node,
       tagName: "never-applied",
     }));
-    expect(next).not.toBe(roots);
-    expect(next[0]).not.toBe(roots[0]);
-    expect(next).toEqual(roots);
+    expect(next).toBe(roots);
   });
 });
 
 describe("deleteNode", () => {
-  it("deletes a top-level section, leaving the rest of the forest", () => {
+  it("deletes a top-level section, leaving surviving root references intact", () => {
     const { roots, alpha, beta } = fixtureForest();
     const next = deleteNode(roots, alpha.id);
     expect(next).toHaveLength(1);
-    expect(next[0].id).toBe(beta.id);
+    expect(next[0]).toBe(beta);
   });
 
-  it("deletes a nested node including its subtree, leaving siblings intact", () => {
+  it("deletes a nested node including its subtree, leaving untouched trees intact", () => {
     const { roots, alpha, beta, childA, childB, grandchild } = fixtureForest();
     const next = deleteNode(roots, childB.id);
     expect(findNode(next, childB.id)).toBeNull();
     expect(findNode(next, grandchild.id)).toBeNull();
-    // Survivor integrity: only the targeted subtree disappears.
+    // Survivor integrity: only the targeted subtree disappears, and untouched siblings share references.
     expect(next.map((root) => root.id)).toEqual([alpha.id, beta.id]);
-    expect(findNode(next, alpha.id)?.children.map((child) => child.id)).toEqual([childA.id]);
+    expect(next[1]).toBe(beta);
+    expect(findNode(next, alpha.id)?.children).toEqual([childA]);
+    expect(findNode(next, childA.id)).toBe(childA);
   });
 
-  it("returns a fully cloned structural no-op when the id matches nothing", () => {
-    // Same clone-always contract as updateNode — see that test's note.
+  it("returns the exact same forest reference when the id matches nothing", () => {
     const { roots } = fixtureForest();
     const next = deleteNode(roots, "missing-id");
-    expect(next).not.toBe(roots);
-    expect(next[0]).not.toBe(roots[0]);
-    expect(next).toEqual(roots);
+    expect(next).toBe(roots);
   });
 });
 
@@ -127,24 +128,18 @@ describe("moveNode", () => {
     expect(moveNode(roots, alpha.id, -1)).toBe(roots);
   });
 
-  it("preserves the containing parent's reference when a nested move hits the boundary", () => {
+  it("returns the SAME forest reference when a nested move hits the boundary", () => {
     const { roots, childB } = fixtureForest();
-    // childB is the last child — moving it down has no swap target.
-    // toBe (reference identity), not toEqual: moveNodeInTree returns the
-    // containing parent unchanged on a no-op, pinning the subtree
-    // short-circuit. Scope of the contract: sibling roots ARE cloned by
-    // the top-level map, and App's canMove guard prevents no-op calls
-    // from reaching setRoots — so only the containing parent's identity
-    // is promised here, not the whole forest's.
     const next = moveNode(roots, childB.id, 1);
-    expect(next[0]).toBe(roots[0]);
+    expect(next).toBe(roots);
   });
 
-  it("reorders nested siblings", () => {
-    const { roots, alpha, childA, childB } = fixtureForest();
+  it("reorders nested siblings while preserving untouched root references", () => {
+    const { roots, alpha, beta, childA, childB } = fixtureForest();
     const next = moveNode(roots, childB.id, -1);
     const movedParent = findNode(next, alpha.id);
     expect(movedParent?.children.map((child) => child.id)).toEqual([childB.id, childA.id]);
+    expect(next[1]).toBe(beta);
   });
 
   it("reorders nested siblings downward (+1)", () => {
@@ -154,17 +149,23 @@ describe("moveNode", () => {
     expect(movedParent?.children.map((child) => child.id)).toEqual([childB.id, childA.id]);
   });
 
-  it("returns a fully cloned structural no-op when the id matches nothing", () => {
+  it("returns the SAME forest reference when the id matches nothing", () => {
     const { roots } = fixtureForest();
     const next = moveNode(roots, "missing-id", -1);
-    // Pins the documented fall-through contract in document.ts: the
-    // missing-id case keeps the clone-always shape of updateNode /
-    // deleteNode — deliberately NOT reorder's same-reference boundary
-    // contract. A refactor "harmonizing" it to return roots unchanged
-    // must fail here.
-    expect(next).not.toBe(roots);
-    expect(next[0]).not.toBe(roots[0]);
-    expect(next).toEqual(roots);
+    expect(next).toBe(roots);
+  });
+});
+
+describe("createNode ID fallback", () => {
+  it("falls back to Math.random and warns at most once when crypto.randomUUID is absent", () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("crypto", {});
+
+    const first = createNode("a");
+    const second = createNode("b");
+    expect(first.id).toMatch(/^node-[a-z0-9]+$/u);
+    expect(second.id).toMatch(/^node-[a-z0-9]+$/u);
+    expect(warnSpy).toHaveBeenCalledOnce();
   });
 });
 

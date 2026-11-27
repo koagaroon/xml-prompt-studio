@@ -22,6 +22,7 @@ import {
   salvagePresetChips,
   splitPreviewLineLead,
   truncate,
+  utf8ByteLength,
   validatePresetName,
 } from "./helpers";
 import type { XmlNode } from "./types";
@@ -244,13 +245,25 @@ describe("salvagePresetChips", () => {
   });
 });
 
-describe("exceedsByteCap", () => {
-  // The first two fixtures are short-circuit-ELIGIBLE (length×3 ≤ cap),
-  // but the assertions pin only the boolean verdict — whether the cheap
-  // path or TextEncoder produced it is an internal detail the titles
-  // deliberately don't claim.
-  it("returns false for clearly under-cap values", () => {
+describe("exceedsByteCap and utf8ByteLength", () => {
+  it("matches TextEncoder byte counts across ASCII, BMP, astral pairs, and lone surrogates", () => {
+    for (const sample of [
+      "",
+      "plain ascii",
+      "café résumé",
+      "中文提示词",
+      "🦀👨‍💻🇺🇸👍🏽",
+      "lone-\uD800-high",
+      "lone-\uDC00-low",
+      "trailing-\uD800",
+    ]) {
+      expect(utf8ByteLength(sample)).toBe(new TextEncoder().encode(sample).length);
+    }
+  });
+
+  it("returns false for clearly under-cap values and true for clearly over-cap lengths", () => {
     expect(exceedsByteCap("abc", 9)).toBe(false);
+    expect(exceedsByteCap("abcdefghij", 9)).toBe(true);
   });
 
   it("returns false when length*3 equals the cap exactly", () => {
@@ -258,11 +271,13 @@ describe("exceedsByteCap", () => {
     expect(exceedsByteCap("中中中中", 12)).toBe(false);
   });
 
-  it("measures precisely when the 3x bound cannot decide — both verdicts", () => {
-    // "中中中a" = 10 UTF-8 bytes, length 4 → 4×3 = 12 > cap in both
-    // cases, so the TextEncoder path must run and decide.
+  it("measures precisely when neither O(1) length bound decides — both verdicts", () => {
+    // "中中中a" = 10 UTF-8 bytes, length 4 → 4 ≤ cap and 4×3 = 12 > cap,
+    // so the code-unit UTF-8 accumulator runs and decides.
     expect(exceedsByteCap("中中中a", 10)).toBe(false); // exactly at cap
     expect(exceedsByteCap("中中中a", 9)).toBe(true); // one byte over
+    expect(exceedsByteCap("🦀🦀", 8)).toBe(false); // 2 astral chars = 8 UTF-8 bytes, length 4
+    expect(exceedsByteCap("🦀🦀", 7)).toBe(true);
   });
 });
 
@@ -352,8 +367,14 @@ describe("buildElementLabel", () => {
     );
   });
 
-  it("uses the unbracketed (empty tag) placeholder — same vocabulary as the Input title", () => {
+  it("uses the unbracketed (empty tag) placeholder and trims Unicode whitespace cleanly", () => {
     expect(buildElementLabel(createNode())).toBe("(empty tag)");
+    expect(buildElementLabel({ ...createNode("tag"), textContent: "\u3000\n\t  \u00A0" })).toBe(
+      "<tag>"
+    );
+    expect(buildElementLabel({ ...createNode("tag"), textContent: "\u3000🦀hello\u00A0\n" })).toBe(
+      "<tag> 🦀hello"
+    );
   });
 });
 
@@ -523,9 +544,10 @@ describe("splitPreviewLineLead", () => {
     expect(splitPreviewLineLead("")).toBeNull();
     expect(splitPreviewLineLead("<feedback>")).toBeNull();
     expect(splitPreviewLineLead("    ")).toBeNull();
+    expect(splitPreviewLineLead("  \u3000text")).toBeNull();
   });
 
-  it("glues leading spaces/tabs to the first code point and any combining marks", () => {
+  it("glues leading spaces/tabs to the full first extended grapheme cluster", () => {
     expect(splitPreviewLineLead("  asdfffffffffffffffffffffffffffaafasf")).toEqual({
       lead: "  a",
       rest: "sdfffffffffffffffffffffffffffaafasf",
@@ -541,6 +563,18 @@ describe("splitPreviewLineLead", () => {
     expect(splitPreviewLineLead("  e\u0301clair")).toEqual({
       lead: "  e\u0301",
       rest: "clair",
+    });
+    expect(splitPreviewLineLead("  👍🏽ok")).toEqual({
+      lead: "  👍🏽",
+      rest: "ok",
+    });
+    expect(splitPreviewLineLead("  🇺🇸flag")).toEqual({
+      lead: "  🇺🇸",
+      rest: "flag",
+    });
+    expect(splitPreviewLineLead("  👨‍💻coder")).toEqual({
+      lead: "  👨‍💻",
+      rest: "coder",
     });
   });
 });

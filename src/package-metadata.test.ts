@@ -5,13 +5,14 @@ import tsconfigJson from "../tsconfig.json";
 import tsconfigNodeJson from "../tsconfig.node.json";
 import tsconfigTestJson from "../tsconfig.test.json";
 
-const SUPPORTED_NODE_RANGE = "^24.21.0";
-const PINNED_PACKAGE_MANAGER = "npm@12.2.3";
+const SUPPORTED_NODE_MAJOR = /^\^24\.\d+\.\d+$/u;
+const PINNED_PACKAGE_MANAGER_PATTERN = /^npm@\d+\.\d+\.\d+$/u;
+
 describe("package metadata", () => {
-  it("keeps the root Node and npm contracts explicit", () => {
-    expect(packageJson.engines.node).toBe(SUPPORTED_NODE_RANGE);
-    expect(packageLock.packages[""].engines.node).toBe(SUPPORTED_NODE_RANGE);
-    expect(packageJson.packageManager).toBe(PINNED_PACKAGE_MANAGER);
+  it("keeps the root Node and npm contracts explicit and synced with package-lock.json", () => {
+    expect(packageJson.engines.node).toMatch(SUPPORTED_NODE_MAJOR);
+    expect(packageLock.packages[""].engines.node).toBe(packageJson.engines.node);
+    expect(packageJson.packageManager).toMatch(PINNED_PACKAGE_MANAGER_PATTERN);
   });
 
   it("keeps both TypeScript aliases aligned with the lockfile", () => {

@@ -1,11 +1,10 @@
 import { useEffect, useRef, type RefObject } from "react";
 import { cx } from "./helpers";
 import { containModalTab } from "./modal-focus";
-import type { ConfirmRequest } from "./types";
+import type { ModalState } from "./types";
 
 type ModalDialogProps = {
-  confirmRequest: ConfirmRequest | null;
-  noticesOpen: boolean;
+  modal: ModalState;
   noticesText: string | null;
   noticesError: boolean;
   ribbonRef: RefObject<HTMLElement | null>;
@@ -16,12 +15,22 @@ type ModalDialogProps = {
   onRetryNotices: () => void;
 };
 
+function canRestoreFocusTo(element: HTMLElement | null): element is HTMLElement {
+  if (!element || !element.isConnected) {
+    return false;
+  }
+  if (element === document.body || element === document.documentElement) {
+    return false;
+  }
+  return !element.matches(":disabled");
+}
+
 // Shared modal surface for destructive confirmations and offline license text.
 // Marks the background shell inert, wraps Tab inside active controls, handles
-// Escape and full press+release outside clicks, and restores focus on close.
+// Escape and full left-button press+release outside clicks, resets safe initial
+// focus across modal replacements, and restores focus on close.
 export function ModalDialog({
-  confirmRequest,
-  noticesOpen,
+  modal,
   noticesText,
   noticesError,
   ribbonRef,
@@ -35,8 +44,34 @@ export function ModalDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const overlayPressedRef = useRef(false);
   const overlayReleasedRef = useRef(false);
+  const onCloseRef = useRef(onClose);
 
-  const isOpen = Boolean(confirmRequest || noticesOpen);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  const isOpen = modal !== null;
+  const modalId = modal?.id ?? null;
+  const noticesOpen = modal?.kind === "notices";
+  const confirmRequest = modal?.kind === "confirm" ? modal.request : null;
+
+  useEffect(() => {
+    overlayPressedRef.current = false;
+    overlayReleasedRef.current = false;
+    if (modalId !== null) {
+      cancelButtonRef.current?.focus();
+    }
+  }, [modalId]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const active = document.activeElement;
+    if (!dialogRef.current?.contains(active)) {
+      cancelButtonRef.current?.focus();
+    }
+  });
 
   useEffect(() => {
     if (!isOpen) {
@@ -44,7 +79,6 @@ export function ModalDialog({
     }
     const previouslyFocused =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    cancelButtonRef.current?.focus();
     const ribbon = ribbonRef.current;
     const body = bodyRef.current;
     if (ribbon) ribbon.inert = true;
@@ -53,22 +87,25 @@ export function ModalDialog({
       if (dialogRef.current) {
         containModalTab(event, dialogRef.current);
       }
-      if (event.key === "Escape") {
-        onClose();
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229) {
+        event.preventDefault();
+        onCloseRef.current();
       }
     };
     window.addEventListener("keydown", handleKey);
     return () => {
       window.removeEventListener("keydown", handleKey);
+      overlayPressedRef.current = false;
+      overlayReleasedRef.current = false;
       if (ribbon) ribbon.inert = false;
       if (body) body.inert = false;
-      if (previouslyFocused?.isConnected) {
+      if (canRestoreFocusTo(previouslyFocused)) {
         previouslyFocused.focus();
       } else {
         document.getElementById(fallbackFocusId)?.focus();
       }
     };
-  }, [isOpen, ribbonRef, bodyRef, fallbackFocusId, onClose]);
+  }, [isOpen, ribbonRef, bodyRef, fallbackFocusId]);
 
   if (!isOpen) {
     return null;
@@ -78,13 +115,20 @@ export function ModalDialog({
     <div
       className="modal-overlay"
       onMouseDown={(event) => {
-        overlayPressedRef.current = event.target === event.currentTarget;
+        overlayPressedRef.current = event.button === 0 && event.target === event.currentTarget;
+        overlayReleasedRef.current = false;
       }}
       onMouseUp={(event) => {
-        overlayReleasedRef.current = event.target === event.currentTarget;
+        overlayReleasedRef.current = event.button === 0 && event.target === event.currentTarget;
       }}
-      onClick={() => {
-        if (overlayPressedRef.current && overlayReleasedRef.current) {
+      onClick={(event) => {
+        const shouldClose =
+          event.target === event.currentTarget &&
+          overlayPressedRef.current &&
+          overlayReleasedRef.current;
+        overlayPressedRef.current = false;
+        overlayReleasedRef.current = false;
+        if (shouldClose) {
           onClose();
         }
       }}

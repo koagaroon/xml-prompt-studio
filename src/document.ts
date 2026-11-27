@@ -51,7 +51,15 @@ export function updateNode(
   targetId: string,
   updater: (node: XmlNode) => XmlNode
 ): XmlNode[] {
-  return roots.map((root) => updateNodeInTree(root, targetId, updater));
+  let changed = false;
+  const nextRoots = roots.map((root) => {
+    const nextRoot = updateNodeInTree(root, targetId, updater);
+    if (nextRoot !== root) {
+      changed = true;
+    }
+    return nextRoot;
+  });
+  return changed ? nextRoots : roots;
 }
 
 function updateNodeInTree(
@@ -63,9 +71,21 @@ function updateNodeInTree(
     return updater(node);
   }
 
+  let childChanged = false;
+  const nextChildren = node.children.map((child) => {
+    const nextChild = updateNodeInTree(child, targetId, updater);
+    if (nextChild !== child) {
+      childChanged = true;
+    }
+    return nextChild;
+  });
+  if (!childChanged) {
+    return node;
+  }
+
   return {
     ...node,
-    children: node.children.map((child) => updateNodeInTree(child, targetId, updater)),
+    children: nextChildren,
   };
 }
 
@@ -73,18 +93,49 @@ function updateNodeInTree(
 // sections are legal targets. The min-one-section invariant lives in the
 // caller — deleting the LAST remaining top-level section routes through
 // App's reset-to-blank path and never reaches this function.
+// Preserves object identity on untouched subtrees and returns `roots`
+// unchanged if `targetId` matches nothing.
 export function deleteNode(roots: XmlNode[], targetId: string): XmlNode[] {
-  return roots
-    .filter((root) => root.id !== targetId)
-    .map((root) => deleteNodeInTree(root, targetId));
+  const rootIndex = roots.findIndex((root) => root.id === targetId);
+  if (rootIndex !== -1) {
+    return [...roots.slice(0, rootIndex), ...roots.slice(rootIndex + 1)];
+  }
+
+  let changed = false;
+  const nextRoots = roots.map((root) => {
+    const nextRoot = deleteNodeInTree(root, targetId);
+    if (nextRoot !== root) {
+      changed = true;
+    }
+    return nextRoot;
+  });
+  return changed ? nextRoots : roots;
 }
 
 function deleteNodeInTree(node: XmlNode, targetId: string): XmlNode {
+  const directIndex = node.children.findIndex((child) => child.id === targetId);
+  if (directIndex !== -1) {
+    return {
+      ...node,
+      children: [...node.children.slice(0, directIndex), ...node.children.slice(directIndex + 1)],
+    };
+  }
+
+  let childChanged = false;
+  const nextChildren = node.children.map((child) => {
+    const nextChild = deleteNodeInTree(child, targetId);
+    if (nextChild !== child) {
+      childChanged = true;
+    }
+    return nextChild;
+  });
+  if (!childChanged) {
+    return node;
+  }
+
   return {
     ...node,
-    children: node.children
-      .filter((child) => child.id !== targetId)
-      .map((child) => deleteNodeInTree(child, targetId)),
+    children: nextChildren,
   };
 }
 
@@ -95,11 +146,17 @@ export function moveNode(roots: XmlNode[], targetId: string, direction: -1 | 1):
     return reorder(roots, topIndex, direction);
   }
 
-  // An id matching nothing falls through to a fully cloned no-op — the
-  // same clone-always shape as updateNode/deleteNode, deliberately NOT
-  // reorder's same-reference contract for boundary no-ops. App's canMove
-  // guard keeps the missing-id case unreachable in practice.
-  return roots.map((root) => moveNodeInTree(root, targetId, direction));
+  // Structural sharing: untouched sibling trees keep their reference, and
+  // boundary or missing-id no-ops return `roots` unchanged.
+  let changed = false;
+  const nextRoots = roots.map((root) => {
+    const nextRoot = moveNodeInTree(root, targetId, direction);
+    if (nextRoot !== root) {
+      changed = true;
+    }
+    return nextRoot;
+  });
+  return changed ? nextRoots : roots;
 }
 
 function moveNodeInTree(node: XmlNode, targetId: string, direction: -1 | 1): XmlNode {
@@ -119,9 +176,21 @@ function moveNodeInTree(node: XmlNode, targetId: string, direction: -1 | 1): Xml
   }
 
   // Target is not a direct child — recurse into descendants.
+  let childChanged = false;
+  const nextChildren = node.children.map((child) => {
+    const nextChild = moveNodeInTree(child, targetId, direction);
+    if (nextChild !== child) {
+      childChanged = true;
+    }
+    return nextChild;
+  });
+  if (!childChanged) {
+    return node;
+  }
+
   return {
     ...node,
-    children: node.children.map((child) => moveNodeInTree(child, targetId, direction)),
+    children: nextChildren,
   };
 }
 

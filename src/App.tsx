@@ -1,4 +1,12 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
 import { ElementsColumn } from "./ElementsColumn";
 import { ModalDialog } from "./ModalDialog";
 import { PresetChipsBar } from "./PresetChipsBar";
@@ -26,6 +34,7 @@ import {
   hasUnsavedPromptWork,
   insertAfter,
   nextSelectionAfterDelete,
+  utf8ByteLength,
   validatePresetName,
 } from "./helpers";
 import {
@@ -48,7 +57,7 @@ import {
   setMainWindowUnsavedWork,
 } from "./tauri";
 import { persistTheme, readInitialTheme, type Theme } from "./theme";
-import type { ConfirmRequest, FieldMessage, StripMessage, XmlNode } from "./types";
+import type { ConfirmRequest, FieldMessage, ModalState, StripMessage, XmlNode } from "./types";
 import { buildPreview, validateDocument } from "./xml";
 
 // Defensive ceilings keeping recursive walks and keystroke recomputation fast.
@@ -57,17 +66,28 @@ const MAX_SIBLINGS = 1000;
 const MAX_TEXT_CONTENT_BYTES = 10_000_000;
 // 32 = 24 (MAX_PRESET_NAME_LENGTH) + "_" + up to 4 suffix digits + headroom.
 const MAX_TAG_NAME_LENGTH = 32;
+// Generous preedit slack so Pinyin/Romaji IME composition near the code-point
+// cap is never truncated mid-session before `compositionend` settles.
+const IME_COMPOSITION_SLACK_MULTIPLIER = 4;
 
 const TAG_NAME_INPUT_ID = "tag-name-input";
 const TEXT_CONTENT_INPUT_ID = "text-content-input";
+
+function preventFileDropNavigation(event: DragEvent<HTMLElement>): void {
+  const types = event.dataTransfer?.types;
+  if (types && Array.from(types).includes("Files")) {
+    event.preventDefault();
+  }
+}
 
 export default function App() {
   const [roots, setRoots] = useState<XmlNode[]>(createBlankDocument);
   const [selectedNodeId, setSelectedNodeId] = useState(() => roots[0].id);
   const [stripMessage, setStripMessage] = useState<StripMessage | null>(null);
   const [copyToken, setCopyToken] = useState(0);
-  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
-  const [noticesOpen, setNoticesOpen] = useState(false);
+  const [modal, setModal] = useState<ModalState>(null);
+  const modalIdRef = useRef(0);
+  const modalOpenRef = useRef(false);
   const [noticesText, setNoticesText] = useState<string | null>(null);
   const [noticesError, setNoticesError] = useState(false);
   const noticesLoadingRef = useRef(false);
@@ -88,6 +108,7 @@ export default function App() {
   const ribbonRef = useRef<HTMLElement>(null);
   const bodyRef = useRef<HTMLElement>(null);
   const presetMemoryRef = useRef<Map<string, ElementPresetMemory>>(new Map());
+  const isTagComposingRef = useRef(false);
 
   const deferredRoots = useDeferredValue(roots);
 
@@ -95,20 +116,31 @@ export default function App() {
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
+  const stripMessageIdRef = useRef(0);
   const copyWaitNoticeRef = useRef(false);
   const copyBusyNoticeRef = useRef(false);
 
-  const showError = (text: string, forNodeId: string | null = null) => {
+  const showError = useCallback((text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
-    setStripMessage({ text, severity: "error", forNodeId });
-  };
+    setStripMessage({
+      id: ++stripMessageIdRef.current,
+      text,
+      severity: "error",
+      forNodeId,
+    });
+  }, []);
 
-  const showWarning = (text: string, forNodeId: string | null = null) => {
+  const showWarning = useCallback((text: string, forNodeId: string | null = null) => {
     copyWaitNoticeRef.current = false;
     copyBusyNoticeRef.current = false;
-    setStripMessage({ text, severity: "warning", forNodeId });
-  };
+    setStripMessage({
+      id: ++stripMessageIdRef.current,
+      text,
+      severity: "warning",
+      forNodeId,
+    });
+  }, []);
 
   const clearMessage = useCallback(() => {
     copyWaitNoticeRef.current = false;
@@ -116,20 +148,20 @@ export default function App() {
     setStripMessage(null);
   }, []);
 
-  const storageWarningShownRef = useRef(false);
-  const warnStorageWriteFailed = useCallback((what: string) => {
-    if (storageWarningShownRef.current) {
-      return;
-    }
-    storageWarningShownRef.current = true;
-    copyWaitNoticeRef.current = false;
-    copyBusyNoticeRef.current = false;
-    setStripMessage({
-      text: `Couldn't save your ${what} — the change works for this session but will reset on next launch (storage unavailable).`,
-      severity: "warning",
-      forNodeId: null,
-    });
-  }, []);
+  const storageWarningsShownRef = useRef<Set<string>>(new Set());
+  const warnStorageWriteFailed = useCallback(
+    (what: string) => {
+      if (storageWarningsShownRef.current.has(what)) {
+        return;
+      }
+      storageWarningsShownRef.current.add(what);
+      showWarning(
+        `Couldn't save your ${what} — the change works for this session but will reset on next launch (storage unavailable).`,
+        null
+      );
+    },
+    [showWarning]
+  );
 
   // Skip persisting the initial array on mount so first launch doesn't freeze
   // DEFAULT_PRESET_CHIPS into storage before the user ever edits presets.
@@ -155,6 +187,10 @@ export default function App() {
     () => findNode(roots, selectedNodeId) ?? roots[0],
     [roots, selectedNodeId]
   );
+
+  useEffect(() => {
+    isTagComposingRef.current = false;
+  }, [activeNode.id]);
 
   const validationIssues = useMemo(() => validateDocument(roots), [roots]);
   const issueNodeIds = useMemo(
@@ -199,6 +235,10 @@ export default function App() {
   };
 
   const elementOutline = useMemo(() => createElementOutline(roots), [roots]);
+  const depthByNodeId = useMemo(
+    () => new Map(elementOutline.map((item) => [item.id, item.depth])),
+    [elementOutline]
+  );
 
   const activeTagNameMessage =
     tagNameMessage && tagNameMessage.forNodeId === activeNode.id ? tagNameMessage : null;
@@ -217,11 +257,16 @@ export default function App() {
   const tagNameHasIssue = issueNodeIds.has(activeNode.id);
   const trimmedTag = activeNode.tagName.trim();
   const lineTitle = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
-  const activeDepth = elementOutline.find((item) => item.id === activeNode.id)?.depth ?? MAX_DEPTH;
+  const activeDepth = depthByNodeId.get(activeNode.id) ?? MAX_DEPTH;
 
-  const closeConfirm = useCallback(() => {
-    setConfirmRequest(null);
-    setNoticesOpen(false);
+  const openConfirmModal = useCallback((request: ConfirmRequest) => {
+    modalOpenRef.current = true;
+    setModal({ kind: "confirm", id: ++modalIdRef.current, request });
+  }, []);
+
+  const closeModal = useCallback(() => {
+    modalOpenRef.current = false;
+    setModal(null);
   }, []);
 
   const hasUnsavedWork = useMemo(() => hasUnsavedPromptWork(roots), [roots]);
@@ -231,8 +276,7 @@ export default function App() {
   }, [hasUnsavedWork]);
 
   const requestCloseWindow = useCallback(() => {
-    setNoticesOpen(false);
-    setConfirmRequest({
+    openConfirmModal({
       title: "Discard current prompt and close?",
       description: "Closing now will discard your current prompt sections and text.",
       confirmLabel: "Close",
@@ -245,24 +289,31 @@ export default function App() {
               : error instanceof Error
                 ? error.message
                 : "Failed to close window.";
-          setStripMessage({ text: message, severity: "error", forNodeId: null });
+          showError(message);
         });
       },
     });
-  }, []);
+  }, [openConfirmModal, showError]);
 
   useEffect(() => {
     return registerMainWindowCloseGuard(requestCloseWindow);
   }, [requestCloseWindow]);
 
   const openNotices = async () => {
-    setNoticesOpen(true);
+    modalOpenRef.current = true;
+    setModal((current) =>
+      current?.kind === "notices" ? current : { kind: "notices", id: ++modalIdRef.current }
+    );
     if (noticesText !== null || noticesLoadingRef.current) return;
     noticesLoadingRef.current = true;
     setNoticesError(false);
     try {
       const response = await fetch("./third-party-notices.txt");
       if (!response.ok) throw new Error("Bundled notices unavailable");
+      const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+      if (contentType.includes("text/html")) {
+        throw new Error("Bundled notices resolved to HTML fallback");
+      }
       const text = await response.text();
       if (!text.trim()) throw new Error("Bundled notices are empty");
       setNoticesText(text);
@@ -274,11 +325,13 @@ export default function App() {
   };
 
   const handleConfirm = () => {
-    if (!confirmRequest) {
+    if (modal?.kind !== "confirm") {
       return;
     }
-    confirmRequest.onConfirm();
-    setConfirmRequest(null);
+    const { onConfirm } = modal.request;
+    modalOpenRef.current = false;
+    setModal(null);
+    onConfirm();
   };
 
   const resetToBlankDocument = () => {
@@ -291,7 +344,7 @@ export default function App() {
   };
 
   const requestNewBlank = () => {
-    setConfirmRequest({
+    openConfirmModal({
       title: "Discard current document?",
       description: "This will replace the document with a fresh blank.",
       confirmLabel: "Confirm",
@@ -301,7 +354,7 @@ export default function App() {
   };
 
   const requestResetPresets = () => {
-    setConfirmRequest({
+    openConfirmModal({
       title: "Restore default preset chips?",
       description: `This will replace your current chips with ${DEFAULT_PRESET_CHIPS.join(" / ")}.`,
       confirmLabel: "Restore",
@@ -331,10 +384,19 @@ export default function App() {
       forgetPresetChipInMemory(presetMemoryRef.current, removedName);
     }
     setPresetMessage(null);
-    setChipEditMessage(null);
+    if (!editingChip) {
+      setChipEditMessage(null);
+    }
     setPresetChips((chips) => chips.filter((_, i) => i !== index));
     setEditingChip((current) => {
-      if (current && !current.isNew && current.index > index) {
+      if (!current || current.isNew) {
+        return current;
+      }
+      if (current.index === index) {
+        setChipEditMessage(null);
+        return null;
+      }
+      if (current.index > index) {
         return { ...current, index: current.index - 1 };
       }
       return current;
@@ -343,7 +405,6 @@ export default function App() {
 
   const startAddChip = () => {
     setEditingChip({
-      index: presetChips.length,
       draft: "",
       isNew: true,
     });
@@ -359,8 +420,19 @@ export default function App() {
     setChipEditMessage(null);
   };
 
-  const updateEditingChipDraft = (draft: string) => {
+  const updateEditingChipDraft = (draft: string, isComposing = false) => {
     if (!editingChip) {
+      return;
+    }
+    if (isComposing) {
+      const slackCapped = capCodePoints(
+        draft,
+        MAX_PRESET_NAME_LENGTH * IME_COMPOSITION_SLACK_MULTIPLIER
+      );
+      setEditingChip({
+        ...editingChip,
+        draft: slackCapped,
+      });
       return;
     }
     const capped = capCodePoints(draft, MAX_PRESET_NAME_LENGTH);
@@ -401,16 +473,34 @@ export default function App() {
       forgetPresetChipInMemory(presetMemoryRef.current, trimmed);
       setPresetChips((chips) => [...chips, trimmed]);
     } else {
-      const previousName = presetChips[editingChip.index];
+      const renameIndex = editingChip.index;
+      const previousName = presetChips[renameIndex];
       if (previousName && previousName !== trimmed) {
         forgetPresetChipInMemory(presetMemoryRef.current, previousName);
         forgetPresetChipInMemory(presetMemoryRef.current, trimmed);
       }
-      setPresetChips((chips) => chips.map((c, i) => (i === editingChip.index ? trimmed : c)));
+      setPresetChips((chips) => chips.map((c, i) => (i === renameIndex ? trimmed : c)));
     }
     setEditingChip(null);
     setChipEditMessage(null);
     setPresetMessage(null);
+  };
+
+  const blurChipEdit = () => {
+    if (!editingChip) {
+      return;
+    }
+    // Opening a modal moves focus to Cancel/Close; preserve any uncommitted
+    // chip draft until the user resolves the modal rather than committing
+    // unconfirmed edits behind the dialog.
+    if (modalOpenRef.current) {
+      return;
+    }
+    if (editingChip.isNew && editingChip.draft.trim() === "") {
+      cancelChipEdit();
+      return;
+    }
+    commitChipEdit();
   };
 
   const addChild = () => {
@@ -457,23 +547,34 @@ export default function App() {
     clearFieldMessages();
   };
 
-  const executeDeleteSelectedNode = () => {
-    const target = nextSelectionAfterDelete(
-      activeSiblings,
-      activeNode.id,
-      activeParent?.id ?? null,
-      roots[0].id
-    );
-    sweepDeletedSubtreeFromMemory(presetMemoryRef.current, activeNode);
-    setRoots((current) => deleteNode(current, activeNode.id));
-    setSelectedNodeId(target);
+  const executeDeleteSelectedNode = (nodeId: string) => {
+    setRoots((current) => {
+      const targetNode = findNode(current, nodeId);
+      if (!targetNode) {
+        return current;
+      }
+      const parent = findParent(current, nodeId);
+      if (!parent && current.length === 1) {
+        return current;
+      }
+      const siblings = parent ? parent.children : current;
+      const nextSelected = nextSelectionAfterDelete(
+        siblings,
+        nodeId,
+        parent?.id ?? null,
+        current[0].id
+      );
+      sweepDeletedSubtreeFromMemory(presetMemoryRef.current, targetNode);
+      setSelectedNodeId(nextSelected);
+      return deleteNode(current, nodeId);
+    });
     clearMessage();
     clearFieldMessages();
   };
 
   const removeSelectedNode = () => {
     if (!activeParent && roots.length === 1) {
-      setConfirmRequest({
+      openConfirmModal({
         title: "Clear the only section?",
         description: "This will replace the current section with a fresh blank.",
         confirmLabel: "Clear",
@@ -483,17 +584,18 @@ export default function App() {
       return;
     }
 
+    const targetNodeId = activeNode.id;
     const confirmation = buildDeleteNodeConfirmation(activeNode);
     if (confirmation) {
-      setConfirmRequest({
+      openConfirmModal({
         ...confirmation,
         confirmKind: "danger",
-        onConfirm: executeDeleteSelectedNode,
+        onConfirm: () => executeDeleteSelectedNode(targetNodeId),
       });
       return;
     }
 
-    executeDeleteSelectedNode();
+    executeDeleteSelectedNode(targetNodeId);
   };
 
   const moveSelectedNode = (direction: -1 | 1) => {
@@ -505,7 +607,18 @@ export default function App() {
     clearMessage();
   };
 
-  const setActiveTagName = (rawTagName: string) => {
+  const setActiveTagName = (rawTagName: string, isComposing = false) => {
+    if (isComposing) {
+      const slackCapped = capCodePoints(
+        rawTagName,
+        MAX_TAG_NAME_LENGTH * IME_COMPOSITION_SLACK_MULTIPLIER
+      );
+      setRoots((current) =>
+        updateNode(current, activeNode.id, (node) => ({ ...node, tagName: slackCapped }))
+      );
+      clearMessage();
+      return;
+    }
     const tagName = capCodePoints(rawTagName, MAX_TAG_NAME_LENGTH);
     const truncated = tagName !== rawTagName;
     setRoots((current) => updateNode(current, activeNode.id, (node) => ({ ...node, tagName })));
@@ -583,7 +696,7 @@ export default function App() {
           showError("Fix validation issues before copying XML.");
           return;
         case "too-large": {
-          const liveBytes = new TextEncoder().encode(xmlPreview).length;
+          const liveBytes = utf8ByteLength(xmlPreview);
           showError(
             `XML payload too large to copy (${formatMegabytes(liveBytes)}; limit ${formatMegabytes(MAX_XML_BYTES)}).`
           );
@@ -621,7 +734,11 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      onDragOver={preventFileDropNavigation}
+      onDrop={preventFileDropNavigation}
+    >
       <Ribbon
         ribbonRef={ribbonRef}
         canMoveUp={canMoveUp}
@@ -656,9 +773,28 @@ export default function App() {
             id={TAG_NAME_INPUT_ID}
             name="tagName"
             value={activeNode.tagName}
+            aria-invalid={tagNameHasIssue || undefined}
             className={cx("tag-name-input", tagNameHasIssue && "input-error")}
+            onCompositionStart={() => {
+              isTagComposingRef.current = true;
+            }}
+            onCompositionEnd={(event) => {
+              isTagComposingRef.current = false;
+              setActiveTagName(event.currentTarget.value, false);
+              clearElementLastAppliedPreset(presetMemoryRef.current, activeNode.id);
+              setPresetMessage(null);
+            }}
+            onBlur={(event) => {
+              if (isTagComposingRef.current) {
+                isTagComposingRef.current = false;
+                setActiveTagName(event.currentTarget.value, false);
+              }
+            }}
             onChange={(event) => {
-              setActiveTagName(event.target.value);
+              const nativeComposing = Boolean(
+                (event.nativeEvent as { isComposing?: boolean } | undefined)?.isComposing
+              );
+              setActiveTagName(event.target.value, isTagComposingRef.current || nativeComposing);
               clearElementLastAppliedPreset(presetMemoryRef.current, activeNode.id);
               setPresetMessage(null);
             }}
@@ -681,6 +817,7 @@ export default function App() {
             onStartRenameChip={startRenameChip}
             onUpdateEditingDraft={updateEditingChipDraft}
             onCommitChipEdit={commitChipEdit}
+            onBlurChipEdit={blurChipEdit}
             onCancelChipEdit={cancelChipEdit}
             onRemoveChip={removeChip}
             onRequestResetPresets={requestResetPresets}
@@ -701,6 +838,7 @@ export default function App() {
               clipboard fallback — keep it rendered strictly as plain text. */}
           {activeStripMessage && (
             <div
+              key={activeStripMessage.id}
               className={cx(
                 "message-strip",
                 activeStripMessage.severity === "warning" && "is-warning"
@@ -722,14 +860,13 @@ export default function App() {
       </main>
 
       <ModalDialog
-        confirmRequest={confirmRequest}
-        noticesOpen={noticesOpen}
+        modal={modal}
         noticesText={noticesText}
         noticesError={noticesError}
         ribbonRef={ribbonRef}
         bodyRef={bodyRef}
         fallbackFocusId={TAG_NAME_INPUT_ID}
-        onClose={closeConfirm}
+        onClose={closeModal}
         onConfirm={handleConfirm}
         onRetryNotices={openNotices}
       />

@@ -13,7 +13,7 @@ export default tseslint.config(
   },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ["**/*.{ts,tsx}"],
+    files: ["src/**/*.{ts,tsx}"],
     languageOptions: {
       ecmaVersion: "latest",
       globals: globals.browser,
@@ -25,6 +25,14 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+    },
+  },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ["vite.config.ts"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      globals: globals.node,
     },
   },
   // Node-run config and maintenance scripts.
