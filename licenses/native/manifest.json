@@ -3,7 +3,7 @@
   "target": "x86_64-pc-windows-msvc",
   "allFeatures": true,
   "tauriBuildFeatures": ["tauri/custom-protocol"],
-  "inputFingerprint": "c398a888d99e4a18d7d1992380a4553f3e9ac2f0652fb24cca21dee6bd66822f",
+  "inputFingerprint": "7eb94844ae43231ccf554c7fb03687ef09db737b429280c56f069545eb2d4066",
   "packages": [
     {
       "name": "adler2",
