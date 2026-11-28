@@ -32,6 +32,11 @@ if (!/^[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)+$/u.test(target))
 if (!target.includes("-windows-"))
   throw new Error(`Unsupported native target: ${target}. XML Prompt Studio supports Windows only.`);
 if (target !== NATIVE_NOTICE_TARGET) {
+  if (args.includes("--print-inventory")) {
+    throw new Error(
+      `--print-inventory is supported only for ${NATIVE_NOTICE_TARGET} (received ${target}).`
+    );
+  }
   console.warn(
     `WARN: Native notice coverage is unverified for ${target}. Source builds remain available; the bundled native inventory covers ${NATIVE_NOTICE_TARGET} only. Review this target's notices before distribution.`
   );
@@ -45,10 +50,15 @@ if (target !== NATIVE_NOTICE_TARGET) {
     maxBuffer: 64 * 1024 * 1024,
   };
   const config = JSON.parse(readFileSync(join(root, "src-tauri/tauri.conf.json"), "utf8"));
-  const features = nativeFeatureArguments(
-    config,
-    process.env.TAURI_CONFIG === undefined ? undefined : JSON.parse(process.env.TAURI_CONFIG)
-  );
+  let tauriOverlay;
+  if (process.env.TAURI_CONFIG !== undefined) {
+    try {
+      tauriOverlay = JSON.parse(process.env.TAURI_CONFIG);
+    } catch {
+      throw new Error("Invalid TAURI_CONFIG JSON overlay.");
+    }
+  }
+  const features = nativeFeatureArguments(config, tauriOverlay);
   const lockFlag = args.includes("--offline") ? "--frozen" : "--locked";
   const manifestPath = join(root, "src-tauri/Cargo.toml");
   const featureList = features.join(",");

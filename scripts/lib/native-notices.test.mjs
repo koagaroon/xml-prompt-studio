@@ -145,7 +145,7 @@ describe("native notice graph coverage", () => {
   it("reclassifies metadata-unified crates absent from Cargo's runtime tree to build-support", () => {
     const metadata = parseCargoMetadata(graph());
     const runtimeKeys = parseCargoRuntimeTree(
-      "app v1.0.0 (/fixture/app)\nlibrary v1.0.0\nlibrary v1.0.0 (*)\n",
+      "app v1.0.0 (/workspace/Projects (Work)/xml-prompt-studio/src-tauri)\nlibrary v1.0.0\nlibrary v1.0.0 (*)\n",
       "app@1.0.0"
     );
     assert.deepEqual(
@@ -230,6 +230,7 @@ describe("native notice inputs and texts", () => {
     for (const name of [
       "RUSTC",
       "CARGO_BUILD_RUSTC",
+      "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTC",
       "RUSTC_WRAPPER",
       "RUSTC_WORKSPACE_WRAPPER",
       "CARGO_BUILD_RUSTC_WRAPPER",
@@ -487,4 +488,20 @@ describe("native notice inputs and texts", () => {
       assert.match(result.stderr, /supports Windows only/u);
     }
   );
+
+  it("refuses --print-inventory on non-x86_64 Windows targets instead of exiting 0 with empty output", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["scripts/check-native-notices.mjs", "--print-inventory"],
+      {
+        cwd: root,
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 10_000,
+        env: { ...process.env, PATH: "", TAURI_ENV_TARGET_TRIPLE: "aarch64-pc-windows-msvc" },
+      }
+    );
+    assert.equal(result.status, 1, result.stderr);
+    assert.match(result.stderr, /--print-inventory is supported only for x86_64-pc-windows-msvc/u);
+  });
 });

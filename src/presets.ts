@@ -5,11 +5,16 @@ export const DEFAULT_PRESET_CHIPS = ["feedback", "question", "instruction", "ext
 
 export const PRESET_CHIPS_STORAGE_KEY = "presetChips";
 
-export type EditingChip = {
-  index: number;
-  draft: string;
-  isNew: boolean;
-};
+export type EditingChip =
+  | {
+      isNew: true;
+      draft: string;
+    }
+  | {
+      isNew: false;
+      index: number;
+      draft: string;
+    };
 
 export type ChipEditMessage = {
   text: string;

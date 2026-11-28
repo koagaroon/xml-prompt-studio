@@ -1,10 +1,11 @@
 import type { NodeOutlineItem, XmlNode } from "./types";
 import { isValidXmlName } from "./xml";
 
-// Pure, React-free helpers extracted from App.tsx so their contracts are
-// unit-testable (see helpers.test.ts). UI composition stays in App.tsx
-// per the single-file-App constraint — this module is data logic only,
-// the same standing document.ts and xml.ts already have.
+// Pure, React-free helpers shared by App.tsx, UI subcomponents, and tauri.ts
+// so product invariants and boundary gates stay unit-testable in isolation
+// (see helpers.test.ts).
+
+const SINGLE_WHITESPACE = /^\s$/u;
 
 // Hard cap on chip-name length, in code points. Generous for real chip
 // names ("feedback" is 8, "instruction" is 11) but tight enough that no
@@ -19,10 +20,8 @@ export const MAX_PRESET_NAME_LENGTH = 24;
 // like 𠮷, emoji like 🦀) at the boundary aren't split into orphan
 // surrogates. Don't refactor to `Array.from(value)` — that materializes a
 // code-point array proportional to the *entire* string, which is up to
-// MAX_TEXT_CONTENT_BYTES (10 MB). This helper runs per node on every
-// roots edit via the live (non-deferred) outline rebuild, so eager
-// materialization reaches tens-of-MB per keystroke before the truncation
-// even happens. Short-circuit at maxLength+1 keeps work O(maxLength).
+// MAX_TEXT_CONTENT_BYTES (10 MB). Short-circuit at maxLength+1 keeps work
+// O(maxLength).
 export function truncate(value: string, maxLength: number): string {
   // maxLength ≤ 0 would otherwise hit slice(0, negative) below and
   // return output LONGER than the cap — fail to empty instead.
@@ -71,15 +70,68 @@ export function capCodePoints(value: string, maxLength: number): string {
 // the dev-only browser clipboard path.
 export const MAX_XML_BYTES = 50_000_000;
 
-// Cheap UTF-8 byte-count check: UTF-8 byte count is at most 3 × string
-// length (BMP-heavy worst case), so if `length * 3 ≤ cap` we know we're
-// under without running TextEncoder. Only encode-and-measure when the
-// cheap bound doesn't decide it.
+// Exact UTF-8 byte length without allocating a TextEncoder Uint8Array
+// (which would allocate 50–200+ MB on oversized pastes). Lone surrogates
+// count as 3 bytes (U+FFFD replacement), matching TextEncoder byte-for-byte.
+export function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
+// Fast UTF-8 byte-count gate:
+// - `length * 3 <= cap` is guaranteed under cap (every UTF-16 unit is ≤ 3 bytes,
+//   and surrogate pairs are 2 units = 4 bytes < 6);
+// - `length > cap` is guaranteed over cap (every UTF-16 unit is ≥ 1 UTF-8 byte);
+// - only borderline strings scan code units, exiting as soon as `bytes > cap`
+//   with zero heap allocation.
 export function exceedsByteCap(value: string, cap: number): boolean {
   if (value.length * 3 <= cap) {
     return false;
   }
-  return new TextEncoder().encode(value).length > cap;
+  if (value.length > cap) {
+    return true;
+  }
+  let bytes = 0;
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code < 0x80) {
+      bytes += 1;
+    } else if (code < 0x800) {
+      bytes += 2;
+    } else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = value.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i += 1;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+    if (bytes > cap) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Render a byte count as MB for user-facing messages — "10 MB" beats
@@ -89,8 +141,8 @@ export function exceedsByteCap(value: string, cap: number): boolean {
 // Integral tenths drop the trailing zero decimal. The Rust side
 // formats its size errors the same way; change both or neither.
 export function formatMegabytes(bytes: number): string {
-  const tenths = Math.ceil(bytes / 100_000);
-  return tenths % 10 === 0 ? `${tenths / 10} MB` : `${(tenths / 10).toFixed(1)} MB`;
+  const tenths = Math.max(0, Math.ceil(bytes / 100_000));
+  return tenths % 10 === 0 ? `${tenths / 10} MB` : `${Math.trunc(tenths / 10)}.${tenths % 10} MB`;
 }
 
 // Escape metacharacters before inserting a literal name into a regex.
@@ -316,15 +368,44 @@ export function nextSelectionAfterDelete(
 // other caps.
 export const ELEMENT_LABEL_PREVIEW_LENGTH = 26;
 
+function extractTrimmedPreview(value: string, maxLength: number): string {
+  if (maxLength <= 0) {
+    return "";
+  }
+  let start = 0;
+  while (start < value.length && SINGLE_WHITESPACE.test(value[start])) {
+    start += 1;
+  }
+  if (start === value.length) {
+    return "";
+  }
+  let end = value.length;
+  while (end > start && SINGLE_WHITESPACE.test(value[end - 1])) {
+    end -= 1;
+  }
+  const codePoints: string[] = [];
+  for (let i = start; i < end;) {
+    const cp = value.codePointAt(i)!;
+    codePoints.push(String.fromCodePoint(cp));
+    if (codePoints.length > maxLength) {
+      return `${codePoints.slice(0, maxLength - 1).join("")}…`;
+    }
+    i += cp > 0xffff ? 2 : 1;
+  }
+  return value.slice(start, end);
+}
+
 // Label for an Elements-column row: tag name in angle brackets plus a
-// truncated text preview. The empty-tag placeholder is "(empty tag)" —
-// same vocabulary as the Input column's title for the same state, and
-// unbracketed so it can't be misread as a literal tag named "empty-tag".
+// truncated text preview. Scans leading/trailing whitespace bounds without
+// copying the full up-to-10-MB textContent on every keystroke. The empty-tag
+// placeholder is "(empty tag)" — same vocabulary as the Input column's title
+// for the same state, and unbracketed so it can't be misread as a literal tag
+// named "empty-tag".
 export function buildElementLabel(node: XmlNode): string {
   const trimmedTag = node.tagName.trim();
   const tagLabel = trimmedTag ? `<${trimmedTag}>` : "(empty tag)";
-  const previewText = node.textContent.trim();
-  const suffix = previewText ? ` ${truncate(previewText, ELEMENT_LABEL_PREVIEW_LENGTH)}` : "";
+  const previewText = extractTrimmedPreview(node.textContent, ELEMENT_LABEL_PREVIEW_LENGTH);
+  const suffix = previewText ? ` ${previewText}` : "";
   return `${tagLabel}${suffix}`;
 }
 
@@ -394,22 +475,49 @@ export function buildDeleteNodeConfirmation(node: XmlNode): DeleteConfirmationPr
   };
 }
 
-const LEADING_INDENT_AND_FIRST_CHAR = /^([ \t]+\P{White_Space}\p{Mark}*)/u;
+const GRAPHEME_SEGMENTER =
+  typeof Intl !== "undefined" && typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+const FALLBACK_FIRST_CLUSTER = /^\P{White_Space}\p{Mark}*/u;
 
-// Splits leading indentation plus the first visible non-whitespace character
-// (and any attached combining marks) from the rest of a preview line.
-// Rendering `lead` with `white-space: pre` prevents Chromium from breaking
-// between the indent spaces and an overlong unbroken token, which otherwise
-// leaves a phantom blank row and drops the token's indentation.
+// Splits leading indentation plus the first extended grapheme cluster from
+// the rest of a preview line. Rendering `lead` with `white-space: pre`
+// prevents Chromium from breaking between the indent spaces and an overlong
+// unbroken token (which otherwise leaves a phantom blank row and drops the
+// token's indentation), while Intl.Segmenter keeps skin-tone, ZWJ, and flag
+// emoji sequences intact across the span boundary in O(1) time.
 export function splitPreviewLineLead(text: string): { lead: string; rest: string } | null {
-  const match = LEADING_INDENT_AND_FIRST_CHAR.exec(text);
-  if (!match) {
+  let indentEnd = 0;
+  while (indentEnd < text.length) {
+    const ch = text[indentEnd];
+    if (ch !== " " && ch !== "\t") {
+      break;
+    }
+    indentEnd += 1;
+  }
+  if (indentEnd === 0 || indentEnd >= text.length || SINGLE_WHITESPACE.test(text[indentEnd])) {
     return null;
   }
-  const lead = match[1];
+
+  const sample = text.slice(indentEnd, indentEnd + 64);
+  let firstCluster = "";
+  if (GRAPHEME_SEGMENTER) {
+    const iterator = GRAPHEME_SEGMENTER.segment(sample)[Symbol.iterator]();
+    const first = iterator.next();
+    if (!first.done) {
+      firstCluster = first.value.segment;
+    }
+  } else {
+    firstCluster = FALLBACK_FIRST_CLUSTER.exec(sample)?.[0] ?? "";
+  }
+  if (!firstCluster) {
+    return null;
+  }
+  const leadEnd = indentEnd + firstCluster.length;
   return {
-    lead,
-    rest: text.slice(lead.length),
+    lead: text.slice(0, leadEnd),
+    rest: text.slice(leadEnd),
   };
 }
 

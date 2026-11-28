@@ -144,7 +144,7 @@
   --border-focus: rgb(50 97 159 / 70%);
   --text-primary: #1f1c19;
   --text-secondary: rgb(35 30 25 / 72%);
-  --text-muted: rgb(35 30 25 / 50%);
+  --text-muted: rgb(35 30 25 / 64%);
   --text-accent: #1e40af;
   --text-code: #0f2540;
   --btn-secondary-bg: rgb(232 240 252 / 90%);
@@ -158,8 +158,8 @@
      edits ("overrides only the values that change", per the header). */
   --btn-primary-border: rgb(50 97 159 / 70%);
   --btn-primary-border-hover: rgb(75 130 195 / 90%);
-  --btn-danger-bg: rgb(220 80 110 / 90%);
-  --btn-danger-hover: rgb(245 100 130 / 100%);
+  --btn-danger-bg: rgb(185 28 58 / 95%);
+  --btn-danger-hover: rgb(158 20 48 / 100%);
   --row-bg: rgb(255 255 255 / 85%);
   --row-hover: rgb(245 245 240 / 100%);
   --row-active: rgb(220 235 255 / 100%);
@@ -588,6 +588,7 @@ select {
     "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "Microsoft YaHei UI",
     "Noto Sans CJK SC", monospace;
   font-weight: 600;
+  flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -600,6 +601,7 @@ select {
   margin: 0.5rem 0 0.35rem;
   font-weight: 500;
   letter-spacing: 0.04em;
+  flex-shrink: 0;
 }
 
 /* Middle column is the main work area — text sizes are intentionally larger
@@ -615,6 +617,7 @@ select {
     "Noto Sans CJK SC", monospace;
   font-size: 1.1rem;
   width: 100%;
+  flex-shrink: 0;
   outline: none;
   transition:
     border-color 120ms ease,
@@ -657,6 +660,7 @@ select {
   font-size: 0.78rem;
   width: fit-content;
   max-width: 100%;
+  flex-shrink: 0;
 }
 
 .field-message.is-warning {
@@ -676,6 +680,7 @@ select {
   margin: 0.55rem 0 0.4rem;
   flex-wrap: nowrap;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .preset-label {
@@ -1117,8 +1122,18 @@ select {
   .body {
     grid-template:
       "elements input" minmax(0, 1fr)
-      "preview preview" minmax(180px, 0.75fr)
-      / minmax(220px, 0.9fr) minmax(320px, 1.1fr);
+      "preview preview" minmax(160px, 0.75fr)
+      / minmax(180px, 0.85fr) minmax(0, 1.15fr);
+  }
+}
+
+@media (width <= 560px) {
+  .body {
+    grid-template:
+      "elements" minmax(110px, 0.45fr)
+      "input" minmax(0, 1fr)
+      "preview" minmax(140px, 0.65fr)
+      / minmax(0, 1fr);
   }
 }
 
@@ -1140,7 +1155,8 @@ select {
   border: 1px solid var(--border-subtle);
   border-radius: 14px;
   padding: 1.5rem 1.75rem;
-  max-width: 420px;
+  width: min(420px, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
   box-shadow: var(--modal-shadow);
   color: var(--text-primary);
 }
@@ -1148,12 +1164,14 @@ select {
 .confirm-dialog h3 {
   margin: 0 0 0.6rem;
   font-size: 1.05rem;
+  overflow-wrap: anywhere;
 }
 
 .confirm-dialog p {
   margin: 0 0 1.25rem;
   color: var(--text-secondary);
   font-size: 0.92rem;
+  overflow-wrap: anywhere;
 }
 
 .notices-dialog {

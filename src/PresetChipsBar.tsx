@@ -1,4 +1,4 @@
-import type { KeyboardEvent } from "react";
+import { useEffect, useRef, type ChangeEvent, type KeyboardEvent } from "react";
 import { CogIcon } from "./Icons";
 import { MAX_PRESET_CHIPS, cx } from "./helpers";
 import type { ChipEditMessage, EditingChip } from "./presets";
@@ -14,8 +14,9 @@ type PresetChipsBarProps = {
   onToggleEditMode: () => void;
   onStartAddChip: () => void;
   onStartRenameChip: (index: number) => void;
-  onUpdateEditingDraft: (draft: string) => void;
+  onUpdateEditingDraft: (draft: string, isComposing: boolean) => void;
   onCommitChipEdit: () => void;
+  onBlurChipEdit: (liveValue: string) => void;
   onCancelChipEdit: () => void;
   onRemoveChip: (index: number) => void;
   onRequestResetPresets: () => void;
@@ -33,13 +34,36 @@ export function PresetChipsBar({
   onStartRenameChip,
   onUpdateEditingDraft,
   onCommitChipEdit,
+  onBlurChipEdit,
   onCancelChipEdit,
   onRemoveChip,
   onRequestResetPresets,
 }: PresetChipsBarProps) {
+  const isComposingRef = useRef(false);
+  const editingSlotKey = editingChip
+    ? editingChip.isNew
+      ? "new"
+      : `rename:${editingChip.index}`
+    : "none";
+
+  useEffect(() => {
+    isComposingRef.current = false;
+  }, [editingSlotKey]);
+
+  const handleChipInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const nativeComposing = Boolean(
+      (event.nativeEvent as { isComposing?: boolean } | undefined)?.isComposing
+    );
+    onUpdateEditingDraft(event.target.value, isComposingRef.current || nativeComposing);
+  };
+
   const handleChipInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     // Leave Enter and Escape to the IME candidate window during composition.
-    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
+    if (
+      isComposingRef.current ||
+      event.nativeEvent.isComposing ||
+      event.nativeEvent.keyCode === 229
+    ) {
       return;
     }
     if (event.key === "Enter") {
@@ -68,8 +92,20 @@ export function PresetChipsBar({
                   autoFocus
                   aria-label={`Rename preset ${name}`}
                   tabIndex={0}
-                  onChange={(event) => onUpdateEditingDraft(event.target.value)}
-                  onBlur={onCommitChipEdit}
+                  onCompositionStart={() => {
+                    isComposingRef.current = true;
+                  }}
+                  onCompositionEnd={(event) => {
+                    const committed = event.currentTarget.value;
+                    isComposingRef.current = false;
+                    onUpdateEditingDraft(committed, false);
+                  }}
+                  onChange={handleChipInputChange}
+                  onBlur={(event) => {
+                    const liveValue = event.currentTarget.value;
+                    isComposingRef.current = false;
+                    onBlurChipEdit(liveValue);
+                  }}
                   onKeyDown={handleChipInputKeyDown}
                 />
               );
@@ -100,6 +136,7 @@ export function PresetChipsBar({
                     aria-label={`Remove preset ${name}`}
                     title={`Remove ${name}`}
                     tabIndex={-1}
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => onRemoveChip(index)}
                   >
                     ×
@@ -117,8 +154,20 @@ export function PresetChipsBar({
               placeholder="new chip name"
               aria-label="Name the new preset chip"
               tabIndex={0}
-              onChange={(event) => onUpdateEditingDraft(event.target.value)}
-              onBlur={onCommitChipEdit}
+              onCompositionStart={() => {
+                isComposingRef.current = true;
+              }}
+              onCompositionEnd={(event) => {
+                const committed = event.currentTarget.value;
+                isComposingRef.current = false;
+                onUpdateEditingDraft(committed, false);
+              }}
+              onChange={handleChipInputChange}
+              onBlur={(event) => {
+                const liveValue = event.currentTarget.value;
+                isComposingRef.current = false;
+                onBlurChipEdit(liveValue);
+              }}
               onKeyDown={handleChipInputKeyDown}
             />
           )}
@@ -141,6 +190,7 @@ export function PresetChipsBar({
               type="button"
               className="preset-reset"
               tabIndex={-1}
+              onMouseDown={(event) => event.preventDefault()}
               onClick={onRequestResetPresets}
             >
               Reset
@@ -149,6 +199,7 @@ export function PresetChipsBar({
           <button
             type="button"
             className={cx("preset-cog", editMode && "is-active")}
+            onMouseDown={(event) => event.preventDefault()}
             onClick={onToggleEditMode}
             aria-label={editMode ? "Exit chip edit mode" : "Edit preset chips"}
             aria-pressed={editMode}

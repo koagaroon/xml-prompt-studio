@@ -4,7 +4,7 @@ import { findRolldownLock } from "./dependency-currency.mjs";
 import { loadNativeInventory, renderNativeNotices } from "./native-notices.mjs";
 
 /**
- * @typedef {{ version?: string, license?: string, dev?: boolean, dependencies?: Record<string, string> }} NpmLockEntry
+ * @typedef {{ name?: string, version?: string, license?: string, dev?: boolean, devOptional?: boolean, optional?: boolean, os?: string[], dependencies?: Record<string, string> }} NpmLockEntry
  * @typedef {{ lockfileVersion: number, packages: Record<string, NpmLockEntry> }} NpmLockfile
  * @typedef {{ name: string, text: string }} NoticeFile
  * @typedef {{ metadata: Record<string, unknown>, files: NoticeFile[] }} PackageNotices
@@ -14,6 +14,16 @@ import { loadNativeInventory, renderNativeNotices } from "./native-notices.mjs";
 const normalizeNewlines = (text) => text.replace(/\r\n/gu, "\n");
 const licenseName = /^(?:licen[cs]e|copying)(?:$|[._-])/iu;
 const noticeName = /^(?:licen[cs]e|copying|notice)(?:$|[._-])|^THIRD-PARTY-LICENSE$/iu;
+
+/** @param {NpmLockEntry} entry */
+function isOptionalNonWindowsPackage(entry) {
+  return (
+    entry.optional === true &&
+    Array.isArray(entry.os) &&
+    entry.os.length > 0 &&
+    entry.os.every((os) => os === "darwin" || os === "linux")
+  );
+}
 
 /**
  * @param {NpmLockfile} lockfile
@@ -25,18 +35,17 @@ export function collectNpmNotices(lockfile, readPackage) {
   }
   for (const name of Object.keys(lockfile.packages[""].dependencies)) {
     const entry = lockfile.packages[`node_modules/${name}`];
-    if (!entry || entry.dev)
+    if (!entry || entry.dev || entry.devOptional)
       throw new Error(`Runtime dependency is missing from the lock: ${name}`);
   }
   const rolldownLocation = findRolldownLock(lockfile).location;
   const locations = Object.keys(lockfile.packages)
-    .filter(
-      (location) =>
-        location !== "" &&
-        (!lockfile.packages[location].dev ||
-          location === "node_modules/vite" ||
-          location === rolldownLocation)
-    )
+    .filter((location) => {
+      if (location === "") return false;
+      const entry = lockfile.packages[location];
+      if (location === "node_modules/vite" || location === rolldownLocation) return true;
+      return !entry.dev && !entry.devOptional && !isOptionalNonWindowsPackage(entry);
+    })
     .sort();
   return locations.map((location) => {
     if (!/^node_modules\/(?:[A-Za-z0-9@_.-]+\/)*[A-Za-z0-9_.-]+$/u.test(location)) {
@@ -44,7 +53,10 @@ export function collectNpmNotices(lockfile, readPackage) {
     }
     const { metadata, files } = readPackage(location);
     const locked = lockfile.packages[location];
-    const name = location.slice(location.lastIndexOf("node_modules/") + "node_modules/".length);
+    const name =
+      typeof locked.name === "string"
+        ? locked.name
+        : location.slice(location.lastIndexOf("node_modules/") + "node_modules/".length);
     if (metadata.name !== name || metadata.version !== locked.version) {
       throw new Error(`Installed runtime package differs from the lock: ${location}`);
     }

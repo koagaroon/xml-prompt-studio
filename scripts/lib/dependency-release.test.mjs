@@ -153,8 +153,35 @@ describe("released Windows dependency scope", () => {
     }
   });
 
-  it("includes shipped npm runtime packages and linked runtime crates, excludes dev bundlers and build-support crates, and deduplicates copies", () => {
-    assert.deepEqual(collectReleasePackages(snapshot()), [
+  it("includes shipped npm runtime packages and linked runtime crates, excludes dev/devOptional/non-Windows entries and non-Windows Cargo prereleases, and deduplicates copies", () => {
+    const base = snapshot();
+    const baseLock = /** @type {{ lockfileVersion: number, packages: Record<string, unknown> }} */ (
+      base.npmLock
+    );
+    const withExtras = {
+      ...base,
+      npmLock: {
+        ...baseLock,
+        packages: {
+          ...baseLock.packages,
+          "node_modules/dev-optional-pkg": {
+            ...npmEntry("dev-optional-pkg", "1.0.0", false),
+            devOptional: true,
+          },
+          "node_modules/linux-only-pkg": {
+            ...npmEntry("linux-only-pkg", "1.0.0", false),
+            optional: true,
+            os: ["linux"],
+          },
+        },
+      },
+      cargoLock:
+        base.cargoLock +
+        '\n[[package]]\nname = "wasi-preview"\nversion = "0.2.0-rc.1"\nsource = "' +
+        source +
+        '"\n',
+    };
+    assert.deepEqual(collectReleasePackages(withExtras), [
       { ecosystem: "crates.io", name: "tauri", version: "2.0.0" },
       { ecosystem: "npm", name: "react", version: "1.0.0" },
     ]);

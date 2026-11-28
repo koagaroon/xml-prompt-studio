@@ -73,16 +73,21 @@ export async function checkRolldown(lockfile, { fetchMetadata, fetchBinding }) {
       let publication = publicationCache.get(binding);
       if (publication === undefined) {
         publication = (async () => {
-          const separator = binding.lastIndexOf("@");
-          const packageMetadata = await fetchBinding(
-            binding.slice(0, separator),
-            binding.slice(separator + 1)
-          );
-          if (packageMetadata === METADATA_NOT_FOUND) return false;
-          if (!inspectPublishedBinding(packageMetadata, binding)) {
-            throw new MonitorError(`Invalid published native package metadata for ${binding}.`);
+          try {
+            const separator = binding.lastIndexOf("@");
+            const packageMetadata = await fetchBinding(
+              binding.slice(0, separator),
+              binding.slice(separator + 1)
+            );
+            if (packageMetadata === METADATA_NOT_FOUND) return false;
+            if (!inspectPublishedBinding(packageMetadata, binding)) {
+              throw new MonitorError(`Invalid published native package metadata for ${binding}.`);
+            }
+            return true;
+          } catch (error) {
+            publicationCache.delete(binding);
+            throw error;
           }
-          return true;
         })();
         publicationCache.set(binding, publication);
       }

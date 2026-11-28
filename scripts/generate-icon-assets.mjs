@@ -25,17 +25,18 @@ function generateIcons() {
     const child = spawn(
       process.execPath,
       [tauriCli, "icon", canonicalIcon, "--output", generatedIconDirectory],
-      { cwd: repoRoot, stdio: "inherit" }
+      { cwd: repoRoot, stdio: "inherit", windowsHide: true, timeout: 60_000 }
     );
 
     child.once("error", rejectGeneration);
-    child.once("close", (exitCode) => {
+    child.once("close", (exitCode, signal) => {
       if (exitCode === 0) {
         resolveGeneration();
         return;
       }
 
-      rejectGeneration(new Error(`Tauri icon generation exited with code ${String(exitCode)}.`));
+      const detail = signal !== null ? `signal ${signal}` : `code ${String(exitCode ?? "unknown")}`;
+      rejectGeneration(new Error(`Tauri icon generation exited with ${detail}.`));
     });
   });
 }

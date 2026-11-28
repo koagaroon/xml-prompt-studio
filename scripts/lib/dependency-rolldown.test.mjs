@@ -382,4 +382,37 @@ describe("Rolldown maintained build hosts and candidate discovery", () => {
     assert.equal(rows[0].status, "error");
     assert.match(rows[0].reason, /1\.2\.6 has invalid release metadata/u);
   });
+
+  it("evicts rejected binding checks from publicationCache instead of poisoning shared binding lookups", async () => {
+    const metadata = {
+      name: "rolldown",
+      "dist-tags": { latest: "1.2.6" },
+      versions: {
+        "1.2.5": {
+          name: "rolldown",
+          version: "1.2.5",
+          optionalDependencies: { [bindingName]: "1.2.5", [linuxBinding]: "1.2.5" },
+        },
+        "1.2.6": {
+          name: "rolldown",
+          version: "1.2.6",
+          optionalDependencies: { [bindingName]: "1.2.6", [linuxBinding]: "1.2.5" },
+        },
+      },
+    };
+    let linuxAttempts = 0;
+    const rows = await checkRolldown(lockfile, {
+      fetchMetadata: async () => metadata,
+      fetchBinding: async (name, version) => {
+        if (name === linuxBinding) {
+          linuxAttempts += 1;
+          throw new Error("transient network error");
+        }
+        return bindingMetadata(version, name);
+      },
+    });
+    assert.equal(rows[0].status, "actionable");
+    assert.equal(linuxAttempts, 1);
+    assert.match(rows[0].reason, /Other-platform checks incomplete/u);
+  });
 });

@@ -62,6 +62,9 @@ jobs:
       - name: Build the production frontend
         run: npm run build
 
+      - name: Verify generated native icons
+        run: npm run icons:check
+
   rust:
     name: Rust quality (Windows)
     runs-on: windows-2025

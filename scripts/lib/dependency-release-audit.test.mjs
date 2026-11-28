@@ -404,6 +404,7 @@ describe("OSV audit exception policy", () => {
     ["unknown scope", { osvAllowlist: [{ ...validEntry, scopes: ["all"] }] }],
     ["blank notes", { osvAllowlist: [{ ...validEntry, notes: " " }] }],
     ["invalid expiry", { osvAllowlist: [{ ...validEntry, expiry: "never" }] }],
+    ["non-ISO expiry", { osvAllowlist: [{ ...validEntry, expiry: "notes 2099" }] }],
     ["extra field", { osvAllowlist: [{ ...validEntry, extra: true }] }],
     ["duplicate rule", { osvAllowlist: [validEntry, validEntry] }],
   ])("rejects an invalid OSV policy (%s)", (_label, input) => {

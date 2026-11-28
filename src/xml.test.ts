@@ -139,6 +139,14 @@ describe("buildPreview — forest rendering", () => {
       ].join("\n")
     );
   });
+
+  it("normalizes standalone CR and trailing CRLF on leaf nodes into multi-line preview blocks", () => {
+    const crLeaf = [node("note", { textContent: "first\rsecond" })];
+    expect(buildPreview(crLeaf).xml).toBe(["<note>", "  first", "  second", "</note>"].join("\n"));
+
+    const trailingCrlf = [node("note", { textContent: "trailing\r\n" })];
+    expect(buildPreview(trailingCrlf).xml).toBe(["<note>", "  trailing", "", "</note>"].join("\n"));
+  });
 });
 
 describe("validateDocument — forest walk", () => {

@@ -44,10 +44,12 @@ export type PreviewLine = {
   kind: PreviewLineKind;
 };
 
-// Message strip shown at the bottom of the Input column. A fresh object on
-// every update avoids React bailing out on repeated identical rejections.
+// Message strip shown at the bottom of the Input column. A monotonic `id`
+// remounts the `role="alert"` region on repeated identical refusals so
+// assistive technology re-announces each blocked action.
 // `forNodeId`: non-null scopes the message to one element; null = global.
 export type StripMessage = {
+  id: number;
   text: string;
   severity: "error" | "warning";
   forNodeId: string | null;
@@ -67,3 +69,9 @@ export type ConfirmRequest = {
   confirmKind?: "danger";
   onConfirm: () => void;
 };
+
+// Single modal slot so confirmation prompts and the offline license viewer can
+// never stay open simultaneously, and modal-to-modal replacements carry a new
+// `id` that resets safe initial focus onto Cancel/Close.
+export type ModalState =
+  { kind: "confirm"; id: number; request: ConfirmRequest } | { kind: "notices"; id: number } | null;

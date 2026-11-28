@@ -7,6 +7,7 @@ type RibbonProps = {
   canMoveUp: boolean;
   canMoveDown: boolean;
   theme: Theme;
+  preserveFocusOnNoticesMouseDown?: boolean;
   onNewBlank: () => void;
   onAddChild: () => void;
   onAddSibling: () => void;
@@ -27,6 +28,7 @@ export function Ribbon({
   canMoveUp,
   canMoveDown,
   theme,
+  preserveFocusOnNoticesMouseDown = false,
   onNewBlank,
   onAddChild,
   onAddSibling,
@@ -39,7 +41,13 @@ export function Ribbon({
 }: RibbonProps) {
   return (
     <header className="ribbon" ref={ribbonRef}>
-      <button type="button" className="new-blank-button" tabIndex={-1} onClick={onNewBlank}>
+      <button
+        type="button"
+        className="new-blank-button"
+        tabIndex={-1}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onNewBlank}
+      >
         New Blank
       </button>
 
@@ -56,13 +64,28 @@ export function Ribbon({
         <button type="button" tabIndex={-1} onClick={onMoveDown} disabled={!canMoveDown}>
           Move Down
         </button>
-        <button type="button" className="danger-button" tabIndex={-1} onClick={onDelete}>
+        <button
+          type="button"
+          className="danger-button"
+          tabIndex={-1}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onDelete}
+        >
           Delete
         </button>
       </div>
 
       <div className="ribbon-right">
-        <button type="button" onClick={onOpenNotices} aria-label="Third-party licenses">
+        <button
+          type="button"
+          onMouseDown={(event) => {
+            if (preserveFocusOnNoticesMouseDown) {
+              event.preventDefault();
+            }
+          }}
+          onClick={onOpenNotices}
+          aria-label="Third-party licenses"
+        >
           Licenses
         </button>
         <button

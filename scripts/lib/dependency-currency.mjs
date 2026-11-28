@@ -498,19 +498,25 @@ export function parseRustVersion(value) {
 
 /** @param {unknown} manifestText */
 export function parseProjectRustVersion(manifestText) {
-  if (typeof manifestText !== "string") throw new MonitorError("Cargo.toml is not text.");
-  const packageStart = /^\[package\]\s*$/mu.exec(manifestText);
-  const packageBody =
-    packageStart === null ? "" : manifestText.slice(packageStart.index + packageStart[0].length);
-  const nextSection = /^\[[^\]]+\]\s*$/mu.exec(packageBody);
-  const packageSection =
-    packageStart === null
-      ? undefined
-      : packageBody.slice(0, nextSection === null ? undefined : nextSection.index);
+  if (typeof manifestText !== "string" || manifestText.length > 256 * 1024) {
+    throw new MonitorError("Cargo.toml is not bounded text.");
+  }
+  const sections = [...manifestText.matchAll(/^[\t ]*\[package\][\t ]*(?:#.*)?$/gmu)];
+  if (sections.length !== 1) {
+    throw new MonitorError("Cargo.toml has no valid package rust-version.");
+  }
+  const packageBody = manifestText.slice(sections[0].index + sections[0][0].length);
+  const nextSection = /^[\t ]*\[/mu.exec(packageBody);
+  const packageSection = packageBody.slice(0, nextSection === null ? undefined : nextSection.index);
+  const declarations = [
+    ...packageSection.matchAll(
+      /^[\t ]*(?:rust-version|"rust-version"|'rust-version')[\t ]*=(.*)$/gmu
+    ),
+  ];
   const value =
-    packageSection === undefined
-      ? undefined
-      : /^rust-version\s*=\s*"([^"]+)"\s*(?:#.*)?$/mu.exec(packageSection)?.[1];
+    declarations.length === 1
+      ? /^[\t ]*(["'])([^"']+)\1[\t ]*(?:#.*)?$/u.exec(declarations[0][1])?.[2]
+      : undefined;
   const parsed = parseRustVersion(value);
   if (parsed === null) throw new MonitorError("Cargo.toml has no valid package rust-version.");
   return parsed;

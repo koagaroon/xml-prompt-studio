@@ -16,6 +16,7 @@ const snapshotPaths = [
 const cratesSource = "registry+https://github.com/rust-lang/crates.io-index";
 const shaPattern = /^[0-9a-f]{40}$/u;
 const npmNamePattern = /^(?:@[a-z0-9._~-]+\/)?[a-z0-9._~-]+$/u;
+const cargoLockVersionPattern = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/u;
 
 /** @typedef {{ ecosystem: "npm" | "crates.io", name: string, version: string }} ReleasePackage */
 /** @typedef {{ npmLock: unknown, cargoLock: string, nativeInventory: unknown }} ReleaseSnapshot */
@@ -133,12 +134,18 @@ function cargoLockedIdentities(text) {
     const name = /^name = "([A-Za-z0-9_-]+)"$/mu.exec(section)?.[1];
     const version = /^version = "([^"]+)"$/mu.exec(section)?.[1];
     const source = /^source = "([^"]+)"$/mu.exec(section)?.[1];
-    if (!name || parseStableSemver(version) === null) {
+    if (!name || !version || !cargoLockVersionPattern.test(version)) {
       throw new MonitorError("Cargo release lock contains an unsupported package identity.");
     }
     identities.add(JSON.stringify([name, version, source]));
   }
   return identities;
+}
+
+/** @param {Record<string, unknown>} entry */
+function isOptionalNonWindowsLockEntry(entry) {
+  if (entry.optional !== true || !Array.isArray(entry.os) || entry.os.length === 0) return false;
+  return entry.os.every((os) => os === "darwin" || os === "linux");
 }
 
 /** @param {ReleaseSnapshot} snapshot @returns {ReleasePackage[]} */
@@ -156,7 +163,7 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
   }
   for (const name of Object.keys(npmLock.packages[""].dependencies)) {
     const entry = npmLock.packages["node_modules/" + name];
-    if (!isRecord(entry) || entry.dev)
+    if (!isRecord(entry) || entry.dev || entry.devOptional)
       throw new MonitorError("Release npm runtime root is missing: " + name);
   }
   /** @type {Map<string, ReleasePackage>} */
@@ -166,10 +173,16 @@ export function collectReleasePackages({ npmLock, cargoLock, nativeInventory }) 
     packages.set(JSON.stringify([entry.ecosystem, entry.name, entry.version]), entry);
   for (const [path, value] of Object.entries(npmLock.packages)) {
     if (path === "") continue;
-    if (!isRecord(value) || (value.dev !== undefined && typeof value.dev !== "boolean")) {
+    if (
+      !isRecord(value) ||
+      (value.dev !== undefined && typeof value.dev !== "boolean") ||
+      (value.devOptional !== undefined && typeof value.devOptional !== "boolean")
+    ) {
       throw new MonitorError("Release npm lock contains an invalid package entry.");
     }
-    if (value.dev === true) continue;
+    if (value.dev === true || value.devOptional === true || isOptionalNonWindowsLockEntry(value)) {
+      continue;
+    }
     const name = value.name ?? path.slice(path.lastIndexOf("node_modules/") + 13);
     if (
       !path.startsWith("node_modules/") ||
