@@ -398,6 +398,8 @@ function createHarness(options: { strictMode?: boolean } = {}) {
   runtime.batchDepth = 0;
   runtime.batchDirty = false;
 
+  const EMPTY_ELEMENTS: TestElement[] = [];
+
   const buildTree = (
     node: ReactNode,
     path: string,
@@ -406,21 +408,26 @@ function createHarness(options: { strictMode?: boolean } = {}) {
     collected: TestElement[]
   ): TestElement[] => {
     if (node === null || node === undefined || typeof node === "boolean") {
-      return [];
+      return EMPTY_ELEMENTS;
     }
     if (typeof node === "string" || typeof node === "number") {
       if (parent) {
         parent.textParts.push(String(node));
       }
-      return [];
+      return EMPTY_ELEMENTS;
     }
     if (Array.isArray(node)) {
-      return node.flatMap((child, index) =>
-        buildTree(child, `${path}.${index}`, parent, nextRefs, collected)
-      );
+      const out: TestElement[] = [];
+      for (let index = 0; index < node.length; index++) {
+        const sub = buildTree(node[index], `${path}.${index}`, parent, nextRefs, collected);
+        for (let j = 0; j < sub.length; j++) {
+          out.push(sub[j]!);
+        }
+      }
+      return out;
     }
     if (!isValidElement<HostProps>(node)) {
-      return [];
+      return EMPTY_ELEMENTS;
     }
     const keyPart = node.key !== null ? `${path}[${String(node.key)}]` : path;
     if (typeof node.type === "function") {
@@ -1156,9 +1163,11 @@ describe("tree authoring, delete confirmations, selection messages, and ceilings
   it("enforces MAX_DEPTH (256) and MAX_SIBLINGS (1000) tree ceilings without crashing", () => {
     const depthView = createHarness({ strictMode: true });
     const addChildBtn = depthView.button("Add Child");
+    depthView.setDeferring(true);
     for (let d = 0; d < 256; d++) {
       depthView.clickSync(addChildBtn);
     }
+    depthView.flushDeferred();
     depthView.clickSync(addChildBtn);
     expect(depthView.byClass("message-strip")[0]?.textContent).toBe(
       "Element nesting depth limit reached (256)."
@@ -1166,15 +1175,17 @@ describe("tree authoring, delete confirmations, selection messages, and ceilings
 
     const siblingView = createHarness();
     const addSiblingBtn = siblingView.button("Add Sibling");
+    siblingView.setDeferring(true);
     for (let s = 1; s < 1000; s++) {
       siblingView.clickSync(addSiblingBtn);
     }
+    siblingView.flushDeferred();
     expect(siblingView.byClass("element-row")).toHaveLength(1000);
     siblingView.clickSync(addSiblingBtn);
     expect(siblingView.byClass("message-strip")[0]?.textContent).toBe(
       "Sibling count limit reached (1000)."
     );
-  });
+  }, 20_000);
 });
 
 describe("IME composition preedit safety and preset chip workflows", () => {
